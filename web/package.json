@@ -1,0 +1,19 @@
+{
+  "name": "trello-bot-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Admin/Rahbar boshqaruv paneli",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "pg": "^8.13.0",
+    "dotenv": "^16.4.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  }
+}

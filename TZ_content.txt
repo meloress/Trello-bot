@@ -1,0 +1,444 @@
+
+TEXNIK TOPSHIRIQ (TZ)
+Trello + Telegram bot + Web boshqaruv paneli asosida
+ishlab chiqarish, nazorat, KPI va sotuvni boshqarish tizimi
+Versiya: 2.0 (to‘liq, birlashtirilgan)
+Sana: 2026-yil, 15-iyul
+Yo‘nalishlar: Fasad sexi · Nazorat · Ezza sotuv · Melores Mebel sotuv
+
+Ushbu hujjat uchta manba asosida tuzildi va HECH BIR band tashlab ketilmadi:
+① Ovozli muhokama transkripti (00) — platforma ekranlari, xodimlar bazasi, ball tizimi, vaqtlar
+② Majlis xulosasi (1) — sexlar tuzilishi, SaaS g‘oyasi, mijoz xabarnomalari, billing
+③ TZ v1.0 qoralamasi — asosiy struktura va funksional talablar
+
+0. Tizim haqida bir sahifada (dasturchi uchun qisqa xulosa)
+Qurilayotgan mahsulot — mebel ishlab chiqarish korxonasi uchun boshqaruv tizimi. U 4 ta komponentdan iborat:
+WEB SAYT (Admin/Rahbar paneli) — xodimlar bazasi, vazifalar, statistika, sozlamalar. Avval sayt yoziladi, keyin xuddi shu sayt ilova (app) qobig‘iga o‘raladi.
+TRELLO — buyurtma/vazifa kartalarini saqlash joyi. Ishchilar Trello Premium’da hech narsani o‘zgartira olmaydi, faqat ko‘radi va bajaradi.
+TELEGRAM BOT — ishchilar, brigadirlar, nazoratchi va rahbar bilan kundalik muloqot: vazifa, eslatma, jarima, hisobot xabarlari.
+BACKEND SERVER + MA’LUMOTLAR BAZASI — taymerlar, rang (label) avtomatikasi, ball hisoblash, statistika. Trello buni o‘zi qila olmaydi.
+Asosiy biznes-maqsad: jarima/bonus tizimlari qo‘lda ishlamagani uchun, aynan ISHLAMAYOTGAN xodimni raqamlar bilan avtomatik aniqlab beradigan mexanizm qurish. Asosiy ko‘rsatkich — kvadrat metr EMAS, balki har bir vazifa necha kunda bajarilgani.
+Birinchi bo‘lib FASAD yo‘nalishi qilinadi (eng soddasi), keyin SOTUV bo‘limi va boshqa yo‘nalishlar shu shablonda ko‘paytiriladi.
+1. Kirish
+1.1. Loyihaning maqsadi
+Mebel ishlab chiqarish korxonasida vazifalarni taqsimlash, ishlab chiqarish bosqichlari bo‘yicha muddatlarni (srokni) nazorat qilish, xodimlar samaradorligini o‘lchash va sotuv jarayonini bitta yagona tizim orqali avtomatlashtirish. Asosiy vositalar: Trello (kartalar va ma’lumotlar saqlash), Telegram bot (kundalik muloqot), Web sayt (rahbar/admin boshqaruv oynasi).
+1.2. Loyiha tarixi va konteksti
+Ilk nazorat platformasi 2019–2020-yillarda yaratilgan; u paytda Trello va Telegram imkoniyatlari hozirgidek keng bo‘lmagan.
+Avval Trello Premium ishlatilmagani sababli xodimlar ma’lumotlarni o‘zgartirib yuborish xavfi bo‘lgan. Hozirgi Premium versiyada ishchilar hech narsani o‘zgartira olmaydi — bu tizimning tayanch printsipi.
+Og‘abek Jumayev "Kosa Trello" tizimiga adminskiy profilda kuzatuvchi (nablyudatel) sifatida qo‘shilgan.
+Biznes alohida tarmoqlarga ajratiladi (do‘kon biznesi va ishlab chiqarish) hamda umumiy "Nazorat Trello" yo‘lga qo‘yiladi.
+1.3. Loyiha qamrovi
+Web admin panel: xodimlar bazasi, vazifalar, statistika/dashboard, sozlamalar
+Trello tuzilishi: boardlar, kartalar, avtomatik rang (label) tizimi
+Telegram bot: vazifa boshqaruvi, eslatmalar, muddat nazorati, ishchi/brigadir oynalari
+Xodimlar KPI, minus/plus ball va jarima tizimi (brigadir ulushi bilan)
+Mijozlarga avtomatik xabarnoma (bosqich o‘tishi, stop)
+Sotuv bo‘limi uchun soddalashtirilgan CRM (Ezza va Melores Mebel)
+2-faza: tizimni SaaS mahsulot sifatida sotish (obuna + billing)
+2. Tashkiliy tuzilma: sexlar, bo‘limlar va brigadalar
+Tizim quyidagi real strukturani aks ettirishi kerak. Yo‘nalishlar soni qat’iy emas — korxonaga qarab 3 ta, 5 ta yoki 7 ta bo‘lishi mumkin; yangi yo‘nalish/brigada "qator qo‘shish" tarzida cheksiz qo‘shib boriladi.
+
+Har bir yo‘nalishda: oddiy ishchilar, har brigadaga bitta BRIGADIR, yo‘nalish ustida NAZORATCHI (sex nachalnigi), eng tepada RAHBAR/ADMIN (2 kishigacha bo‘lishi mumkin). Misol iyerarxiya: Rahbar → Jamshid aka (sex nachalnigi/nazoratchi) → Ilhom (brigadir) → ishchilar.
+3. Foydalanuvchi rollari va ruxsatlar
+Tizimda 6 ta rol bo‘ladi (v1.0 dagi 4 ta rolga transkriptdan Brigadir va Kuzatuvchi qo‘shildi):
+
+⚠ Muhim qoida: bildirishnomalar HAMMAGA emas, faqat kartaga BELGILANGAN odamlarga boradi. Misol: stolyarka kartasida Jamshid aka (nachalnik), Ilhom (brigadir) va bitta ishchi belgilangan bo‘lsa — signal shu uchtasiga bir vaqtda boradi, boshqalarga bormaydi.
+4. WEB boshqaruv paneli (Rahbar/Admin oynasi)
+Transkriptdagi asosiy qaror: rahbar/admin qismi kattaroq bo‘lgani uchun u WEB SAYT qilib yoziladi (Telegram bot ichida knopkalar ko‘payib, chalkash bo‘lib ketadi). Keyinchalik xuddi shu sayt app qobig‘iga o‘rab beriladi. Ishchilarniki esa Telegram ichida qoladi.
+4.1. Interfeys printsipi — "bitta oyna"
+Hammasi bitta oynaning ichida ko‘rinib turadi; bo‘limlar bosilganda alohida sahifaga ketmasdan, MODAL (ochiladigan) oyna ochiladi.
+Knopkalar sonini minimallashtirish — ichma-ich kirib ketadigan murakkab navigatsiya taqiqlanadi.
+Keyinchalik yangi bo‘limlar (moliya, avans va h.k.) shu oynaga qo‘shib ketilaveradi — struktura buzilmasligi kerak.
+4.2. Panel bo‘limlari
+
+Admin panelga kirish faqat ikki asosiy ish uchun zarur bo‘lib qolishi kerak: statistika ko‘rish va xodim qo‘shish. Qolgan hamma narsa (muddat o‘tishi, kimga signal borishi, ranglar) avtomatik ishlaydi.
+5. Xodimlar bazasi moduli (ro‘yxatga olish)
+Bu modul — transkriptda eng batafsil chizib berilgan ekran. Xodim qo‘shish jarayoni quyidagi KETMA-KETLIKDA ishlashi shart:
+5.1. Xodim qo‘shish formasi (qadam-baqadam)
+
+5.2. Ro‘yxatni boshqarish
+Har bir xodim qatorida "O‘CHIRISH" (udalit) tugmasi — ishdan ketganda bosiladi.
+Har bir xodim qatorida "O‘ZGARTIRISH" tugmasi — Gmail almashsa yoki boshqa ma’lumot o‘zgarsa.
+Kim kimga signal olishini (sapsheniya) ADMIN belgilaydi — ishchi shkurkachini o‘zi belgilab qo‘ymasligi uchun bu huquq faqat admin/rahbarda.
+Ishchilar bir tomondan ro‘yxatdan o‘tkazilsa, tizim ularni avtomatik Telegramga ham tortib olib boradigan qilib qurilishi kerak (Telegram bilan avtomatik bog‘lash).
+6. Trello tizimining tuzilishi
+6.1. Boardlar ro‘yxati
+
+Laminoks (raspil) bo‘limi uchun ham alohida board/dostup ochilishi rejada. Yangi yo‘nalish qo‘shish tizim strukturasini o‘zgartirmasligi kerak.
+6.2. Har bir kartada bo‘lishi shart
+Buyurtma/vazifa nomi va raqami
+Mas’ul xodim(lar) — biriktirilgan a’zolar (ishchi + brigadir + nachalnik belgilanadi)
+Boshlanish va tugash sanasi (muddat)
+Joriy bosqich nomi (label orqali)
+Checklist — bajarilishi kerak bo‘lgan qadamlar
+Izohlar, fayllar va chizmalar — barcha o‘lchamlar MILLIMETRDA
+6.3. Label (rang) tizimi — muddatga qarab avtomatik
+
+⚠ Trello’ning o‘zida avtomatik rang almashtirish va bosqichma-bosqich taymer YO‘Q. Bu funksionallik backend server (Trello API, kerak bo‘lsa Power-Up) orqali alohida ishlab chiqiladi. Server har kuni barcha ochiq kartalarni tekshirib, label rangini yangilab boradi.
+7. Telegram bot: vazifa, muddat, eslatma va jarima vaqtlari
+7.1. Vazifa yaratish va tayinlash
+Rahbar yoki nazoratchi botga (yoki saytga) forma orqali yangi vazifa kiritadi: mijoz, o‘lchamlar (mm), muddat, mas’ul xodim(lar).
+Bot avtomatik tegishli Trello boardida karta ochadi va xodim(lar)ga biriktiradi.
+Xodimga darhol Telegram xabari boradi: vazifa tavsifi, muddat va karta havolasi.
+7.2. Bildirishnomalar jadvali
+
+7.3. Kunlik eslatma va jarima vaqt jadvali (transkriptda kelishilgan)
+Ishchilar buyurtmalarni keyingi bosqichga "o‘tkazib yuborishi" (statusni yangilashi) kerak. Buning uchun kun davomida quyidagi rejim ishlaydi:
+
+Boshida BARCHA eslatmalar yoqilgan holda ishga tushiriladi (xodimlar o‘rganguncha); keyinchalik ba’zilari o‘chirib qo‘yiladi.
+Shuning uchun eslatma vaqtlari va soni admin paneldagi SOZLAMALARDAN o‘zgartiriladigan bo‘lishi SHART (masalan 11:00 va 18:00 variantiga o‘tish mumkin).
+V1.0 dagi muqobil jadval (18:00 eslatma / 18:00–21:00 to‘ldirish / 21:00 dan keyin jarima) ham sozlamalar orqali tanlanadigan variant sifatida qoladi.
+7.4. Muddat va taymer boshqaruvi
+Har bir ishlab chiqarish bosqichi (shpon, shkurka, kraska va h.k.) uchun ALOHIDA muddat belgilanadi.
+Bosqich tugab keyingisiga o‘tilganda avvalgi taymer avtomatik to‘xtaydi, yangi bosqich taymeri ishga tushadi.
+Bitta vazifada bir vaqtda faqat BITTA faol taymer bo‘ladi.
+Qolgan vaqt ishchi oynasida avtomatik yangilanib turadi (qo‘lda yangilash kerak emas).
+7.5. "Stop" funksiyasi va eskalatsiya
+Xodim yoki nazoratchi "Stop" bossa — SABAB yozish majburiy (matn yoki tayyor variantlardan tanlash).
+Stop holati Trello kartasiga izoh bo‘lib yoziladi: vaqt, kim to‘xtatgani, sabab.
+Rahbarga darhol push-signal boradi.
+Stop paytida taymer kechikish sifatida hisoblanadimi-yo‘qmi — ochiq savol (16-bo‘lim).
+8. KPI: minus/plus ball va jarima tizimi
+Maqsad: minus ballar statistikasi orqali sekin va samarasiz ishlaydigan xodimlarni avtomatik aniqlash. Qo‘lda yuritilgan jarima/bonus tizimlari ish bermagan — endi hisoblashni tizim o‘zi qiladi. Quyidagi qoidalar korxonaning rasmiy jarima siyosati (2024–2025-yillardagi qarorlar) asosida yozilgan va TASDIQLANGAN.
+8.1. Asosiy tamoyil
+Jarima tizimi 2024-yil 1-sentyabrdan amalda. U barcha xodimlarga avtomatik emas — FAQAT tartib-intizomga bo‘ysunmagan (muddatni buzgan) xodimga nisbatan ishga tushadi.
+Har bir bosqich (stolyar, shpon, shkurka, kraska va h.k.) uchun muddat ALOHIDA belgilanadi. Taymer o‘sha bosqich navbatga ("spiska"ga) tushgan paytdan boshlanadi — buyurtma umuman qabul qilingan kundan emas. Hali navbatga tushmagan yo‘nalishlar uchun hisob shu yo‘nalishga ish yetib kelgan daqiqadan boshlanadi.
+8.2. Kechikish jarima jadvali
+Jadval istalgan uzunlikdagi muddatga tatbiq etiladi (quyida 72 soatlik muddat MISOL sifatida olingan). Kechikish hisobi MUDDAT TUGAGAN daqiqadan boshlanadi:
+
+8.3. Uzoq kechikish — qo‘shimcha choralar
+Ba’zi yo‘nalishlarda 2 kundan ortiq kechiksa, buyurtma AVTOMATIK boshqa brigadaga o‘tkaziladi. Bu — yo‘nalish bo‘yicha sozlanadigan qoida, barcha yo‘nalishda majburiy emas (admin panel sozlamasi).
+Shu bilan bir vaqtda rahbar rasman jarimani e’lon qiladi — tizim signal beradi, lekin yakuniy tasdiqni rahbar qo‘lda beradi.
+8.4. Brigadir ulushi va plus ball
+Ishchining minus balidan brigadirga ulush o‘tishi rejalashtirilgan (ilgari taklif: ≈1/3). Aniq foiz hali RASMAN tasdiqlanmagan — 19-bo‘limdagi ochiq savolga qarang.
+Plus ball mezonlari (muddatidan oldin/sifatli bajarilgan ish uchun) ham alohida tasdiqlanishi kerak.
+8.5. Maosh va avans kuniga ta’sir
+Har 5 (minus) ball to‘planganda, xodimning oylik va avans olish kuni (odatda har oyning 15-sanasi) 1 kunga suriladi.
+Hisob har oy 1–31-sanalar oralig‘idagi ballar asosida olib boriladi va har oy boshida qayta boshlanadi (oylik reset).
+⚠ Bu qoidani ishlatish uchun tizim xodim profilida "keyingi to‘lov sanasi"ni avtomatik hisoblab, siljitib borishi kerak — to‘liq oylik/moliya hisob-kitob tizimisiz ham, faqat SANA siljishi sifatida amalga oshirilishi mumkin.
+8.6. Moliyaviy javobgarlik (mijoz to‘lovi bilan bog‘liq)
+Bu ikki qoida moliyaviy/shartnoma xarakteriga ega. Tizim ularni KUZATISHI (bayroqlash) kerak, lekin to‘lovlarni o‘zi amalga oshirmaydi — to‘liq moliya moduli 18-bo‘limga muvofiq keyingi bosqichga qoldirilgan:
+Agar biror bo‘lim aybi (kechikish yoki sifatsiz ishlash) bilan oxir-oqibat mijozdan to‘liq to‘lov olinmasa va o‘sha bo‘lim shu bosqichda 4–6 kundan ortiq vaqt o‘tkazgan bo‘lsa — mijoz ushlab qolgan summa hisobidan, xodim roziligi bilan, o‘sha bo‘lim ish haqidan 50% ushlab qolinadi.
+2025-yil 1-fevraldan boshlab: 80% avans olingandan keyin muddat o‘tkazib yuborilsa, qolgan 20% mijozdan talab QILINMAYDI (kompaniya zarari hisobiga yopiladi) — bu mijozga nisbatan kechikish kafolati.
+⚠ Tizim, hozircha, faqat quyidagilarni bayroqlashi kifoya: "bu bosqich 4 kundan ortiq davom etdi" va "80% avans olingan-olinmagani". Aniq summa hisob-kitobi va to‘lovni amalga oshirish keyingi (moliya) fazaga qoldiriladi.
+8.7. Xodimning roziligi
+Har bir xodim ushbu jarima qoidalariga rozi bo‘lishi kerak; rozi bo‘lmasa, ishlamaslik huquqiga ega.
+Norozilik yoki qarshilikni bildirishning yagona rasmiy yo‘li — "Stop" tugmasi (7.5-bo‘lim). Bosilganda sabab yozish majburiy.
+9. "Vazifalar" moduli (buyurtmalardan alohida topshiriqlar)
+Ishlab chiqarish zakazlaridan tashqari, rahbar kundalik topshiriqlar beradi (hozir bu Telegram guruhida qilinadi — masalan: "Abdulloz, zakazning detali qolib ketgan, muddat shu, senga tegishli"). Tizim shu jarayonni rasmiylashtiradi:
+Panelda (va Trello’da har yo‘nalish boshiga) "Vazifalar" nomli alohida qator/bo‘lim qo‘shiladi.
+Vazifa tarkibi: matn (tavsif), muddat, mas’ul(lar). Bitta vazifaga 3 tagacha odam belgilanishi mumkin.
+Vazifa HAMMAGA ko‘rinadi (ochiq ro‘yxat, hamma o‘qiy oladi), lekin signal faqat belgilanganlarga boradi.
+Vazifalar ham xuddi zakazlar kabi statistikaga bog‘lanadi: bajarildi/kechikdi, minus ball xuddi shu qoidada yoziladi.
+Vazifalar qatoriga yangi yozuvlar cheksiz qo‘shib boriladi (qator-qator).
+10. Statistika va Dashboard
+Asosiy printsip: ko‘rsatkich xodim qo‘lida qancha KVADRAT METR borligi EMAS — har bir vazifa NECHA KUNDA bajarilgani.
+10.1. Kesimlar
+
+10.2. Ko‘rinish va hisobotlar
+Ikki ko‘rinish: DASHBOARD (grafik/diagramma) + JADVAL. Oxirida rahbarga umumiy dashboard ko‘rinishi kerak.
+Trend: "yaxshi ketyapti / yomon ketyapti" dinamikasi sonlarda ko‘rsatiladi.
+Telegram orqali kunlik/haftalik/oylik qisqa hisobot + kerak bo‘lsa to‘liq jadval.
+Oy oxirida tizim ENG YOMON ishlagan xodimlar reytingini avtomatik chiqarib beradi (eng ko‘p minus ball). Bu ro‘yxat screenshot qilinib jamoa guruhiga tashlanadi (ogohlantirish/oshkoralik vositasi).
+Xuddi shunday ENG YAXSHI xodimlar ro‘yxati ham chiqadi — rag‘batlantirish uchun.
+11. Ishchi oynasi (Telegram bot interfeysi)
+Ishchi uchun hamma narsa Telegram bot ichida, maksimal sodda bo‘ladi. Ishchi faqat o‘ziga tegishlini ko‘radi. Bo‘limlar:
+
+Har kuni ertalab bot ishchiga sana bo‘yicha qilinadigan ishlar RO‘YXATINI yuboradi.
+Muqobil/qo‘shimcha kanal: SMS xizmati (SMS-shlyuz saytlari oyiga ~35 000 so‘m atrofida limit beradi) — Telegram ishlatmaydigan ishchilar uchun zaxira variant.
+Kelajakda (hozir EMAS): avans so‘rash bo‘limi, kassa/moliya elementlari — tizim asta-sekin ERP tomon kengayadi. Hozirgi bosqichda moliya QO‘SHILMAYDI.
+11.1. Brigadir oynasi
+Brigadir profili ishchinikiga o‘xshaydi, lekin ALOHIDA tuziladi (bir xil emas).
+Qo‘shimcha bo‘lim: "Brigadam statistikasi" — o‘z brigadasidagi ishchilarning zakazlari, muddatlari, ballari.
+Brigadirning o‘z ballari (ishchilar minusidan 1/3 ulush) alohida ko‘rinadi.
+12. Mijozlar uchun avtomatik xabarnomalar
+Mahsulot qaysidir bo‘limdan (shkurka, kraska va h.k.) CHIQQANDA mijozga Telegram-bot orqali avtomatik xabar/SMS boradi: "Buyurtmangiz X bosqichdan o‘tdi".
+"Stop" bosilganda ham mijozga avtomatik xabarnoma yuboriladi.
+Kanal: Telegram bot; zaxira sifatida SMS-shlyuz (oyiga ~35 000 so‘m limit).
+Bu modul mijoz bilan aloqani avtomatlashtiradi va "buyurtmam qayerda?" qo‘ng‘iroqlarini kamaytiradi.
+13. Sotuv bo‘limi — soddalashtirilgan CRM
+Murakkab va qimmat CRM (AmoCRM kabi) o‘rniga Trello + Telegram bot orqali arzon yechim. Ezza va Melores Mebel uchun ALOHIDA boardlar.
+13.1. Lidlar varonkasi
+Har mijoz/lid uchun Trello kartasi ochiladi va bosqichlardan o‘tadi: Yangi lid → Aloqa qilindi → Taklif berildi → Kelishildi → Yopildi/Bekor qilindi.
+13.2. Qo‘ng‘iroqlar bazasi
+Har qo‘ng‘iroq yozuvi (matn yoki audio) tegishli mijoz kartasiga biriktiriladi va markazlashgan saqlanadi.
+13.3. Eslatmalar va nazorat
+Uzoq vaqt aloqaga chiqilmagan mijozlar ro‘yxati bot orqali sotuvchiga avtomatik eslatma bo‘lib boradi.
+Rahbar qo‘ng‘iroqlar varonkasi bo‘yicha sotuvchilarni saralab, aniq vazifalar taqsimlaydi.
+Eslatma: rahbar sotuv bo‘limiga zakazlarni tizimga o‘tkazish topshirig‘ini allaqachon bergan; fasaddan keyin sotuv — navbatdagi yo‘nalish.
+14. Texnik arxitektura va integratsiyalar
+
+14.1. Xarajat mantiqiy asosi (nega o‘z tizimimiz)
+Trello’da har ruxsat berilgan foydalanuvchi uchun ~$12.5 to‘lanadi. Sexda 20–22 odam bo‘lsa ham, yangi tizimda Trello dostupini faqat 2–3 kishiga berish orqali xarajat keskin tejaladi (qolganlar Telegram bot orqali ishlaydi).
+Tizim nazoratchilar va bir nechta xodim o‘rnini bosadi: oyiga 4–5 mln so‘m oladigan 3–4 xodim xarajati (~15–20 mln so‘m/oy) iqtisod qilinadi.
+15. Ikkinchi faza: SaaS mahsulot ("AmoCRM qotili")
+Ichki tizim ishlab, sinovdan o‘tgach, u alohida dasturiy mahsulot sifatida boshqa mebel sexlariga sotiladi. Bu bo‘lim arxitekturaga BOSHIDANOQ ta’sir qiladi (multi-tenant bo‘lishga tayyorlab qurish kerak), lekin amalga oshirilishi 2-fazada.
+15.1. Mahsulot pozitsiyasi
+AmoCRM’ni hamma sotib ololmaydi va ishlatolmaydi. Bizning mahsulot kichik sexlar ham sotib olib ishlata oladigan darajada SODDA va ARZON bo‘lishi kerak — "AmoCRM qotili".
+Model: hamma Trello’ni TEKINGA ishlataveradi, biz Trello USTIDAGI qo‘shimcha funksiyalarni sotamiz (analogiya: Telegram tekin, Premium funksiyalar pullik).
+Odamlarga Trello tekin o‘rgatiladi (video darslar); tushunmaganlar uchun pullik konsultatsiya.
+15.2. Sotuv va yetkazish modeli
+OBUNA (podpiska) modeli: mijoz to‘lamasa tizim AVTOMATIK O‘CHADI.
+To‘lov faqat billing (Ping) integratsiyasi orqali — to‘g‘ridan-to‘g‘ri karta ulanmaydi (soliq xavfi).
+Mijoz Toshkentda bo‘lishi shart emas: dostup MASOFADAN ochib beriladi, viloyatlarga borib dars o‘tish kerak emas.
+O‘rgatish: KO‘CHIRIB BO‘LMAYDIGAN video darslar Telegram (himoyalangan kanal) yoki sayt ichiga joylanadi; mijoz kirib tartib bilan ko‘radi.
+Kattaroq mijozga tizimni moslashtirish (kastomizatsiya) — ALOHIDA pul.
+Ichki jarayon avtomatlashtirilishi kerak: bitta bot orqali mijoz o‘zi ro‘yxatdan o‘tadi (ishchi bazasi, rahbari kim — ma’lumotlarni tashlab beradi), tizim shu yoqdan turib sozlanadi.
+⚠ Loyihaning uzoq muddatli AI yo‘nalishi (kontekst uchun): sun’iy intellekt agent tizimlari (agentning agenti zanjiri) biznesga integratsiya qilinadi; statistika shablonlari va formulalarni Claude kabi AI vositalar yordamida generatsiya qilish rejalashtirilgan. Bu TZ doirasida majburiyat emas, yo‘nalish sifatida qayd etiladi.
+16. Nofunksional talablar
+Til: interfeys va barcha xabarlar O‘ZBEK tilida (zarur bo‘lsa rus tilida ham).
+Ishonchlilik: bot va server uzluksiz ishlashi; xatolikda avtomatik backup va qayta ishga tushish.
+Xavfsizlik: rolga qarab cheklangan ruxsatlar — ishchi faqat o‘ziga tegishlini ko‘radi; ishchilar Trello’da hech narsani o‘zgartira olmaydi (Premium huquqlar modeli).
+Kengaytirilishi: yangi board, yo‘nalish, brigada yoki bo‘lim qo‘shish tizim tuzilishini o‘zgartirmasdan bajarilishi kerak.
+Sozlanuvchanlik: eslatma vaqtlari, jarima boshlanish vaqti, ball qiymatlari, brigadir ulushi — hammasi admin paneldan o‘zgartiriladi (kodga tikilmaydi).
+Multi-tenant tayyorlik: arxitektura kelajakda bir nechta korxonaga xizmat qilishga (SaaS) to‘sqinlik qilmasligi kerak.
+17. Amalga oshirish bosqichlari
+Ish rejasi: loyiha to‘liq o‘rganib chiqilib, ishlar optimallashtirilgan holda 3 ta yirik ETAPGA bo‘linadi; quyida ular 6 bosqichga detallashtirilgan. Birinchi navbatda FASAD (eng oson yo‘nalish), keyin qolganlari shu shablon asosida.
+
+Har bosqich muddati ijrochi (dasturchi) bilan alohida kelishiladi.
+18. Loyiha chegaralari (ushbu TZ ga KIRMAYDI)
+Quyidagilar biznes strategiyasi/ishlab chiqarish qoidalari bo‘lib, dasturiy ta’minotga bevosita aloqasi yo‘q. Alohida hujjatda yuritiladi:
+Marketing agentligi ochish va IT mutaxassis bilan sheriklik shartlari (transkriptda: sheriklik hali TASDIQLANMAGAN, taraflar bir-birini o‘rganish bosqichida)
+"Mebelda ish bor" Telegram guruhidan kadrlar bazasi sifatida foydalanish
+400/420/450 mm MDF materiallarini buyurtma qilish va yetkazib berish jarayoni
+"Tapchan" mahsulotining maxsus narxlash va ishlab chiqarish shartlari
+Bozor tahlili: shpon ~200 000 so‘m, laminat 240 000–260 000 so‘m (avval 310 000); STV Laminat (Nazarbek) bilan video hamkorlik
+Dizaynerlar bilan ishlash modeli (foiz emas — belgilangan summa + bonus)
+Yirik loyihalar: Jahongir akaning Navoiy zavodi (4 yillik qurilishni 1 yilda ochish), Dubay va Samarqand buyurtmalari, ustanovka pullari iqtisodi
+Asror Iskandarov pullik AI darslari orqali bilim oshirish tavsiyasi
+Hozirgi bosqichda moliya moduli (avans, kassa, oylik hisoblash) — keyinchalik ERP sifatida qo‘shiladi
+19. Ochiq savollar (ishni boshlashdan oldin aniqlashtirish SHART)
+Bo‘lim / sex
+Hajmi
+Izoh
+Fasad sexi
+Alohida bo‘lim
+MDF mahsulotlarini stolyarkadan chiqarib beradi. Tizim BIRINCHI shu yerda ishga tushadi.
+Stolyar (stolyarka)
+Bir nechta brigada
+Fasad jarayonining boshlang‘ich bosqichi
+Shkurka bo‘limi
+6–7 brigada
+Har brigadada brigadir + ishchilar
+Kraska bo‘limi
+4 brigada
+Har brigadada brigadir + ishchilar
+Laminoks (raspil)
+Alohida bo‘lim
+Alohida dostup (kirish huquqi) berilishi kerak
+Do‘kon va ofis
+3 kiruvchi xodim + Ky bo‘limi
+Do‘kon biznesi ishlab chiqarishdan ajratiladi
+Sotuv
+Ezza + Melores
+Ikkala brend uchun alohida boardlar (CRM)
+Rol
+Kirish kanali
+Huquq va vazifalari
+Rahbar (Admin)
+Sayt + Telegram
+Barcha boardlarni ko‘rish/tahrirlash, xodim qo‘shish/o‘chirish, vazifa yuklash, barcha hisobot va signallarni olish. 2 kishigacha bo‘lishi mumkin. Notifikatsiya kimga borishini admin belgilaydi (ishchi o‘zi belgilay olmaydi).
+Nazoratchi (sex nachalnigi)
+Sayt + Telegram
+Biriktirilgan yo‘nalish boardini boshqarish, muddatlarni kuzatish. Rahbarga boradigan barcha signallar unga ham parallel boradi ("senga xabar kelmayaptimi" deb tekshirish imkoni uchun).
+Brigadir
+Telegram bot
+Ishchi funksiyalari + o‘z brigadasi statistikasini ko‘rish. Alohida profil turi — ishchinikidan farq qiladi. O‘z ballari va brigada ballari alohida yuritiladi.
+Ishlab chiqarish xodimi
+Faqat Telegram bot
+Vazifani qabul qilish, bajarish, holatni belgilash, kunlik checklist. Faqat O‘ZIGA tegishli narsani ko‘radi.
+Sotuvchi
+Telegram bot + Trello
+Lidlar bilan ishlash, qo‘ng‘iroq yozuvlarini kiritish, eslatmalarni olish.
+Kuzatuvchi (nablyudatel)
+Trello (admin profil)
+Faqat ko‘rish huquqi, o‘zgartirish yo‘q (masalan, Og‘abek Jumayev "Kosa Trello"da).
+Bo‘lim
+Mazmuni
+Xodimlar bazasi
+Xodim qo‘shish/o‘zgartirish/o‘chirish (5-bo‘lim)
+Buyurtmalar (zakazlar)
+Trello kartalari bilan sinxron buyurtmalar ro‘yxati
+Vazifalar
+Rahbar tomonidan beriladigan alohida topshiriqlar (9-bo‘lim)
+Statistika
+Dashboard + jadval: ishchi, brigada, yo‘nalish kesimida (8-bo‘lim)
+Sozlamalar
+Eslatma/jarima vaqtlari, ball qiymatlari, yo‘nalishlar ro‘yxati
+№
+Maydon
+Talab
+1
+Ism-familiya
+Xodimning to‘liq ismi kiritiladi
+2
+Trello nomi yoki Gmail
+Xodimning Trello’dagi nomi (@sabachka) yoki Gmail manzili yoziladi. Gmail va Trello nomi ALOHIDA maydon bo‘lishi ham mumkin. Trello akkauntlarini xodimlarga korxonaning o‘zi ochib beradi. Telefon raqami KERAK EMAS, SMS-tasdiqlash SHART EMAS — bog‘lanish faqat Gmail/Trello orqali.
+3
+Yo‘nalish (vazifa sohasi)
+Ro‘yxatdan tanlanadi: Stolyar / Shkurka / Kraska (hozircha 3 ta; korxonaga qarab 5–7 tagacha qo‘shib boriladi). Har yo‘nalish ichida brigadalar: "Yangi brigada" tugmasi bilan cheksiz qo‘shiladi.
+4
+Lavozim
+Yo‘nalish tanlangandan keyin YANA BITTA qator chiqadi: Oddiy ishchi / Brigadir / Admin / Nazoratchi. Sayt o‘zi so‘raydi: "bu odamga qanday vazifa berasiz?"
+5
+Trello’ga bog‘lash
+Saqlangach tizim xodimni Trello a’zosi (uchastnik) bilan bog‘laydi — kartada a’zo belgilanganda tizim kim ekanini biladi va statistika shu bog‘lanish orqali yig‘iladi.
+Board nomi
+Yo‘nalish
+Ustunlar (listlar)
+Fasad ishlab chiqarish
+Fasad sexi
+Yangi buyurtma → Shpon → Shkurka → Kraska → Yig‘ish → Tayyor/Yuborildi
+Nazorat
+Umumiy nazorat
+Barcha yo‘nalishlardan kechikkan va "stop"dagi kartalar shu yerda jamlanadi
+Ezza sotuv
+Ezza savdo bo‘limi
+Yangi lid → Aloqa qilindi → Taklif berildi → Kelishildi → Yopildi
+Melores Mebel sotuv
+Melores savdo bo‘limi
+Yangi lid → Aloqa qilindi → Taklif berildi → Kelishildi → Yopildi
+Holat
+Qoida
+ODATIY
+Muddatgacha 1 kundan ortiq vaqt bor
+BUGUNGI ISH
+Bugun bajarilishi kerak bo‘lgan ishlar to‘q sariq (oranjeviy) rangda
+OGOHLANTIRISH
+Muddatga bir sutka qoldi — karta sariq rangga o‘tadi
+KECHIKKAN
+Muddat o‘tib ketgan — karta QIZIL rangga o‘tadi
+TO‘XTATILGAN
+"Stop" bosilgan; sabab kutilmoqda yoki fiksatsiya qilingan
+Hodisa
+Kimga boradi
+Mazmun
+Yangi vazifa berildi
+Belgilangan xodim(lar)
+Vazifa tavsifi va muddat
+Muddatga 1 kun qoldi
+Xodim, Brigadir, Nazoratchi
+Ogohlantiruvchi xabar
+Muddat o‘tib ketdi
+Xodim, Nazoratchi, Rahbar
+Kechikish signali
+"Stop" bosildi
+Rahbar (+Nazoratchi)
+To‘xtagan vaqt va sabab
+Bosqich yakunlandi
+Nazoratchi
+Keyingi bosqichga o‘tgani
+Kunlik ish ro‘yxati
+Har bir ishchi, har kuni ertalab
+Bugungi sana bo‘yicha qilinadigan ishlar ro‘yxati
+Vaqt
+Harakat
+09:00
+1-eslatma: "Zakazlaringni o‘tkazib yubor" (bajarilganlarni belgilash)
+13:00
+2-eslatma (kun o‘rtasi)
+15:00
+3-eslatma
+17:00
+Oxirgi ogohlantirish: "Soat 18:00 gacha zakazlaringni o‘tkazib qo‘yishingni so‘rayman"
+18:00
+DEDLAYN. Shu vaqtgacha o‘tkazilmagan bo‘lsa — jarima ballari hisoblana boshlaydi
+18:00 dan keyin
+Jarima to‘xtamaydi — ERTALABGACHA hisoblanib boraveradi (har soat/yarim soat uchun minus ball)
+Kechikish davri (muddat tugagandan keyin)
+Jarima stavkasi
+0–48 soat (1–2 kun kechikish)
+−1 ball / har 24 soat
+48–96 soat (2–4 kun kechikish)
+−3 ball / sutkasiga (stavka keskin oshadi)
+Kesim
+Ko‘rsatkichlar
+Ishchi bo‘yicha
+Nechta zakaz topshirdi, o‘rtacha bajarish muddati (qancha kunda chiqardi), kechikishlar soni, minus/plus ball tarixi
+Brigada / brigadir bo‘yicha
+Brigada jamlanma ballari, brigadir shaxsiy ballari, qaysi brigada nechchi minus/plus ballda
+Yo‘nalish (board) bo‘yicha
+Nechta faol, nechta kechikkan, nechta "stop"dagi vazifa
+Vazifalar bo‘yicha
+9-bo‘limdagi topshiriqlar statistikasi (jarayon ko‘rsatkichi sifatida ishlab chiqarish statistikasiga bog‘lanadi)
+Bo‘lim
+Mazmuni
+Mening buyurtmalarim
+Unga biriktirilgan zakazlar, har birida HOLAT tugmasi: qancha vaqt o‘tgani/qolgani avtomatik yangilanib ko‘rinadi; bajarildi deb belgilash (keyingi bosqichga o‘tkazish)
+Mening vazifalarim
+Rahbar bergan alohida topshiriqlar (9-bo‘lim)
+Mening jarima ballarim
+Yig‘ilgan minus/plus ballar, sabablari bilan ochiq ko‘rinadi
+Komponent
+Vazifasi
+Web sayt (frontend)
+Rahbar/admin paneli: xodimlar, vazifalar, statistika, sozlamalar. Keyin app qobig‘iga o‘raladi.
+Trello API
+Boardlar, kartalar, labellar, checklistlar, a’zolar bilan dasturiy ishlash
+Trello Power-Up (kerak bo‘lsa)
+Maxsus rang va taymer vizualizatsiyasi uchun qo‘shimcha modul
+Telegram Bot API
+Ishchi/brigadir/nazoratchi/rahbar bilan muloqot, bildirishnoma, formalar
+Backend server
+Taymerlar, label yangilash, jarima/ball hisoblash, cron tekshiruvlar, eslatmalar jadvali
+Ma’lumotlar bazasi
+Xodimlar bazasi, ball tarixi, checklist tarixi, statistika (Trello bunga yetarli emas)
+SMS-shlyuz
+Telegram ishlatmaydigan ishchi/mijozlar uchun zaxira kanal (~35 000 so‘m/oy limit)
+Xosting (VPS/bulut)
+Bot va serverning 24/7 uzluksiz ishlashi
+Billing (Ping)
+2-fazada: obuna to‘lovlari. Kartani to‘g‘ridan-to‘g‘ri ulash TAQIQLANADI (soliq tekshiruvi va jarima xavfi) — faqat rasmiy billing integratsiyasi.
+Etap
+Bosqich
+Mazmuni
+1-etap
+1-bosqich
+Xodimlar bazasi (web panel) + Trello boardlar va karta tuzilishi + asosiy Telegram bot (vazifa berish/qabul qilish, ishchi oynasi)
+1-etap
+2-bosqich
+Muddat/taymer va rang avtomatikasi; eslatmalar jadvali (09:00/13:00/15:00/17:00/18:00); "Stop" funksiyasi va signallar
+2-etap
+3-bosqich
+KPI: minus/plus ball, brigadir ulushi, checklist jarayoni (qoidalar hujjati asosida)
+2-etap
+4-bosqich
+Statistika/dashboard, oylik eng yomon/eng yaxshi reytinglar, Telegram hisobotlar; mijoz xabarnomalari
+3-etap
+5-bosqich
+Sotuv CRM (Ezza + Melores), qo‘ng‘iroqlar bazasi, lid eslatmalari
+3-etap
+6-bosqich
+Umumiy test, ishga tushirish; SaaS tayyorgarlik: billing (Ping), obuna, video darslar bo‘limi
+№
+Savol
+1
+Checklist qanday to‘ldiriladi — tayyor tugmali variantlar orqalimi yoki erkin matn bilanmi?
+2
+✓ HAL QILINDI: kechikish jarima jadvali (8.2-bo‘lim, 0–48 soat = −1/kun, 48–96 soat = −3/kun) va oylik/avans kunining 5 ballga 1 kunga surilishi (8.5-bo‘lim) rasman tasdiqlandi.
+3
+Brigadir ulushi yakuniy qancha: 1/3 (0.33) mi yoki 30–50% mi? (8.4-bo‘lim — hali tasdiqlanmagan.)
+4
+Plus ball qanday mezonlar bilan yoziladi? (8.4-bo‘lim.)
+4a
+"Boshqa brigadaga o‘tkazish" (8.3-bo‘lim) qaysi yo‘nalishlarda yoqilgan, qaysilarida yo‘q — ro‘yxati kerak.
+4b
+4–6 kun va 80%/20% moliyaviy qoidalarni (8.6-bo‘lim) tizim faqat BAYROQLASHI yetarlimi, yoki shu bosqichda summa hisob-kitobi ham kodlanishi kerakmi?
+5
+Eslatma vaqtlarining yakuniy varianti: 09:00/13:00/15:00/17:00/18:00 mi, yoki qisqartirilgan 11:00/18:00 mi? (Sozlamalardan boshqariladi, lekin start konfiguratsiyasi kelishilsin.)
+6
+"Stop" bosilganda taymer to‘liq to‘xtaydimi, yoki kechikish baribir hisoblanaveradimi?
+7
+Qo‘ng‘iroq yozuvlari qayerdan keladi — IP-telefoniya integratsiyasi bormi, yoki sotuvchi qo‘lda yuklaydimi?
+8
+"Uzoq vaqt aloqaga chiqilmagan" mijoz uchun aniq necha kunlik chegara?
+9
+Xodimlar soni va boardlar hajmi qancha (Trello tarifini — Free/Standard/Premium — tanlash uchun)?
+10
+Laminoks (raspil) bo‘limi dostupi qaysi bosqichda ochiladi va u alohida boardmi?
+11
+Mijoz xabarnomalari uchun asosiy kanal qaysi: Telegram bot, SMS, yoki ikkalasi? SMS provayderi tanlovi.
+12
+Oylik "eng yomon xodimlar" ro‘yxatini guruhga tashlash avtomatikmi (bot o‘zi yuboradi) yoki rahbar qo‘lda screenshot qiladimi?
+13
+SaaS obunaning narxi va Ping billing shartnomasi tafsilotlari (2-faza boshlanishidan oldin).
