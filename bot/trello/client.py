@@ -102,3 +102,42 @@ class TrelloClient:
         buyurtma bir bo'limdan keyingisiga o'tganda, bitta karta list'lar
         orasida ko'chib yuradi)."""
         await self._request("PUT", f"/cards/{card_id}", params={"idList": list_id})
+
+    async def get_member_id(self, username: str) -> str:
+        """6.2-band: Trello username -> a'zo ID (24 xonali hex). Username
+        topilmasa Trello 404 qaytaradi (`TrelloAPIError(status=404, ...)`) —
+        chaqiruvchi (employee_management.py) buni "username topilmadi" deb
+        foydalanuvchiga ko'rsatadi."""
+        member = await self._request("GET", f"/members/{username}", params={"fields": "id"})
+        return member["id"]
+
+    async def add_member_to_card(self, card_id: str, member_id: str) -> None:
+        await self._request("POST", f"/cards/{card_id}/idMembers", params={"value": member_id})
+
+    async def remove_member_from_card(self, card_id: str, member_id: str) -> None:
+        await self._request("DELETE", f"/cards/{card_id}/idMembers/{member_id}")
+
+    async def create_checklist(self, card_id: str, name: str) -> dict:
+        """6.2-band: kartaga yangi checklist qo'shadi (bo'lim zanjiri
+        bosqichlari uchun, `task_service.create_task()`)."""
+        return await self._request("POST", "/checklists", params={"idCard": card_id, "name": name})
+
+    async def add_checklist_item(self, checklist_id: str, name: str) -> dict:
+        return await self._request(
+            "POST", f"/checklists/{checklist_id}/checkItems", params={"name": name}
+        )
+
+    async def check_checklist_item_by_name(self, card_id: str, checklist_id: str, item_name: str) -> None:
+        """Checklist punktini NOMI bo'yicha topib "complete" deb belgilaydi
+        (`advance_task_stage()`: eski bosqich nomi shu orqali belgilanadi).
+        Mos punkt topilmasa (masalan qo'lda o'chirilgan bo'lsa) jim
+        o'tkaziladi — bu ikkinchi-darajali effekt, asosiy oqimni to'xtatmaydi."""
+        items = await self._request(
+            "GET", f"/checklists/{checklist_id}/checkItems", params={"fields": "name"}
+        )
+        match = next((item for item in items if item.get("name") == item_name), None)
+        if match is None:
+            return
+        await self._request(
+            "PUT", f"/cards/{card_id}/checkItem/{match['id']}", params={"state": "complete"}
+        )

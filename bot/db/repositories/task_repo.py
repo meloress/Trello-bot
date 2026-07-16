@@ -1,10 +1,13 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 
+from db.models.department import Department
 from db.models.task import Task
 from db.repositories.base import BaseRepository
 from utils.enums import TaskStatus
+
+_OPEN_STATUSES = [TaskStatus.ACTIVE, TaskStatus.STOPPED]
 
 
 class TaskRepository(BaseRepository[Task]):
@@ -40,6 +43,53 @@ class TaskRepository(BaseRepository[Task]):
                 Task.deadline >= since,
                 Task.deadline < until,
                 Task.status.in_(statuses),
+            )
+        )
+        return list(result.scalars().all())
+
+    async def list_deadline_approaching(self, *, now: datetime, within_hours: int = 24) -> list[Task]:
+        """7.2-band: "1 kun qoldi" — hali signal yuborilmagan (`day_left_notified_at
+        IS NULL`), muddati [now, now+within_hours) oralig'ida bo'lgan faol/
+        to'xtatilgan vazifalar (`overdue_watch_job`, soatiga bir marta)."""
+        threshold = now + timedelta(hours=within_hours)
+        result = await self.session.execute(
+            select(Task).where(
+                Task.status.in_(_OPEN_STATUSES),
+                Task.deadline.isnot(None),
+                Task.deadline > now,
+                Task.deadline <= threshold,
+                Task.day_left_notified_at.is_(None),
+            )
+        )
+        return list(result.scalars().all())
+
+    async def list_newly_overdue(self, *, now: datetime) -> list[Task]:
+        """7.2-band: muddati o'tib ketgan, lekin hali `OVERDUE` deb
+        belgilanmagan faol/to'xtatilgan vazifalar."""
+        result = await self.session.execute(
+            select(Task).where(
+                Task.status.in_(_OPEN_STATUSES),
+                Task.deadline.isnot(None),
+                Task.deadline < now,
+            )
+        )
+        return list(result.scalars().all())
+
+    async def list_overdue_for_reassignment_check(
+        self, *, now: datetime, hours_overdue: int = 48
+    ) -> list[Task]:
+        """8.3-band: bo'limi `auto_reassign_after_48h=True` bo'lgan, muddatidan
+        `hours_overdue` soatdan ortiq o'tgan, hali signal berilmagan OVERDUE
+        vazifalar."""
+        threshold = now - timedelta(hours=hours_overdue)
+        result = await self.session.execute(
+            select(Task)
+            .join(Department, Task.current_department_id == Department.id)
+            .where(
+                Task.status == TaskStatus.OVERDUE,
+                Department.auto_reassign_after_48h.is_(True),
+                Task.deadline < threshold,
+                Task.reassignment_signaled_at.is_(None),
             )
         )
         return list(result.scalars().all())

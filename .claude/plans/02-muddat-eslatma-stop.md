@@ -1,9 +1,9 @@
 # 2-bosqich: Muddat/taymer rang avtomatikasi, ko'p martali eslatma, "Stop", OVERDUE, Trello a'zo/checklist, 8.3 avto-o'tkazish
 
-Holat: ISHLANMOQDA. DB model o'zgarishlari (app_settings, tasks, employees,
-departments) kiritilgan, Alembic migratsiyasi generatsiya qilingan, hali
-`server_default` to'g'riligi tekshirilib qo'llanmagan. Servis/handler qatlami
-hali boshlanmagan.
+Holat: BAJARILGAN. Barcha to'rt qism (A/B/C/D) amalga oshirilgan, migratsiya
+(`server_default` bilan) qo'llangan, real Railway Postgres + Trello "Test"
+board'ga qarshi to'liq smoke-test o'tkazilgan (barcha tekshiruvlar PASS,
+skript ishlatilgach o'chirilgan). `shared/db-schema.md` yangilangan.
 
 TZ manbasi: 7.2 (bildirishnomalar jadvali), 7.3 (kunlik eslatma/jarima vaqt
 jadvali), 6.2 (karta talablari: a'zo + checklist), 6.3 (label/rang avtomatikasi),
@@ -63,21 +63,21 @@ o'z `deadline`iga nisbatan HAR SOATDA tekshiriladi (B-qism, `overdue_watch_job`)
   **BAJARILGAN**.
 - `services/settings_service.py`: `AppSettingsSnapshot.remind_time` ->
   `reminder_schedule: list[dict]`; `update_setting()` validatsiyasi (vaqtlar
-  takrorlanmasin, `urgency` faqat uchta qiymatdan biri bo'lsin) — **QILINMAGAN**.
+  takrorlanmasin, `urgency` faqat uchta qiymatdan biri bo'lsin) — **BAJARILGAN**.
 - `jobs/reminder_job.py`: `run(bot, urgency: ReminderUrgency)` — imzo
   o'zgaradi, xabar matni `urgency`ga qarab kuchayadi (info -> oddiy, warning
   -> "Diqqat, muddat yaqinlashmoqda", urgent -> "Bugun oxirgi muhlat!") —
-  **QILINMAGAN**.
+  **BAJARILGAN**.
 - `services/notification_service.py`: `notify_daily_reminder(bot, employee_id,
-  tasks, urgency)` — matn shablon tanlovi — **QILINMAGAN**.
+  tasks, urgency)` — matn shablon tanlovi — **BAJARILGAN**.
 - `main.py`: bitta `add_job` o'rniga `reminder_schedule` har bir elementi
   uchun sikl: `scheduler.add_job(reminder_job.run, "cron", hour=.., minute=..,
-  args=[bot, urgency], id=f"reminder_job_{i}")` — **QILINMAGAN**.
+  args=[bot, urgency], id=f"reminder_job_{i}")` — **BAJARILGAN**.
 - `handlers/admin/settings.py`: `remind_time` tahrirlash oqimi o'rniga
   `reminder_schedule` ro'yxatini ko'rsatish + tahrirlash/qo'shish/o'chirish
   (yangi FSM, `DepartmentChainStates` naqshida). Har o'zgarishda mos
   `reminder_job_{i}` scheduler job qayta rejalashtiriladi/qo'shiladi/olib
-  tashlanadi — **QILINMAGAN**.
+  tashlanadi — **BAJARILGAN**.
 
 ## B. `TaskStatus.OVERDUE`ni bazaga yozish + "1 kun qoldi"/"muddat o'tdi" (7.2-band)
 
@@ -97,12 +97,12 @@ Yangi job: `jobs/overdue_watch_job.py`, soatiga bir marta (`cron minute=0`):
 - `db/models/task.py`: `day_left_notified_at: Mapped[Optional[datetime]]` —
   **BAJARILGAN** (model darajasida).
 - `db/repositories/task_repo.py`: `list_deadline_approaching()`,
-  `list_newly_overdue()` — **QILINMAGAN**.
+  `list_newly_overdue()` — **BAJARILGAN**.
 - `services/notification_service.py`: `notify_deadline_approaching(bot,
   task_id)`, `notify_task_overdue(bot, task_id)` — `notify_task_stopped`dagi
-  rol-asosidagi qabul-qiluvchi yig'ish kodini qayta ishlatadi — **QILINMAGAN**.
+  rol-asosidagi qabul-qiluvchi yig'ish kodini qayta ishlatadi — **BAJARILGAN**.
 - `main.py`: `overdue_watch_job.run`ni soatlik cron sifatida ulash —
-  **QILINMAGAN**.
+  **BAJARILGAN**.
 - Tekshirish: `daily_sync_job._list_open_tasks()` filtri allaqachon OVERDUE'ni
   o'z ichiga oladi (status not in COMPLETED/PENDING_SETUP) — o'zgarishsiz.
 - `_STATUS_LABELS` (`worker/tasks.py`, `keyboards/worker_kb.py`,
@@ -124,10 +124,10 @@ avtomatik belgilanadi.
 - `trello/client.py`: `get_member_id(username) -> str` (GET
   `/members/{username}`), `add_member_to_card(card_id, member_id)` (POST
   `/cards/{id}/idMembers`), `remove_member_from_card(card_id, member_id)`
-  (DELETE `/cards/{id}/idMembers/{member_id}`) — **QILINMAGAN**.
+  (DELETE `/cards/{id}/idMembers/{member_id}`) — **BAJARILGAN**.
 - `handlers/admin/employee_management.py`: xodim yaratish/tahrirlash oqimiga
   "Trello username" qadami; kiritilgan username darhol `get_member_id()`
-  bilan tekshiriladi (404 -> "topilmadi, qayta kiriting") — **QILINMAGAN**.
+  bilan tekshiriladi (404 -> "topilmadi, qayta kiriting") — **BAJARILGAN**.
 - `services/task_service.py`:
   - `create_task()`: karta yaratilgach, har bir xodim uchun (agar
     `trello_member_id` bo'lsa) `add_member_to_card()`. Xodimning ID'si yo'q
@@ -136,7 +136,7 @@ avtomatik belgilanadi.
     kartadan olib tashlaydi.
   - `activate_pending_stage()`: yangi bosqich xodimlarini kartaga qo'shadi
     (bu funksiyaga birinchi Trello chaqiruvi, hozir umuman yo'q).
-  - Barchasi — **QILINMAGAN**.
+  - Barchasi — **BAJARILGAN**.
 
 ### C.2. Bo'lim zanjiri checklist
 - `db/models/task.py`: `trello_checklist_id: Mapped[Optional[str]]` —
@@ -145,7 +145,7 @@ avtomatik belgilanadi.
   `add_checklist_item(checklist_id, name)` (POST
   `/checklists/{id}/checkItems`), `check_checklist_item_by_name(checklist_id,
   item_name)` (GET bilan mos punktni nomi bo'yicha topib, PUT
-  `/cards/{cardId}/checkItem/{id}` orqali `state=complete`) — **QILINMAGAN**.
+  `/cards/{cardId}/checkItem/{id}` orqali `state=complete`) — **BAJARILGAN**.
 - `services/task_service.py`:
   - `create_task()`: `next_department_id` zanjiri bo'ylab to'liq bo'lim
     ro'yxati yig'iladi, `create_checklist(card_id, "Bosqichlar")` + har bo'lim
@@ -153,7 +153,7 @@ avtomatik belgilanadi.
   - `advance_task_stage()`: `previous_task.trello_checklist_id` yangi qatorga
     ko'chiriladi, eski bosqich nomi `check_checklist_item_by_name()` bilan
     belgilanadi.
-  - Barchasi — **QILINMAGAN**.
+  - Barchasi — **BAJARILGAN**.
 
 ## D. 8.3-band: uzoq kechikishda avtomatik brigadaga o'tkazish
 
@@ -174,26 +174,26 @@ o'zi yoqadi/o'chiradi).
 - `db/models/department.py`: `auto_reassign_after_48h: Mapped[bool]`
   (NOT NULL, `server_default=false`) — **BAJARILGAN** (model darajasida).
 - `handlers/admin/settings.py`: yangi `/autoreassign` buyrug'i — bo'limlar
-  ro'yxati, har birida yoqish/o'chirish inline tugmasi — **QILINMAGAN**.
+  ro'yxati, har birida yoqish/o'chirish inline tugmasi — **BAJARILGAN**.
 
 ### D.2. Aniqlash + signal (`overdue_watch_job` ichida, B-qism bilan bir jobda)
 - `TaskRepository.list_overdue_for_reassignment_check()`: `status ==
   OVERDUE`, `department.auto_reassign_after_48h == True`, `now - deadline >
-  48 soat`, `reassignment_signaled_at IS NULL` — **QILINMAGAN**.
+  48 soat`, `reassignment_signaled_at IS NULL` — **BAJARILGAN**.
 - Har biri uchun: `reassignment_signaled_at = now` + bo'lim rahbari
   (nazoratchi) + barcha ADMIN'larga "Ko'rib chiqish" tugmali signal —
-  **QILINMAGAN**.
+  **BAJARILGAN**.
 - `db/models/task.py`: `reassignment_signaled_at: Mapped[Optional[datetime]]`
   — **BAJARILGAN** (model darajasida).
 
 ### D.3. Qo'lda tasdiqlash oqimi (yangi handler)
 - `states/reassign_task_states.py` (yangi): `waiting_for_brigade`,
-  `confirming` — **QILINMAGAN**.
+  `confirming` — **BAJARILGAN**.
 - `handlers/admin/reassign_task.py` (yangi, `RoleAccessMiddleware({ADMIN,
   SUPERVISOR})`): "Ko'rib chiqish" -> shu bo'limdagi BOSHQA brigadalar
   ro'yxati -> tanlash -> tasdiqlash -> `task_service.reassign_task_brigade()`
-  -> bildirishnoma — **QILINMAGAN**.
-- `main.py`: yangi routerni ulash — **QILINMAGAN**.
+  -> bildirishnoma — **BAJARILGAN**.
+- `main.py`: yangi routerni ulash — **BAJARILGAN**.
 
 ### D.4. Ikkiga bo'lingan jarima mantig'i (`task_service.reassign_task_brigade`)
 
@@ -210,14 +210,14 @@ vaqtidan boshlanadi.
 3. **Yangi hisoblash bazasi**: `task.reassigned_at = now` (yangi ustun —
    **BAJARILGAN** model darajasida). `calculate_and_apply_task_penalty()` —
    agar `task.reassigned_at IS NOT NULL` bo'lsa, `hours_late = finished_at -
-   reassigned_at` (o'rniga `finished_at - deadline`) — **QILINMAGAN**.
+   reassigned_at` (o'rniga `finished_at - deadline`) — **BAJARILGAN**.
 4. `task_assignments`: eski brigada xodimlari o'chiriladi, yangi brigada
    xodimlari (`EmployeeRepository.list_by_brigade()` — yangi metod)
-   qo'shiladi — **QILINMAGAN**.
+   qo'shiladi — **BAJARILGAN**.
 5. Trello: eski brigada a'zolari kartadan olib tashlanadi, yangi brigada
-   a'zolari qo'shiladi (C.1dagi metodlar qayta ishlatiladi) — **QILINMAGAN**.
+   a'zolari qo'shiladi (C.1dagi metodlar qayta ishlatiladi) — **BAJARILGAN**.
 6. `notify_task_reassigned` — eski brigadaga va yangi brigadaga alohida
-   xabar — **QILINMAGAN**.
+   xabar — **BAJARILGAN**.
 
 ## Migratsiya
 
@@ -231,10 +231,9 @@ SHART**), `employees.trello_member_id`, `tasks.day_left_notified_at`,
 `tasks.reassignment_signaled_at`, `tasks.reassigned_at`,
 `tasks.trello_checklist_id` (barchasi nullable, muammosiz).
 
-**KEYINGI QADAM**: migratsiya faylini qo'lda tahrirlab ikkala NOT NULL
-ustunga `server_default` qo'shish, keyin `alembic upgrade head` (PowerShell
-orqali — bu loyihada Bash emas, PowerShell venv/alembic buyruqlari uchun
-tasdiqlangan vosita).
+Ikkala NOT NULL ustunga (`reminder_schedule`, `auto_reassign_after_48h`)
+`server_default` qo'lda qo'shildi, `alembic upgrade head` PowerShell orqali
+muvaffaqiyatli qo'llandi (real Railway DB'da tasdiqlangan).
 
 ## Tekshirish rejasi (real Railway DB + Trello "Test" board)
 
@@ -260,6 +259,13 @@ tekshiriladi (1-bosqichdagi naqshda), ishlatilgach o'chiriladi:
    `reassigned_at`dan hisoblanganini tasdiqlash.
 5. Har qismdan keyin `shared/db-schema.md` mos bo'limi yangilanadi.
 6. Barcha `__smoke%` test ma'lumotlari va Trello test kartalari tozalanadi.
+
+**Bajarildi**: barcha to'rt qism bitta `bot/_smoke_phase2_full.py` skriptida
+(1-6 barchasi ketma-ket) real Railway DB + Trello "Test" board'ga qarshi
+sinovdan o'tkazildi — barcha tekshiruvlar PASS berdi (Trello karta/checklist/
+a'zolik, OVERDUE/"1 kun qoldi" signallari, 48 soatlik reassignment signali va
+qo'lda tasdiqlash, ikkiga bo'lingan jarima mantig'i). Test ma'lumotlari va
+skriptning o'zi ishlatilgach o'chirildi.
 
 To'liq batafsil texnik reja (kod darajasida, funksiya imzolari bilan):
 `C:\Users\Acer\.claude\plans\streamed-drifting-pie.md` (global plan fayli,

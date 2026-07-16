@@ -50,6 +50,14 @@ class EmployeeRepository(BaseRepository[Employee]):
         )
         return result.scalar_one_or_none()
 
+    async def list_by_brigade(self, brigade_id: int, *, active_only: bool = True) -> list[Employee]:
+        """8.3-band: brigadaga o'tkazishda yangi brigada A'ZOLARI (`reassign_task_brigade`)."""
+        stmt = select(Employee).where(Employee.brigade_id == brigade_id)
+        if active_only:
+            stmt = stmt.where(Employee.is_active.is_(True))
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
     async def list_active(self) -> list[Employee]:
         """9-band: MISC vazifa uchun xodim tanlashda — bo'limga bog'lanmagan
         holda barcha faol xodimlar (masalan "Ofisni tozalash" istalgan

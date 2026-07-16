@@ -24,8 +24,8 @@ from db.repositories import (
     TaskAssignmentRepository,
     TaskRepository,
 )
-from keyboards.admin_kb import build_advance_setup_keyboard
-from utils.enums import Role
+from keyboards.admin_kb import ReassignReview, build_advance_setup_keyboard, build_reassign_review_keyboard
+from utils.enums import ReminderUrgency, Role
 from utils.formatters import format_dt as _format_dt
 
 logger = logging.getLogger(__name__)
@@ -176,10 +176,21 @@ async def notify_penalty_applied(bot: Bot, kpi_log_id: int) -> None:
     await _send(bot, employee.telegram_id, text)
 
 
-async def notify_daily_reminder(bot: Bot, employee_id: int, tasks: list[Task]) -> bool:
+_REMINDER_HEADERS = {
+    ReminderUrgency.INFO: "⏰ Bugun muddati tugaydigan vazifalaringiz ({n} ta):",
+    ReminderUrgency.WARNING: "⚠️ Diqqat, muddat yaqinlashmoqda! Bugungi vazifalaringiz ({n} ta):",
+    ReminderUrgency.URGENT: "🚨 Bugun oxirgi muhlat! Vazifalaringiz ({n} ta):",
+}
+
+
+async def notify_daily_reminder(
+    bot: Bot, employee_id: int, tasks: list[Task], urgency: ReminderUrgency
+) -> bool:
     """7.3-band: kunlik eslatma — bitta xodimga bugun muddati tugaydigan
-    vazifalari ro'yxatini yuboradi. `tasks` chaqiruvchi tomonidan tayyorlanadi
-    (`jobs/reminder_job.py`) — bu funksiya faqat formatlash+yuborishga javobgar."""
+    vazifalari ro'yxatini yuboradi, kun davomidagi eslatma vaqtiga qarab
+    (`urgency`) matn kuchayib boradi. `tasks` chaqiruvchi tomonidan
+    tayyorlanadi (`jobs/reminder_job.py`) — bu funksiya faqat
+    formatlash+yuborishga javobgar."""
     if not tasks:
         return False
 
@@ -189,8 +200,137 @@ async def notify_daily_reminder(bot: Bot, employee_id: int, tasks: list[Task]) -
         logger.warning("notify_daily_reminder: employee %s topilmadi", employee_id)
         return False
 
-    lines = [f"⏰ Bugun muddati tugaydigan vazifalaringiz ({len(tasks)} ta):"]
+    lines = [_REMINDER_HEADERS[urgency].format(n=len(tasks))]
     for task in tasks:
         lines.append(f"• {task.title} — {_format_dt(task.deadline)}")
 
     return await _send(bot, employee.telegram_id, "\n".join(lines))
+
+
+async def _collect_assignees(session, task_id: int) -> dict[int, int | None]:
+    """task_id'ga biriktirilgan barcha xodimlar -> telegram_id xaritasi."""
+    recipients: dict[int, int | None] = {}
+    employee_repo = EmployeeRepository(session)
+    for assignment in await TaskAssignmentRepository(session).list_by_task(task_id):
+        employee = await employee_repo.get_by_id(assignment.employee_id)
+        if employee is not None:
+            recipients[employee.id] = employee.telegram_id
+    return recipients
+
+
+async def notify_deadline_approaching(bot: Bot, task_id: int) -> None:
+    """7.2-band: "Muddatga 1 kun qoldi" — Xodim(lar), Brigadir, Nazoratchi.
+    `overdue_watch_job` faqat bitta marta chaqiradi (`day_left_notified_at`
+    orqali qayta yubormaslikni o'zi ta'minlaydi)."""
+    async with async_session() as session:
+        task = await TaskRepository(session).get_by_id(task_id)
+        if task is None:
+            logger.warning("notify_deadline_approaching: task %s topilmadi", task_id)
+            return
+
+        employee_repo = EmployeeRepository(session)
+        brigade_repo = BrigadeRepository(session)
+        recipients = await _collect_assignees(session, task_id)
+
+        for assignee_id in list(recipients):
+            assignee = await employee_repo.get_by_id(assignee_id)
+            if assignee is not None and assignee.brigade_id is not None:
+                brigade = await brigade_repo.get_by_id(assignee.brigade_id)
+                if brigade is not None and brigade.brigadier_id is not None:
+                    brigadier = await employee_repo.get_by_id(brigade.brigadier_id)
+                    if brigadier is not None:
+                        recipients[brigadier.id] = brigadier.telegram_id
+
+        if task.current_department_id is not None:
+            for employee in await employee_repo.list_by_department(task.current_department_id):
+                if employee.role == Role.SUPERVISOR:
+                    recipients[employee.id] = employee.telegram_id
+
+    text = f"⏳ \"{task.title}\" vazifasiga muddatga 1 kun qoldi!\nMuddat: {_format_dt(task.deadline)}"
+    for telegram_id in recipients.values():
+        await _send(bot, telegram_id, text)
+
+
+async def notify_task_overdue(bot: Bot, task_id: int) -> None:
+    """7.2-band: "Muddat o'tib ketdi" — Xodim(lar), Nazoratchi, Rahbar (ADMIN)."""
+    async with async_session() as session:
+        task = await TaskRepository(session).get_by_id(task_id)
+        if task is None:
+            logger.warning("notify_task_overdue: task %s topilmadi", task_id)
+            return
+
+        employee_repo = EmployeeRepository(session)
+        recipients = await _collect_assignees(session, task_id)
+
+        if task.current_department_id is not None:
+            for employee in await employee_repo.list_by_department(task.current_department_id):
+                if employee.role == Role.SUPERVISOR:
+                    recipients[employee.id] = employee.telegram_id
+
+        for admin in await employee_repo.list_by_role(Role.ADMIN):
+            recipients[admin.id] = admin.telegram_id
+
+    text = f"🔴 \"{task.title}\" vazifasining muddati o'tib ketdi!\nMuddat: {_format_dt(task.deadline)}"
+    for telegram_id in recipients.values():
+        await _send(bot, telegram_id, text)
+
+
+async def notify_reassignment_candidate(bot: Bot, task_id: int) -> None:
+    """8.3-band: 48 soatdan ortiq kechikkan buyurtma uchun avtomatik-
+    aniqlangan brigadaga-o'tkazish signali — bo'lim NAZORATCHI(lari) + barcha
+    ADMIN'larga "Ko'rib chiqish" tugmasi bilan (yakuniy tasdiq qo'lda,
+    `handlers/admin/reassign_task.py`)."""
+    async with async_session() as session:
+        task = await TaskRepository(session).get_by_id(task_id)
+        if task is None:
+            logger.warning("notify_reassignment_candidate: task %s topilmadi", task_id)
+            return
+
+        employee_repo = EmployeeRepository(session)
+        recipients: dict[int, int | None] = {}
+
+        if task.current_department_id is not None:
+            for employee in await employee_repo.list_by_department(task.current_department_id):
+                if employee.role == Role.SUPERVISOR:
+                    recipients[employee.id] = employee.telegram_id
+
+        for admin in await employee_repo.list_by_role(Role.ADMIN):
+            recipients[admin.id] = admin.telegram_id
+
+    text = (
+        f"🔁 \"{task.title}\" 48 soatdan ortiq kechikmoqda.\n"
+        "Boshqa brigadaga o'tkazishni ko'rib chiqing:"
+    )
+    keyboard = build_reassign_review_keyboard(task.id)
+    for telegram_id in recipients.values():
+        await _send(bot, telegram_id, text, reply_markup=keyboard)
+
+
+async def notify_task_reassigned(
+    bot: Bot, task_id: int, *, old_employee_ids: list[int], new_employee_ids: list[int]
+) -> None:
+    """8.3-band: brigadaga o'tkazish yakunlangach — eski brigadaga va yangi
+    brigadaga ALOHIDA xabar (`task_service.reassign_task_brigade()` chaqiruvchisi
+    tomonidan uzatilgan xodim ID ro'yxatlari asosida, chunki o'tkazishdan keyin
+    `task_assignments` allaqachon yangi brigadaga almashtirilgan bo'ladi)."""
+    async with async_session() as session:
+        task = await TaskRepository(session).get_by_id(task_id)
+        if task is None:
+            logger.warning("notify_task_reassigned: task %s topilmadi", task_id)
+            return
+
+        employee_repo = EmployeeRepository(session)
+        old_recipients = {
+            e.id: e.telegram_id for e in [await employee_repo.get_by_id(i) for i in old_employee_ids] if e is not None
+        }
+        new_recipients = {
+            e.id: e.telegram_id for e in [await employee_repo.get_by_id(i) for i in new_employee_ids] if e is not None
+        }
+
+    old_text = f"🔁 \"{task.title}\" boshqa brigadaga o'tkazildi. Sizning brigadangiz ushbu buyurtma bo'yicha jarimalandi."
+    new_text = f"🔁 Sizning brigadangizga yangi buyurtma o'tkazildi: \"{task.title}\"\nMuddat: {_format_dt(task.deadline)}"
+
+    for telegram_id in old_recipients.values():
+        await _send(bot, telegram_id, old_text)
+    for telegram_id in new_recipients.values():
+        await _send(bot, telegram_id, new_text)

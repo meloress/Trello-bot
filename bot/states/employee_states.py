@@ -7,6 +7,7 @@ class EmployeeManageStates(StatesGroup):
     # Qo'shish
     add_waiting_full_name = State()
     add_waiting_phone = State()
+    add_waiting_trello_username = State()
     add_waiting_role = State()
     add_waiting_department = State()
     add_waiting_brigade = State()

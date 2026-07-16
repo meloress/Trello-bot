@@ -37,6 +37,8 @@ async def create_employee(
     role: Role,
     department_id: int | None = None,
     brigade_id: int | None = None,
+    trello_username: str | None = None,
+    trello_member_id: str | None = None,
 ) -> Employee:
     async with async_session() as session:
         employee_repo = EmployeeRepository(session)
@@ -52,6 +54,8 @@ async def create_employee(
             role=role,
             department_id=department_id,
             brigade_id=brigade_id,
+            trello_username=trello_username,
+            trello_member_id=trello_member_id,
         )
         await session.commit()
         return employee

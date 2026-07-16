@@ -17,6 +17,7 @@ from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
+from config import settings
 from core.database import async_session
 from db.models.employee import Employee
 from db.repositories import BrigadeRepository, DepartmentRepository, EmployeeRepository
@@ -48,6 +49,7 @@ from keyboards.admin_kb import (
 from middlewares.auth import RoleAccessMiddleware
 from services import employee_service
 from states.employee_states import EmployeeManageStates
+from trello.client import TrelloAPIError, TrelloClient
 from utils.enums import Role
 
 logger = logging.getLogger(__name__)
@@ -81,6 +83,14 @@ async def _list_brigades_for_department(department_id: int):
         return await BrigadeRepository(session).list_by_department(department_id)
 
 
+async def _resolve_trello_member_id(username: str) -> str:
+    """6.2-band: Trello username kiritilganda darhol tekshiriladi — noto'g'ri
+    username bilan xodim yaratilib, keyinchalik kartaga a'zo qo'shishda
+    "jim" muvaffaqiyatsizlikka olib kelmasligi uchun."""
+    async with TrelloClient(settings.trello_api_key, settings.trello_token) as trello:
+        return await trello.get_member_id(username)
+
+
 async def _format_employee_detail(employee: Employee) -> str:
     async with async_session() as session:
         department = (
@@ -100,6 +110,7 @@ async def _format_employee_detail(employee: Employee) -> str:
             f"Holat: {'✅ Faol' if employee.is_active else '🚫 Nofaol'}",
             f"Rol: {ROLE_LABELS.get(employee.role, employee.role.value)}",
             f"Telefon: {employee.phone_number or '-'}",
+            f"Trello: {employee.trello_username or '-'}",
             f"Bo'lim: {department.name if department else '-'}",
             f"Brigada: {brigade.name if brigade else '-'}",
             f"Telegram: {'bog‘langan' if employee.telegram_id else 'bog‘lanmagan'}",
@@ -339,12 +350,24 @@ async def on_edit_text_value_received(message: Message, state: FSMContext) -> No
 
     try:
         if field == "phone_number":
-            value = _validate_phone(text)
+            fields: dict[str, object] = {"phone_number": _validate_phone(text)}
         elif field == "full_name":
             if not text:
                 await message.answer("Ism bo'sh bo'lishi mumkin emas. Qayta kiriting:")
                 return
-            value = text
+            fields = {"full_name": text}
+        elif field == "trello_username":
+            if text == "-":
+                fields = {"trello_username": None, "trello_member_id": None}
+            else:
+                try:
+                    member_id = await _resolve_trello_member_id(text)
+                except TrelloAPIError as exc:
+                    if exc.status == 404:
+                        await message.answer("Bunday Trello username topilmadi. Qayta kiriting yoki '-' deb yozing:")
+                        return
+                    raise
+                fields = {"trello_username": text, "trello_member_id": member_id}
         else:
             raise ValueError(f"noma'lum maydon: {field}")
     except ValueError as exc:
@@ -352,7 +375,7 @@ async def on_edit_text_value_received(message: Message, state: FSMContext) -> No
         return
 
     try:
-        employee = await employee_service.update_employee(employee_id, **{field: value})
+        employee = await employee_service.update_employee(employee_id, **fields)
     except employee_service.DuplicateNameError:
         await message.answer("Bu ism bilan boshqa xodim allaqachon mavjud. Boshqa ism kiriting:")
         return
@@ -507,6 +530,31 @@ async def on_add_phone_received(message: Message, state: FSMContext) -> None:
         return
 
     await state.update_data(phone_number=phone)
+    await state.set_state(EmployeeManageStates.add_waiting_trello_username)
+    await message.answer(
+        "Trello username kiriting (bu odam Trello'da a'zo bo'lgan username, "
+        "agar hozircha yo'q bo'lsa '-' deb yozing):"
+    )
+
+
+@router.message(EmployeeManageStates.add_waiting_trello_username)
+async def on_add_trello_username_received(message: Message, state: FSMContext) -> None:
+    text = (message.text or "").strip()
+
+    if text == "-":
+        await state.update_data(trello_username=None, trello_member_id=None)
+    else:
+        try:
+            member_id = await _resolve_trello_member_id(text)
+        except TrelloAPIError as exc:
+            if exc.status == 404:
+                await message.answer("Bunday Trello username topilmadi. Qayta kiriting yoki '-' deb yozing:")
+                return
+            logger.exception("on_add_trello_username_received: Trello xatosi")
+            await message.answer("Trello bilan bog'lanishda xatolik. Birozdan keyin qayta urinib ko'ring:")
+            return
+        await state.update_data(trello_username=text, trello_member_id=member_id)
+
     await state.set_state(EmployeeManageStates.add_waiting_role)
     await message.answer("Rolni tanlang:", reply_markup=build_role_keyboard())
 
@@ -597,6 +645,7 @@ async def _show_add_confirmation(callback: CallbackQuery, state: FSMContext) -> 
         "Yangi xodimni tasdiqlang:\n\n"
         f"Ism: {data['full_name']}\n"
         f"Telefon: {data['phone_number']}\n"
+        f"Trello: {data.get('trello_username') or '-'}\n"
         f"Rol: {role_label}\n"
         f"Bo'lim: {department_name}\n"
         f"Brigada: {brigade_name}"
@@ -625,6 +674,8 @@ async def on_add_confirmed(callback: CallbackQuery, state: FSMContext) -> None:
             role=Role(data["role"]),
             department_id=data.get("department_id"),
             brigade_id=data.get("brigade_id"),
+            trello_username=data.get("trello_username"),
+            trello_member_id=data.get("trello_member_id"),
         )
     except employee_service.DuplicateNameError as exc:
         await callback.answer()

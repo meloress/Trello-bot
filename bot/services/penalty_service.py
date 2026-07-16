@@ -66,37 +66,23 @@ def _month_bounds(reference: date) -> tuple[datetime, datetime]:
     return start, end
 
 
-async def calculate_and_apply_task_penalty(task_id: int) -> list[KpiLog]:
-    """8.1/8.2-band: vazifa yakunlanganda chaqiriladi. Muddatidan kech tugagan bo'lsa,
-    penalty_rules'dan mos qoidani topib, vazifaga biriktirilgan ISHCHI (Role.WORKER)
-    rolidagi xodim(lar)ga to'liq jarimani yozadi. Har bir shunday yozuvdan so'ng,
-    8.4-band bo'yicha o'sha ishchining brigadiriga ham ulush (`apply_brigade_share`)
-    avtomatik yoziladi (brigadasi/brigadiri bo'lmasa — jim o'tkazib yuboriladi).
-    Qaytarilgan ro'yxatda ISHCHI va BRIGADIR yozuvlari birga keladi — shu orqali
-    chaqiruvchi tomon (handler/job) ikkalasiga ham bir xil tsikl bilan
-    bildirishnoma va to'lov-kun qayta hisobini qo'llaydi, o'zgartirish shart emas.
-
-    Muddatida yoki muddatidan oldin tugagan bo'lsa — bo'sh ro'yxat qaytaradi,
-    hech narsa yozilmaydi (8.1: jarima FAQAT muddatni buzganga nisbatan)."""
+async def apply_penalty_for_employees(
+    *, task_id: int, department_id: int | None, employee_ids: list[int], hours_late: int, reason_label: str
+) -> list[KpiLog]:
+    """8.1/8.2-band jarima yozish mantig'ining umumiy yadrosi — muddatida
+    yakunlangan vazifa (`calculate_and_apply_task_penalty`) va 8.3-band
+    "brigadaga o'tkazish"da eski brigadaga DARHOL jarima
+    (`task_service.reassign_task_brigade`) ikkalasi ham shundan foydalanadi.
+    `penalty_rules`dan mos qoidani topib, ISHCHI (Role.WORKER) rolidagi
+    xodim(lar)ga to'liq jarimani yozadi, har biriga 8.4-band bo'yicha
+    brigadir ulushini ham qo'shadi."""
     async with async_session() as session:
-        task_repo = TaskRepository(session)
-        assignment_repo = TaskAssignmentRepository(session)
         rule_repo = PenaltyRuleRepository(session)
         employee_repo = EmployeeRepository(session)
         brigade_repo = BrigadeRepository(session)
         kpi_repo = KpiLogRepository(session)
 
-        task = await task_repo.get_by_id(task_id)
-        if task is None:
-            raise TaskNotFoundError(f"Task {task_id} topilmadi")
-        if task.finished_at is None:
-            raise InvalidTaskStateError(f"Task {task_id} hali yakunlanmagan")
-
-        if task.finished_at <= task.deadline:
-            return []
-
-        hours_late = int((task.finished_at - task.deadline).total_seconds() // 3600)
-        rule = await rule_repo.find_applicable_rule(hours_late, task.current_department_id)
+        rule = await rule_repo.find_applicable_rule(hours_late, department_id)
         if rule is None:
             raise PenaltyRuleNotConfiguredError(
                 f"Task {task_id}: {hours_late} soat kechikish uchun penalty_rules'da mos qoida yo'q"
@@ -105,17 +91,16 @@ async def calculate_and_apply_task_penalty(task_id: int) -> list[KpiLog]:
         app_settings = await settings_service.get_settings()
         final_score = round(rule.score * app_settings.default_penalty_multiplier)
 
-        assignments = await assignment_repo.list_by_task(task_id)
         created_logs: list[KpiLog] = []
-        for assignment in assignments:
-            employee = await employee_repo.get_by_id(assignment.employee_id)
+        for employee_id in employee_ids:
+            employee = await employee_repo.get_by_id(employee_id)
             if employee is None or employee.role != Role.WORKER:
                 continue
 
             log = await kpi_repo.create(
-                employee_id=assignment.employee_id,
+                employee_id=employee_id,
                 score=final_score,
-                reason=f"Kechikish: {hours_late} soat (vazifa #{task.id})",
+                reason=f"{reason_label}: {hours_late} soat (vazifa #{task_id})",
             )
             created_logs.append(log)
 
@@ -126,18 +111,56 @@ async def calculate_and_apply_task_penalty(task_id: int) -> list[KpiLog]:
                 worker=employee,
                 worker_score=final_score,
                 ratio=app_settings.brigade_share_ratio,
-                task_id=task.id,
+                task_id=task_id,
             )
             if brigadier_log is not None:
                 created_logs.append(brigadier_log)
 
         await session.commit()
-        employee_ids = [log.employee_id for log in created_logs]
+        result_employee_ids = [log.employee_id for log in created_logs]
 
-    for employee_id in employee_ids:
+    for employee_id in result_employee_ids:
         await update_payment_date_if_needed(employee_id)
 
     return created_logs
+
+
+async def calculate_and_apply_task_penalty(task_id: int) -> list[KpiLog]:
+    """8.1/8.2-band: vazifa yakunlanganda chaqiriladi. Muddatidan kech tugagan bo'lsa,
+    `apply_penalty_for_employees()` orqali vazifaga biriktirilgan xodim(lar)ga
+    jarima yozadi (brigadir ulushi bilan birga). Muddatida yoki muddatidan
+    oldin tugagan bo'lsa — bo'sh ro'yxat qaytaradi, hech narsa yozilmaydi
+    (8.1: jarima FAQAT muddatni buzganga nisbatan).
+
+    8.3-band: agar buyurtma brigadaga o'tkazilgan bo'lsa (`task.reassigned_at`
+    NOT NULL), kechikish shu paytdan hisoblanadi (`deadline`dan emas) — eski
+    brigada allaqachon `reassign_task_brigade()`da jarimalangan davrni yangi
+    brigadaga qayta hisoblamaslik uchun."""
+    async with async_session() as session:
+        task_repo = TaskRepository(session)
+        assignment_repo = TaskAssignmentRepository(session)
+
+        task = await task_repo.get_by_id(task_id)
+        if task is None:
+            raise TaskNotFoundError(f"Task {task_id} topilmadi")
+        if task.finished_at is None:
+            raise InvalidTaskStateError(f"Task {task_id} hali yakunlanmagan")
+
+        reference_start = task.reassigned_at or task.deadline
+        if task.finished_at <= reference_start:
+            return []
+
+        hours_late = int((task.finished_at - reference_start).total_seconds() // 3600)
+        department_id = task.current_department_id
+        employee_ids = [a.employee_id for a in await assignment_repo.list_by_task(task_id)]
+
+    return await apply_penalty_for_employees(
+        task_id=task_id,
+        department_id=department_id,
+        employee_ids=employee_ids,
+        hours_late=hours_late,
+        reason_label="Kechikish",
+    )
 
 
 async def _apply_brigade_share_for_worker(

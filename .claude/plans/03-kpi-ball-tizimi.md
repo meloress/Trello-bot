@@ -50,11 +50,11 @@ uchun) ham alohida tasdiqlanishi kerak." Hozir `penalty_service.
 calculate_plus_ball(task_id) -> int` STUB — doim `0` qaytaradi, tanaffussiz
 kod izohida "mezon kelishilgach to'ldiriladi" deb yozilgan.
 
-**BLOKLANGAN**: bu qismni boshlashdan oldin foydalanuvchidan aniq mezon
-so'ralishi SHART (masalan: "muddatidan necha soat oldin tugatish +1 ball
-beradi?", "sifat qanday o'lchanadi — nazoratchi tasdiqlaydimi?"). Taxmin
-qilib yozish TAQIQLANADI (loyihaning o'rnatilgan qoidasi — ochiq savolga
-o'zboshimchalik bilan javob berilmaydi).
+**HAL QILINDI** (foydalanuvchi tasdiqlagan, 2026-07-17): faqat muddatdan
+oldin tugatish mezon bo'ladi — sifat/nazoratchi tasdig'i talab qilinmaydi
+(eng oddiy variant tanlandi). Aniq formula (necha soat oldin -> necha ball)
+hali kod yozishdan oldin belgilanishi kerak — bu 3-bosqich boshlanganda
+hal qilinadi, hozircha faqat "yondashuv" tasdiqlangan, "formula" emas.
 
 Mezon aniqlangач:
 - `penalty_service.calculate_plus_ball()` to'ldiriladi va `finish_task()`
@@ -69,13 +69,11 @@ TZ matni: "Ishchining minus balidan brigadirga ulush o'tishi
 rejalashtirilgan (ilgari taklif: ≈1/3). Aniq foiz hali RASMAN
 tasdiqlanmagan." Hozir `app_settings.brigade_share_ratio` default `0.33`
 bilan **KODDA ALLAQACHON SOZLANADIGAN** (admin `/settings` orqali
-o'zgartira oladi) — bu qism texnik jihatdan tayyor, faqat YAKUNIY qiymat
-biznes tomondan rasman tasdiqlanishi kerak (0.33 vaqtinchalik default).
+o'zgartira oladi).
 
-**Harakat**: kod o'zgarishi shart emas — foydalanuvchidan yakuniy foizni
-so'rab, kerak bo'lsa `/settings` orqali production qiymatini yangilash
-kifoya. Faqat izoh/hujjatdagi "hali tasdiqlanmagan" degan eslatmalarni olib
-tashlash uchun tasdiq kerak.
+**HAL QILINDI** (foydalanuvchi tasdiqlagan, 2026-07-17): 0.33 (1/3) YAKUNIY
+qiymat sifatida tasdiqlandi. Kod o'zgarishi kerak emas — default qiymat
+allaqachon to'g'ri.
 
 ## C. Checklist jarayoni (6.2-band, 2-bosqich C.2 bilan bog'liq)
 
@@ -105,7 +103,15 @@ hisob-kitobi va to'lovni amalga oshirish keyingi (moliya) fazaga
 qoldiriladi" (18-band: moliya moduli bu TZ chegarasidan tashqarida).
 
 TZ 19-band ochiq savol #4b: "Tizim faqat BAYROQLASHI yetarlimi, yoki summa
-hisob-kitobi ham kerakmi?" — **BLOKLANGAN**, foydalanuvchidan tasdiq kerak.
+hisob-kitobi ham kerakmi?" — **QISMAN HAL QILINDI** (foydalanuvchi
+tasdiqlagan, 2026-07-17): faqat bayroqlash EMAS, summa hisob-kitobi ham
+kerak. **Hali BLOKLANGAN qoladi**: bu tizimda hech qanday to'lov/avans/
+shartnoma summasi ma'lumoti umuman yo'q (moliya moduli yo'q, TZ 18-band
+buni tashqarida deb belgilaydi) — "summa hisob-kitobi" qilish uchun avval
+qaysi summalar (buyurtma narxi? avans foizi? valyuta?) va ular qayerdan
+kiritilishi (admin qo'lda? alohida moliya integratsiyasi?) ANIQLANISHI
+SHART. 3-bosqich boshlanganda shu tafsilotlar bo'yicha qo'shimcha savol
+kerak bo'ladi — taxmin qilinmaydi.
 
 Agar faqat bayroqlash tasdiqlansa (TZning o'z matni shuni aytadi):
 - `tasks` jadvaliga yangi bool/flag ustun: masalan `flagged_long_duration`

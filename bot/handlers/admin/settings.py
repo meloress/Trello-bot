@@ -8,28 +8,38 @@ modul darajasida routerga ulangan (pastda). Har bir o'zgartirish
 """
 
 import logging
-from datetime import datetime
 
-from aiogram import F, Router
-from aiogram.filters import Command
+from aiogram import Bot, F, Router
+from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from core.database import async_session
-from core.scheduler import scheduler
 from db.models.employee import Employee
 from db.repositories import DepartmentRepository
+from jobs import reminder_job
 from keyboards.admin_kb import (
+    REMINDER_ADD,
+    REMINDER_BACK,
     SETTING_FIELD_LABELS,
     SKIP,
+    DepartmentAutoReassignToggle,
     DepartmentSelect,
+    ReminderEntryDelete,
+    ReminderEntryEdit,
+    ReminderEntrySelect,
+    ReminderUrgencySelect,
     SettingField,
+    build_autoreassign_keyboard,
     build_department_keyboard,
+    build_reminder_entry_action_keyboard,
+    build_reminder_schedule_keyboard,
     build_settings_keyboard,
+    build_urgency_keyboard,
 )
 from middlewares.auth import RoleAccessMiddleware
 from services import settings_service
-from states.settings_states import DepartmentChainStates, SettingsStates
+from states.settings_states import DepartmentChainStates, ReminderScheduleStates, SettingsStates
 from utils.enums import Role
 
 logger = logging.getLogger(__name__)
@@ -39,7 +49,6 @@ router.message.middleware(RoleAccessMiddleware({Role.ADMIN, Role.SUPERVISOR}))
 router.callback_query.middleware(RoleAccessMiddleware({Role.ADMIN, Role.SUPERVISOR}))
 
 _PROMPTS = {
-    "remind_time": "Yangi eslatma vaqtini kiriting (HH:MM, masalan: 08:30):",
     "default_penalty_multiplier": "Yangi jarima ko'paytiruvchisini kiriting (masalan: 1.0):",
     "brigade_share_ratio": "Yangi brigadir ulushini kiriting (0 dan 1 gacha, masalan: 0.33):",
     "balls_per_day_shift": "Har necha minus ball uchun to'lov kuni 1 kunga surilishini kiriting (butun son, masalan: 5):",
@@ -47,10 +56,7 @@ _PROMPTS = {
 
 
 def _format_value(field: str, snapshot: settings_service.AppSettingsSnapshot) -> str:
-    value = getattr(snapshot, field)
-    if field == "remind_time":
-        return value.strftime("%H:%M")
-    return str(value)
+    return str(getattr(snapshot, field))
 
 
 async def _build_settings_text() -> str:
@@ -63,8 +69,6 @@ async def _build_settings_text() -> str:
 
 def _parse_value(field: str, text: str) -> object:
     text = text.strip()
-    if field == "remind_time":
-        return datetime.strptime(text, "%H:%M").time()
     if field == "default_penalty_multiplier":
         value = float(text)
         if not (0 < value <= 10):
@@ -135,14 +139,6 @@ async def on_setting_value_received(message: Message, state: FSMContext, employe
         return
 
     await state.clear()
-
-    if field == "remind_time":
-        try:
-            scheduler.reschedule_job(
-                "reminder_job", trigger="cron", hour=value.hour, minute=value.minute
-            )
-        except Exception:
-            logger.exception("reminder_job'ni qayta rejalashtirishda xatolik")
 
     logger.info(
         "Sozlama o'zgartirildi: %s -> %s (kim: %s, telegram_id=%s)",
@@ -248,3 +244,213 @@ async def on_next_department_selected(
 @router.callback_query(DepartmentChainStates.waiting_for_next_department, F.data == SKIP)
 async def on_next_department_skipped(callback: CallbackQuery, state: FSMContext) -> None:
     await _save_department_chain(callback, state, next_department_id=None)
+
+
+# ---------- 8.3-band: bo'lim darajasidagi avto-brigadaga-o'tkazish sozlamasi ----------
+
+
+@router.message(Command("autoreassign"))
+async def cmd_autoreassign(message: Message, state: FSMContext) -> None:
+    try:
+        await state.clear()
+        departments = await _list_all_departments()
+        if not departments:
+            await message.answer("Bazada bo'lim topilmadi.")
+            return
+        await message.answer(
+            "8.3-band: 48 soatdan ortiq kechikkanda avtomatik brigadaga o'tkazish "
+            "signali qaysi bo'limlarda yoqilgan bo'lsin?",
+            reply_markup=build_autoreassign_keyboard(departments),
+        )
+    except Exception:
+        logger.exception("cmd_autoreassign xatosi")
+        await message.answer("Kutilmagan xatolik yuz berdi.")
+
+
+@router.callback_query(DepartmentAutoReassignToggle.filter())
+async def on_autoreassign_toggled(
+    callback: CallbackQuery, callback_data: DepartmentAutoReassignToggle
+) -> None:
+    try:
+        async with async_session() as session:
+            department_repo = DepartmentRepository(session)
+            department = await department_repo.get_by_id(callback_data.department_id)
+            if department is None:
+                await callback.answer("Bo'lim topilmadi.", show_alert=True)
+                return
+            await department_repo.update(
+                department, auto_reassign_after_48h=not department.auto_reassign_after_48h
+            )
+            await session.commit()
+
+        departments = await _list_all_departments()
+        if callback.message:
+            await callback.message.edit_reply_markup(reply_markup=build_autoreassign_keyboard(departments))
+        await callback.answer("Yangilandi ✅")
+    except Exception:
+        logger.exception("on_autoreassign_toggled xatosi (department_id=%s)", callback_data.department_id)
+        await callback.answer("Kutilmagan xatolik yuz berdi.", show_alert=True)
+
+
+# ---------- 7.3-band: eslatma jadvali (`/reminders`) ----------
+
+
+@router.message(Command("reminders"))
+async def cmd_reminders(message: Message, state: FSMContext) -> None:
+    try:
+        await state.clear()
+        snapshot = await settings_service.get_settings()
+        await message.answer(
+            "🕗 Kunlik eslatma jadvali:",
+            reply_markup=build_reminder_schedule_keyboard(snapshot.reminder_schedule),
+        )
+    except Exception:
+        logger.exception("cmd_reminders xatosi")
+        await message.answer("Kutilmagan xatolik yuz berdi.")
+
+
+@router.callback_query(F.data == REMINDER_BACK)
+async def on_reminders_back(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    snapshot = await settings_service.get_settings()
+    if callback.message:
+        await callback.message.edit_text(
+            "🕗 Kunlik eslatma jadvali:",
+            reply_markup=build_reminder_schedule_keyboard(snapshot.reminder_schedule),
+        )
+    await callback.answer()
+
+
+@router.callback_query(ReminderEntrySelect.filter())
+async def on_reminder_entry_selected(
+    callback: CallbackQuery, callback_data: ReminderEntrySelect, state: FSMContext
+) -> None:
+    try:
+        await state.clear()
+        snapshot = await settings_service.get_settings()
+        entry = snapshot.reminder_schedule[callback_data.index]
+        if callback.message:
+            await callback.message.edit_text(
+                f"🕗 {entry['time']} — {entry['urgency']}",
+                reply_markup=build_reminder_entry_action_keyboard(callback_data.index),
+            )
+        await callback.answer()
+    except IndexError:
+        await callback.answer("Bu yozuv allaqachon o'chirilgan.", show_alert=True)
+    except Exception:
+        logger.exception("on_reminder_entry_selected xatosi (index=%s)", callback_data.index)
+        await callback.answer("Kutilmagan xatolik yuz berdi.", show_alert=True)
+
+
+@router.callback_query(F.data == REMINDER_ADD)
+async def on_reminder_add_requested(callback: CallbackQuery, state: FSMContext) -> None:
+    try:
+        await state.set_state(ReminderScheduleStates.waiting_for_time)
+        await state.update_data(mode="add")
+        if callback.message:
+            await callback.message.answer("Yangi eslatma vaqtini kiriting (HH:MM, masalan: 15:00):")
+        await callback.answer()
+    except Exception:
+        logger.exception("on_reminder_add_requested xatosi")
+        await callback.answer("Kutilmagan xatolik yuz berdi.", show_alert=True)
+
+
+@router.callback_query(ReminderEntryEdit.filter())
+async def on_reminder_edit_requested(
+    callback: CallbackQuery, callback_data: ReminderEntryEdit, state: FSMContext
+) -> None:
+    try:
+        await state.set_state(ReminderScheduleStates.waiting_for_time)
+        await state.update_data(mode="edit", index=callback_data.index)
+        if callback.message:
+            await callback.message.answer("Yangi vaqtni kiriting (HH:MM, masalan: 15:00):")
+        await callback.answer()
+    except Exception:
+        logger.exception("on_reminder_edit_requested xatosi (index=%s)", callback_data.index)
+        await callback.answer("Kutilmagan xatolik yuz berdi.", show_alert=True)
+
+
+@router.callback_query(ReminderEntryDelete.filter())
+async def on_reminder_delete_requested(
+    callback: CallbackQuery, callback_data: ReminderEntryDelete, state: FSMContext, bot: Bot
+) -> None:
+    try:
+        snapshot = await settings_service.get_settings()
+        schedule = list(snapshot.reminder_schedule)
+        if not 0 <= callback_data.index < len(schedule):
+            await callback.answer("Bu yozuv allaqachon o'chirilgan.", show_alert=True)
+            return
+
+        del schedule[callback_data.index]
+        updated = await settings_service.update_setting(reminder_schedule=schedule)
+        reminder_job.schedule_all(bot, updated.reminder_schedule)
+
+        await state.clear()
+        if callback.message:
+            await callback.message.edit_text(
+                "🕗 Kunlik eslatma jadvali:",
+                reply_markup=build_reminder_schedule_keyboard(updated.reminder_schedule),
+            )
+        await callback.answer("O'chirildi ✅")
+    except Exception:
+        logger.exception("on_reminder_delete_requested xatosi (index=%s)", callback_data.index)
+        await callback.answer("Kutilmagan xatolik yuz berdi.", show_alert=True)
+
+
+@router.message(Command("cancel"), StateFilter(ReminderScheduleStates))
+async def cmd_cancel_reminder(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    await message.answer("Bekor qilindi.")
+
+
+@router.message(ReminderScheduleStates.waiting_for_time)
+async def on_reminder_time_received(message: Message, state: FSMContext) -> None:
+    text = (message.text or "").strip()
+    try:
+        hour, minute = text.split(":")
+        if not (0 <= int(hour) <= 23 and 0 <= int(minute) <= 59):
+            raise ValueError
+    except ValueError:
+        await message.answer("Format noto'g'ri. Masalan: 15:00 shaklida kiriting:")
+        return
+
+    await state.update_data(time=f"{int(hour):02d}:{int(minute):02d}")
+    await state.set_state(ReminderScheduleStates.waiting_for_urgency)
+    await message.answer("Eskalatsiya darajasini tanlang:", reply_markup=build_urgency_keyboard())
+
+
+@router.callback_query(ReminderScheduleStates.waiting_for_urgency, ReminderUrgencySelect.filter())
+async def on_reminder_urgency_selected(
+    callback: CallbackQuery, callback_data: ReminderUrgencySelect, state: FSMContext, bot: Bot
+) -> None:
+    data = await state.get_data()
+    await state.clear()
+
+    try:
+        snapshot = await settings_service.get_settings()
+        schedule = list(snapshot.reminder_schedule)
+        new_entry = {"time": data["time"], "urgency": callback_data.urgency}
+
+        if data.get("mode") == "edit":
+            schedule[data["index"]] = new_entry
+        else:
+            schedule.append(new_entry)
+
+        updated = await settings_service.update_setting(reminder_schedule=schedule)
+        reminder_job.schedule_all(bot, updated.reminder_schedule)
+    except settings_service.InvalidReminderScheduleError as exc:
+        await callback.answer()
+        if callback.message:
+            await callback.message.answer(f"Xatolik: {exc}")
+        return
+    except Exception:
+        logger.exception("on_reminder_urgency_selected xatosi")
+        await callback.answer("Kutilmagan xatolik yuz berdi.", show_alert=True)
+        return
+
+    await callback.answer("Saqlandi ✅")
+    if callback.message:
+        await callback.message.answer(
+            "🕗 Kunlik eslatma jadvali:",
+            reply_markup=build_reminder_schedule_keyboard(updated.reminder_schedule),
+        )

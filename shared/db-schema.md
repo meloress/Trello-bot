@@ -24,6 +24,7 @@ migratsiyalar faqat Alembic (`bot/db/migrations/`) orqali amalga oshiriladi.
 | name | VARCHAR(100) | masalan: "Fasad sexi", "Stolyar", "Shkurka", "Kraska" |
 | trello_list_id | VARCHAR(50) | shu yo'nalishga tegishli vazifalar yoziladigan Trello ro'yxati (list) ID'si; NULL = hali sozlanmagan, `task_service.create_task()` bunday yo'nalish uchun aniq xato ko'taradi (`4aeafdfa9317` migratsiyasi) |
 | next_department_id | FK -> departments.id | NULL bo'lishi mumkin; standart ishlab chiqarish ketma-ketligidagi KEYINGI bo'lim (masalan Stolyar.next = Shkurka.id, 6.1/7.4-band, `576f19bf5629` migratsiyasi). NULL = zanjirning so'nggi bosqichi. `task_service.advance_task_stage()` shu ustunga qarab buyurtmani avtomatik keyingi bosqichga o'tkazadi. `/deptchain` buyrug'i orqali (`handlers/admin/settings.py`) sozlanadi |
+| auto_reassign_after_48h | BOOLEAN | default: false (8.3-band, `470b837c8dae` migratsiyasi). `True` bo'lsa, shu bo'limdagi OVERDUE buyurtma muddatidan 48 soatdan ortiq kechiksa `overdue_watch_job` AVTOMATIK signal beradi (brigada tanlovi va yakuniy tasdiq qo'lda, `handlers/admin/reassign_task.py`). `/autoreassign` buyrug'i orqali sozlanadi |
 | created_at / updated_at | TIMESTAMPTZ | |
 
 **Bog'lanishlar**: `brigades` (1-M), `employees` (1-M), `tasks` (1-M, `current_department_id` orqali), `next_department` (M-1, o'z-o'ziga, ixtiyoriy).
@@ -46,7 +47,8 @@ migratsiyalar faqat Alembic (`bot/db/migrations/`) orqali amalga oshiriladi.
 | telegram_id | BIGINT, UNIQUE | NULL bo'lishi mumkin — botga hali ulanmagan xodim uchun |
 | full_name | VARCHAR(150) | |
 | phone_number | VARCHAR(20), UNIQUE | NULL bo'lishi mumkin; `2d518eef70c7` migratsiyasi (5.1-band, dublikat oldini olish) |
-| trello_username | VARCHAR(100) | NULL |
+| trello_username | VARCHAR(100) | NULL; xodim yaratish/tahrirlashda kiritilsa, `trello.get_member_id()` orqali darhol tekshiriladi (`handlers/admin/employee_management.py`) |
+| trello_member_id | VARCHAR(50) | NULL; Trello a'zo ID'si (24 xonali hex, `470b837c8dae` migratsiyasi, 6.2-band). `trello_username` kiritilganda avtomatik to'ldiriladi — `task_service.create_task()`/`advance_task_stage()`/`activate_pending_stage()` shu orqali kartaga real a'zo qo'shadi/olib tashlaydi |
 | gmail | VARCHAR(150) | NULL |
 | role | VARCHAR (Enum) | `admin`, `supervisor`, `brigadier`, `worker`, `seller`, `observer` |
 | department_id | FK -> departments.id | NULL bo'lishi mumkin (masalan, admin/observer uchun) |
@@ -79,6 +81,10 @@ migratsiyalar faqat Alembic (`bot/db/migrations/`) orqali amalga oshiriladi.
 | started_at | TIMESTAMPTZ | Ko'p bosqichli oqimda: yangi bosqich yaratilgan daqiqa (bo'limga "yetib kelgan" payt, 8.1-band talabiga mos — muddat hali kiritilmagan bo'lsa ham taymer boshlanish nuqtasi shu) |
 | finished_at | TIMESTAMPTZ | NULL |
 | previous_task_id | FK -> tasks.id | NULL bo'lishi mumkin; bir xil buyurtmaning OLDINGI bosqich-qatoriga ishora (zanjir, `576f19bf5629` migratsiyasi). Ildiz bosqich (buyurtmaning birinchi qatori) uchun NULL — "nechta ZAKAZ (buyurtma, bosqich emas) topshirdi" ko'rsatkichi kerak bo'lsa, `previous_task_id IS NULL` orqali sanaladi |
+| day_left_notified_at | TIMESTAMPTZ, NULL | 7.2-band (`470b837c8dae`): "muddatga 1 kun qoldi" signali yuborilgan payt — `overdue_watch_job` qayta yubormasligi uchun (bir marta yozilgach, shu bosqich uchun qayta signal kelmaydi) |
+| reassignment_signaled_at | TIMESTAMPTZ, NULL | 8.3-band (`470b837c8dae`): bo'lim `auto_reassign_after_48h=true` bo'lganda, 48 soatdan ortiq kechikkanda `overdue_watch_job` avtomatik signal yozgan payt (rahbar hali brigada tanlamagan/tasdiqlamagan bo'lishi mumkin — bu faqat signal, `reassigned_at`dan farqli) |
+| reassigned_at | TIMESTAMPTZ, NULL | 8.3-band (`470b837c8dae`): rahbar brigadani QO'LDA almashtirgan payt (`task_service.reassign_task_brigade()`). Bo'lsa, `penalty_service.calculate_and_apply_task_penalty()` kechikishni `deadline` o'rniga shu vaqtdan hisoblaydi — eski brigada allaqachon darhol jarimalangan davrni yangi brigadaga qayta hisoblamaslik uchun |
+| trello_checklist_id | VARCHAR(50), NULL | 6.2-band (`470b837c8dae`): kartadagi "Bosqichlar" checklist ID'si — bir xil `trello_card_id`ni bo'lishuvchi barcha bosqich-qatorlariga bir xil qiymat ko'chiriladi (`advance_task_stage()`) |
 | created_at / updated_at | TIMESTAMPTZ | |
 
 **MISC vazifalar KPI/jarima tizimiga ORDER bilan BIR XIL qoidada ta'sir qiladi**
@@ -109,6 +115,25 @@ chaqirmaydi (karta arxivlanishi = butun buyurtmaning TERMINAL yopilishi, keyingi
 bosqichga o'tish emas — ikkovi ziddiyatli bo'lardi). `daily_sync_job._list_open_tasks()`
 `pending_setup` qatorlarni chetlab o'tadi (`deadline=NULL` bilan `determine_status()`
 chaqirilsa yiqiladi, va muddat hali yo'qligi sabab label tekshiruvi ma'nosiz).
+
+**6.2-band (karta a'zo + checklist)**: `create_task()` kartaga har bir
+biriktirilgan xodimni (agar `trello_member_id` bo'lsa) a'zo qilib qo'shadi va
+bo'lim zanjiri bo'yicha "Bosqichlar" checklist yaratadi (`trello_checklist_id`).
+`advance_task_stage()` eski bosqich checklist punktini "complete" belgilaydi va
+eski xodimlarni kartadan a'zolikdan chiqaradi; `activate_pending_stage()` yangi
+bosqich xodimlarini qayta a'zo qilib qo'shadi. Hammasi ikkinchi-darajali effekt
+— xato bo'lsa faqat log qilinadi, asosiy oqim (karta/baza yozuvi) to'xtamaydi.
+
+**7.2-band (muddat kuzatuvi)** va **8.3-band (avto brigadaga o'tkazish)**:
+`jobs/overdue_watch_job.py` har soat: (1) `deadline` 24 soat ichida bo'lgan
+ACTIVE/STOPPED tasklarga "1 kun qoldi" signali (`day_left_notified_at`), (2)
+`deadline` o'tib ketgan tasklarni `OVERDUE`ga o'tkazadi, (3) bo'limi
+`auto_reassign_after_48h=true` bo'lgan 48 soatdan ortiq OVERDUE tasklarga
+brigadaga-o'tkazish signali (`reassignment_signaled_at`) beradi. Yakuniy
+brigada tanlovi va tasdiq qo'lda (`task_service.reassign_task_brigade()`,
+`handlers/admin/reassign_task.py`): eski brigadaga DARHOL jarima, task
+`COMPLETED` qilinmaydi, `reassigned_at` belgilanadi — yakunlanganda
+`penalty_service` kechikishni shu vaqtdan hisoblaydi (`deadline`dan emas).
 
 **Bog'lanishlar**: `current_department` (M-1), `assignments` (1-M, cascade delete),
 `stop_logs` (1-M, cascade delete), `previous_task` (M-1, o'z-o'ziga, ixtiyoriy).
@@ -179,19 +204,21 @@ tegish shart emas, faqat yangi qator yetarli.
 | Ustun | Tur | Izoh |
 |---|---|---|
 | id | PK | doim faqat bitta qator (id=1) |
-| remind_time | TIME | kunlik eslatma job'i ishga tushadigan vaqt (default: 08:30) |
+| reminder_schedule | JSON | 7.3-band (`470b837c8dae` migratsiyasi, eski `remind_time` TIME ustuni o'rniga): `[{"time": "HH:MM", "urgency": "info"\|"warning"\|"urgent"}, ...]` — kun davomida bir necha marta, eskalatsiya darajasi bilan kuchayib boradigan eslatma jadvali. Default: 09:00/13:00 (info), 15:00 (warning), 17:00 (urgent) |
 | default_penalty_multiplier | FLOAT | `penalty_rules.score`ga qo'llanadigan global ko'paytiruvchi (default: 1.0) |
-| brigade_share_ratio | FLOAT | ishchi minus balidan brigadirga o'tadigan ulush (8.4-band, default: 0.33) |
+| brigade_share_ratio | FLOAT | ishchi minus balidan brigadirga o'tadigan ulush (8.4-band, default: 0.33 — yakuniy tasdiqlangan qiymat) |
 | balls_per_day_shift | INTEGER | har N minus ball uchun to'lov kuni 1 kunga suriladi (8.5-band, default: 5) |
 | created_at / updated_at | TIMESTAMPTZ | |
 
 `f490887dee10` migratsiyasi orqali yaratilgan va bitta seed qator bilan
 boshlang'ich qiymatlarga ega. Har doim `services/settings_service.py` orqali
 (xotirada keshlangan holda) o'qiladi/yangilanadi — jadvalga to'g'ridan-to'g'ri
-murojaat qilinmaydi. `remind_time` o'zgarganda `jobs/reminder_job.py`ning
-APScheduler jadvali (`main.py`da ro'yxatdan o'tkazilgan) `scheduler.reschedule_job()`
-orqali darhol qayta rejalashtiriladi. Faqat `Role.ADMIN`/`Role.SUPERVISOR`
-o'zgartira oladi (`middlewares/auth.py: RoleAccessMiddleware`).
+murojaat qilinmaydi. `reminder_schedule` o'zgarganda `jobs/reminder_job.
+schedule_all()` barcha `reminder_job_*` APScheduler job'larini (`main.py`da
+ro'yxatdan o'tkazilgan) olib tashlab, ro'yxatga mos ravishda qayta yaratadi
+(`handlers/admin/settings.py`ning `/reminders` oqimi har o'zgarishdan keyin
+shu funksiyani chaqiradi). Faqat `Role.ADMIN`/`Role.SUPERVISOR` o'zgartira
+oladi (`middlewares/auth.py: RoleAccessMiddleware`).
 
 `BASE_PAYMENT_DAY` (8.5-banddagi bazaviy to'lov kuni, 15) bu ro'yxatda YO'Q —
 `penalty_service.py`da hali konstanta bo'lib qolmoqda, chunki so'ralgan 4 ta

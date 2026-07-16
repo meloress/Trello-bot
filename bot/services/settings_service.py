@@ -7,15 +7,21 @@ yangilanadi.
 """
 
 from dataclasses import dataclass
-from datetime import time
 
 from core.database import async_session
 from db.repositories import AppSettingRepository
+from utils.enums import ReminderUrgency
+
+_URGENCY_VALUES = {u.value for u in ReminderUrgency}
+
+
+class InvalidReminderScheduleError(Exception):
+    """`reminder_schedule` ro'yxati noto'g'ri formatda (7.3-band validatsiyasi)."""
 
 
 @dataclass(frozen=True)
 class AppSettingsSnapshot:
-    remind_time: time
+    reminder_schedule: list[dict]
     default_penalty_multiplier: float
     brigade_share_ratio: float
     balls_per_day_shift: int
@@ -24,11 +30,34 @@ class AppSettingsSnapshot:
 _cache: AppSettingsSnapshot | None = None
 
 
+def validate_reminder_schedule(schedule: list[dict]) -> None:
+    """7.3/16-band: har vaqt HH:MM formatida, takrorlanmasin, urgency uchta
+    qiymatdan biri bo'lsin. Bo'sh ro'yxatga ruxsat bor (barcha eslatmalarni
+    o'chirib qo'yish — admin qarori)."""
+    seen_times: set[str] = set()
+    for entry in schedule:
+        time_str = entry.get("time")
+        urgency = entry.get("urgency")
+        try:
+            hour, minute = time_str.split(":")
+            if not (0 <= int(hour) <= 23 and 0 <= int(minute) <= 59):
+                raise ValueError
+        except (AttributeError, ValueError):
+            raise InvalidReminderScheduleError(f"Noto'g'ri vaqt formati: {time_str!r} (HH:MM kerak)")
+        if time_str in seen_times:
+            raise InvalidReminderScheduleError(f"Vaqt takrorlanmoqda: {time_str}")
+        seen_times.add(time_str)
+        if urgency not in _URGENCY_VALUES:
+            raise InvalidReminderScheduleError(
+                f"Noto'g'ri urgency: {urgency!r} ({', '.join(sorted(_URGENCY_VALUES))} bo'lishi kerak)"
+            )
+
+
 async def _load_from_db() -> AppSettingsSnapshot:
     async with async_session() as session:
         row = await AppSettingRepository(session).get_singleton()
     return AppSettingsSnapshot(
-        remind_time=row.remind_time,
+        reminder_schedule=row.reminder_schedule,
         default_penalty_multiplier=row.default_penalty_multiplier,
         brigade_share_ratio=row.brigade_share_ratio,
         balls_per_day_shift=row.balls_per_day_shift,
@@ -53,6 +82,9 @@ async def refresh() -> AppSettingsSnapshot:
 async def update_setting(**fields: object) -> AppSettingsSnapshot:
     """Bitta yoki bir nechta maydonni bazada yangilaydi va keshni yangilab qaytaradi.
     Masalan: `await update_setting(brigade_share_ratio=0.4)`."""
+    if "reminder_schedule" in fields:
+        validate_reminder_schedule(fields["reminder_schedule"])
+
     async with async_session() as session:
         repo = AppSettingRepository(session)
         row = await repo.get_singleton()
