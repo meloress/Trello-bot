@@ -15,35 +15,40 @@ Only `bot/` (via Alembic) may run migrations. `web/` reads/writes the existing s
 
 ## Project status and roadmap
 
-The official 6-phase plan (TZ §17) lives, phase by phase, in `.claude/plans/`
-(`README.md` there is the index with a status table). Phases 1 and 2
-(employee/Trello/task-progression core, then deadline timers + reminder
-escalation + OVERDUE tracking + Trello member/checklist sync + 8.3
-auto-reassignment) are done and smoke-tested against real infrastructure.
-Phase 3 (KPI) is done too, same standard: plus-ball
-(`calculate_plus_ball`, day-index-based with a 24h grace period baked into
-`calculate_and_apply_task_penalty` before the late-penalty path), brigade
-share (0.33 final), and 8.6 financial flagging (`financial_service.py` +
-`financial_suggestions` table) are all implemented.
-Phase 4 (statistics/dashboard, periodic reports, client notifications) is
-also done: `web/` now has a real dashboard (see below), `jobs/report_job.py`
-sends scheduled daily/weekly/monthly Telegram summaries, a `clients` table +
-`services/client_service.py` drive automatic client notifications on stage
-advance/"Stop" (Telegram-only — SMS was explicitly ruled out of scope), and
-the Phase 3 admin UI gap (manually entering amounts for financial
-suggestions) was closed via `/moliyaviy` and `/avanskechirim`
-(`handlers/admin/financial.py`). Phase 5 (sales CRM) is done too: a
-`leads`/`call_logs` domain (`services/sales_service.py`,
-`handlers/sales/leads.py`) reuses the `clients` table but is otherwise fully
-independent of the production `tasks`/KPI domain (see below) — manual
-call-log entry only, IP-telephony integration was explicitly deferred (no
-provider chosen). Phase 6's SaaS/billing portion is explicitly out of scope
-until a Ping billing contract exists; read `.claude/plans/06-test-va-saas.md`
-before assuming any of that is buildable.
+TZ §1-13/16-17 (the production core: employee database, Trello structure,
+timers/reminders/Stop, KPI/penalties, stats/dashboard, client notifications,
+sales CRM) is implemented and committed — full band-by-band traceability
+lives in `shared/db-schema.md` (every table/column cites its TZ section) and
+in git history (`git log --oneline` — commits are phase-labeled). `.claude/plans/`
+no longer tracks finished phases; as of a full TZ re-audit (2026-07-17,
+reading `TZ_content.txt` band-by-band against the actual code) it holds only
+**remaining work**, organized as one file per item (`README.md` there is the
+current index/status table) — check it before assuming something is done or
+undone. That audit found the production core is high-fidelity but not
+100%: five concrete gaps against explicit TZ requirements (not open
+questions) — no Trello card comment on "Stop" (§7.5), the card-label
+automation only covers 3 of TZ's 5 states and never reflects STOPPED (§6.3),
+no department-level stats cut (§10.1), no web-panel employee-add UI (§4.2,
+still bot-only), and no "everyone can see all open misc tasks" list (§9).
+Phase 6 splits into two very different pieces: **Part A** (end-to-end smoke
+test + production launch) is ordinary engineering work and is ready to run
+— `bot/_smoke_e2e_full.py` exercises the full lifecycle (create → overdue →
+8.3 reassignment → late penalty → multi-stage advance → early-finish plus
+ball → client notification → stats → report) against the real Trello
+"Test" board, and `bot/railway.json` is the deploy config for running the
+bot as its own Railway service (chosen host — same project as the existing
+Postgres; `restartPolicyType: ON_FAILURE` covers the 16-band auto-restart
+requirement natively, no systemd/pm2 needed) — but it hasn't actually been
+run/deployed yet. **Parts B/C/D** (Ping billing, multi-tenant
+`organization_id` refactor, video lessons) are explicitly out of scope
+until a Ping billing contract exists (TZ §19 open question #13) — don't
+write real billing/multi-tenant code from a guess at that contract's shape.
 
-Each phase plan documents its own **open questions that block implementation**
-— when a plan says a decision is blocked, don't guess a business rule to fill
-the gap; ask.
+Each remaining-work plan documents its own **open questions or decisions
+that block implementation** — when a plan says a decision is blocked, don't
+guess a business rule to fill the gap; ask. `.claude/plans/07-tz-ochiq-savollar.md`
+consolidates TZ §19's own open-question list against current status (most
+are resolved with a working default; a couple are genuinely still open).
 
 ## Commands
 
@@ -67,6 +72,8 @@ python main.py
 Web panel: `cd web && npm install && npm start` (or `npm run dev` for nodemon). Reads the **same root `.env`** as `bot/` (`dotenv.config({ path: '../.env' })`), plus its own `WEB_ADMIN_PASSWORD`/`WEB_SESSION_SECRET` — `server.js` exits immediately at startup if either is unset.
 
 **There is no automated test suite** (`bot/tests/` is an empty scaffold, no pytest in `requirements.txt`). Verification is done by writing a one-off script that calls services directly against the **real** Railway Postgres DB and, for Trello-touching work, the real Trello account's dedicated **"Test"** board — never the production **"Fasad seh"** board. Pattern used throughout this codebase's history: write a temp `bot/_smoke_<feature>.py` script, run it with `.venv/Scripts/python`, assert expected DB/Trello state, then delete test rows (watch FK ordering — see Gotchas) and delete the script when done.
+
+Production deploy target is **Railway** (`bot/railway.json`, NIXPACKS build, `python main.py` as a long-running polling worker — not a webhook, so no public URL/port needed). Deploy as its own service with Root Directory set to `bot/`; it reads env vars the same way locally (`config.Settings` via `.env`/`BASE_DIR`), so on Railway set `BOT_TOKEN`/`TRELLO_API_KEY`/`TRELLO_TOKEN`/`DATABASE_URL` as service environment variables instead (no `.env` file gets deployed — it's git-ignored).
 
 ## Architecture
 

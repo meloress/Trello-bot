@@ -1,35 +1,49 @@
-TZ 17-band rasmiy jadvali:
+# Qolgan ishlar rejasi (2026-07-17 chuqur TZ auditidan keyin)
 
-| Etap | Bosqich | Mazmuni | Holat |
-|---|---|---|---|
-| 1-etap | 1-bosqich | Xodimlar bazasi + Trello board/karta tuzilishi + asosiy bot (vazifa berish/qabul, ishchi oynasi, ko'p bosqichli progressiya) | Bajarilgan, real infratuzilmada sinovdan o'tgan |
-| 1-etap | 2-bosqich | Muddat/taymer va rang avtomatikasi; eslatmalar jadvali (09:00/13:00/15:00/17:00/18:00); "Stop" funksiyasi va signallar | Bajarilgan, real infratuzilmada sinovdan o'tgan: 02-muddat-eslatma-stop.md |
-| 2-etap | 3-bosqich | KPI: minus/plus ball, brigadir ulushi, checklist jarayoni | Bajarilgan, real Railway DB'da sinovdan o'tgan (Telegram UI sinovisiz): 03-kpi-ball-tizimi.md |
-| 2-etap | 4-bosqich | Statistika/dashboard, oylik eng yomon/eng yaxshi reytinglar, Telegram hisobotlar, mijoz xabarnomalari | Bajarilgan, real Railway DB'da sinovdan o'tgan (Telegram bot UI va brauzer vizual sinovisiz): 04-statistika-dashboard.md |
-| 3-etap | 5-bosqich | Sotuv CRM (Ezza + Melores), qo'ng'iroqlar bazasi, lid eslatmalari | Bajarilgan, real Railway DB + Trello "Test" board'da sinovdan o'tgan (Telegram bot UI sinovisiz); IP-telefoniya integratsiyasi ataylab qurilmagan (provayder tanlanmagan): 05-sotuv-crm.md |
-| 3-etap | 6-bosqich | Umumiy test, ishga tushirish; SaaS tayyorgarlik: billing (Ping), obuna, video darslar | A-qismi (test/ishga tushirish) bajarishga tayyor — smoke skript va Railway deploy config yozilgan; B/C/D (Ping billing/multi-tenant/video) TZ 19-band #13 (Ping shartnoma) hal bo'lmagani uchun spekulyativ dizayn holida: 06-test-va-saas.md |
+Bu papka endi **faqat tugallanmagan ishlarni** kuzatadi. Avvalgi 6 bosqichlik
+tarixiy hujjatlar (01-06, har biri "Bajarilgan" deb yopilgan) bu yerdan olib
+tashlandi — ular endi kerak emas, chunki:
 
-Ishlash tartibi: har bir bosqich to'liq amalga oshirilib, real infratuzilmada
-(Railway Postgres + Trello "Test" board, hech qachon "Fasad seh" production
-board emas) sinovdan o'tkazilgandan keyingina navbatdagi bosqichga o'tiladi —
-bu loyihada avvaldan o'rnatilgan qat'iy tartib (CLAUDE.md ga qarang). Har
-bosqich ichida ham qismlar (A/B/C/D...) ketma-ket bajariladi, parallel emas.
+- To'liq qaror tarixi (nima nega shunday qilingan, foydalanuvchi bilan qanday
+  kelishilgan) **git tarixida** saqlanadi (`git log --oneline`, eski
+  commitlar: "Phase 2: ...", "Phases 3-5: ...").
+- Joriy sxema va band-band izohlar **`shared/db-schema.md`**da yuritiladi —
+  har bir jadval/ustun TZ band raqami bilan izohlangan, doim yangilanadi.
+- Arxitektura va konvensiyalar **`CLAUDE.md`**da.
 
-Har bosqich tugagach: shared/db-schema.md bosqichma-bosqich yangilanadi
-(hammasi oxirida emas); ishlatilgan vaqtinchalik smoke-test skriptlari
-(bot/_smoke_*.py) o'chiriladi; ushbu papkadagi mos fayl holati "Bajarilgan"
-ga yangilanadi.
+Eski hujjatlar kerak bo'lsa: `git log -- .claude/plans/` orqali topiladi.
 
-Muhim eslatmalar (barcha bosqichlarga tegishli):
-- Avtomatik test suite yo'q — tekshirish har doim real DB/Trello'ga qarshi
-  bitta martalik skript orqali (CLAUDE.md > Commands).
-- Sozlanuvchanlik talabi (16-band): eslatma vaqtlari, jarima qiymatlari, ball
-  ulushlari — hech biri kodga qattiq yozilmasin, admin paneldan
-  o'zgartiriladigan bo'lsin.
-- Ochiq savollar (TZ 19-band) ba'zi bosqichlarni to'g'ridan-to'g'ri
-  bloklaydi (masalan brigadir ulushi aniq foizi, plus ball mezonlari,
-  checklist matn formati). Bunday joylarda taxmin qilinmaydi —
-  foydalanuvchidan aniq javob so'raladi.
-- Layering buzilmasin: handlers/ -> services/ -> db/repositories/ ->
-  db/models/, bitta yo'nalishda. Har servis funksiyasi — alohida Unit of
-  Work (async_session() ochadi, commit() qiladi).
+## Nima uchun bu ro'yxat paydo bo'ldi
+
+2026-07-17'da `TZ_content.txt` (443 qatorli to'liq TZ matni) boshidan oxirigача
+qayta o'qilib, HAR BIR band amaldagi kod bilan (servislar, handlerlar,
+migratsiyalar) solishtirildi. TZ §1-13, 16-17 (ishlab chiqarish yadrosi)
+YUQORI ANIQLIKDA amalga oshirilgan holda topildi — lekin audit 5 ta ANIQ
+bo'shliqni (TZning qat'iy talabi, ochiq savol emas) va Phase 6'ning hali
+bajarilmagan qismini aniqladi. Quyidagi hujjatlar shularning har biri uchun.
+
+## Holat jadvali
+
+| # | Hujjat | TZ bandi | Mazmuni | Holat |
+|---|---|---|---|---|
+| 1 | [01-stop-trello-izoh.md](01-stop-trello-izoh.md) | 7.5 | "Stop" bosilganda Trello kartasiga izoh yozish | ANIQLANGAN BO'SHLIQ — rejalashtirilgan |
+| 2 | [02-label-holatlari.md](02-label-holatlari.md) | 6.3 | Label avtomatikasi 3 holatdan 5 holatga (Stop rangi + Bugun/Ogohlantirish ajratish) | ANIQLANGAN BO'SHLIQ — rejalashtirilgan |
+| 3 | [03-yonalish-statistikasi.md](03-yonalish-statistikasi.md) | 10.1 | Bo'lim (yo'nalish) bo'yicha statistika kesimi | ANIQLANGAN BO'SHLIQ — rejalashtirilgan |
+| 4 | [04-web-xodim-qoshish.md](04-web-xodim-qoshish.md) | 4.2 | Web panel orqali xodim qo'shish | QARORGA MUHTOJ — ikkita variant taqdim etilgan |
+| 5 | [05-ochiq-vazifalar-royxati.md](05-ochiq-vazifalar-royxati.md) | 9 | MISC vazifalarning hammaga ochiq ro'yxati | ANIQLANGAN BO'SHLIQ — rejalashtirilgan |
+| 6 | [06-production-launch.md](06-production-launch.md) | 17 (6-bosqich, A-qism) | E2E smoke test ishga tushirish + Railway'ga chiqarish | TAYYOR, ISHGA TUSHIRISH QOLDI |
+| 7 | [07-tz-ochiq-savollar.md](07-tz-ochiq-savollar.md) | 19 | TZning o'z ochiq savollari — konsolidatsiyalangan holat | KUZATUV RO'YXATI |
+| 8 | [08-saas-tayyorgarlik.md](08-saas-tayyorgarlik.md) | 15 (6-bosqich, B/C/D-qism) | Ping billing / multi-tenant / video darslar | BLOKLANGAN (Ping shartnomasi kutilmoqda) |
+
+## Ishlash tartibi
+
+1-5 — mustaqil, bir-biriga bog'liq emas, istalgan tartibda olinishi mumkin
+(4-raqamli hujjat qaror talab qiladi, boshqalarga to'sqinlik qilmaydi). 6 —
+1-5 tugagach yoki alohida-alohida ham bajarilishi mumkin (bir-biriga
+bog'liq emas, faqat "hammasi tugagach yakuniy E2E test" degan tavsiya bor).
+7 — kod emas, kuzatuv. 8 — hozircha tegilmaydi (tashqi blokerga bog'liq).
+
+Har bir hujjat tugagach: shu jadvaldagi holat yangilanadi, `shared/db-schema.md`
+(agar sxema o'zgargan bo'lsa) yangilanadi, va **hujjatning o'zi bu papkadan
+olib tashlanadi** (git tarixida saqlanib qoladi) — README'dagi qator ham olib
+tashlanadi. Bu papka doim faqat "hali qolgan" ishlarni aks ettiradi.
