@@ -7,7 +7,7 @@ TZ 17-band rasmiy jadvali:
 | 2-etap | 3-bosqich | KPI: minus/plus ball, brigadir ulushi, checklist jarayoni | Bajarilgan, real Railway DB'da sinovdan o'tgan (Telegram UI sinovisiz): 03-kpi-ball-tizimi.md |
 | 2-etap | 4-bosqich | Statistika/dashboard, oylik eng yomon/eng yaxshi reytinglar, Telegram hisobotlar, mijoz xabarnomalari | Bajarilgan, real Railway DB'da sinovdan o'tgan (Telegram bot UI va brauzer vizual sinovisiz): 04-statistika-dashboard.md |
 | 3-etap | 5-bosqich | Sotuv CRM (Ezza + Melores), qo'ng'iroqlar bazasi, lid eslatmalari | Bajarilgan, real Railway DB + Trello "Test" board'da sinovdan o'tgan (Telegram bot UI sinovisiz); IP-telefoniya integratsiyasi ataylab qurilmagan (provayder tanlanmagan): 05-sotuv-crm.md |
-| 3-etap | 6-bosqich | Umumiy test, ishga tushirish; SaaS tayyorgarlik: billing (Ping), obuna, video darslar | Navbatda: 06-test-va-saas.md |
+| 3-etap | 6-bosqich | Umumiy test, ishga tushirish; SaaS tayyorgarlik: billing (Ping), obuna, video darslar | A-qismi (test/ishga tushirish) bajarishga tayyor — smoke skript va Railway deploy config yozilgan; B/C/D (Ping billing/multi-tenant/video) TZ 19-band #13 (Ping shartnoma) hal bo'lmagani uchun spekulyativ dizayn holida: 06-test-va-saas.md |
 
 Ishlash tartibi: har bir bosqich to'liq amalga oshirilib, real infratuzilmada
 (Railway Postgres + Trello "Test" board, hech qachon "Fasad seh" production
