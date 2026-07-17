@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from db.models.department import Department
     from db.models.stop_log import StopLog
     from db.models.task_assignment import TaskAssignment
+    from db.models.client import Client
 
 
 class Task(TimestampedBase):
@@ -68,8 +69,13 @@ class Task(TimestampedBase):
     # 6.2-band: kartadagi "bosqichlar" checklist'i — bir xil trello_card_id'ni
     # bo'lishuvchi barcha bosqich-qatorlariga bir xil qiymat ko'chiriladi.
     trello_checklist_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    # 12-band: bosqich o'tganda/"Stop" bosilganda avtomatik xabarnoma
+    # yuboriladigan mijoz. MISC vazifada odatda NULL. Bosqichdan-bosqichga
+    # (advance_task_stage()) trello_checklist_id kabi ko'chiriladi.
+    client_id: Mapped[Optional[int]] = mapped_column(ForeignKey("clients.id"), nullable=True)
 
     current_department: Mapped[Optional["Department"]] = relationship(back_populates="tasks")
+    client: Mapped[Optional["Client"]] = relationship()
     assignments: Mapped[list["TaskAssignment"]] = relationship(
         back_populates="task", cascade="all, delete-orphan"
     )

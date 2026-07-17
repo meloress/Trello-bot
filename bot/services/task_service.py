@@ -133,6 +133,7 @@ async def create_task(
     deadline: datetime,
     department_id: int,
     employee_ids: list[int],
+    client_id: int | None = None,
 ) -> Task:
     async with async_session() as session:
         department = await DepartmentRepository(session).get_by_id(department_id)
@@ -160,6 +161,7 @@ async def create_task(
             status=TaskStatus.ACTIVE,
             current_department_id=department_id,
             started_at=datetime.now(timezone.utc),
+            client_id=client_id,
         )
 
         for employee_id in employee_ids:
@@ -228,6 +230,7 @@ async def advance_task_stage(completed_task_id: int) -> Task | None:
         current_department_name = current_department.name
         title = completed_task.title
         description = completed_task.description
+        client_id = completed_task.client_id
         old_employee_ids = [a.employee_id for a in await assignment_repo.list_by_task(completed_task_id)]
 
     if card_id:
@@ -261,6 +264,7 @@ async def advance_task_stage(completed_task_id: int) -> Task | None:
             started_at=datetime.now(timezone.utc),
             previous_task_id=completed_task_id,
             trello_checklist_id=checklist_id,
+            client_id=client_id,
         )
         await session.commit()
         return next_task

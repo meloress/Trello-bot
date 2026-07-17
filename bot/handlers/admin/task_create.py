@@ -17,19 +17,21 @@ from aiogram.types import CallbackQuery, Message
 
 from core.database import async_session
 from db.models.employee import Employee
-from db.repositories import DepartmentRepository, EmployeeRepository
+from db.repositories import ClientRepository, DepartmentRepository, EmployeeRepository
 from keyboards.admin_kb import (
     CANCEL_TASK,
     CONFIRM_TASK,
     EMPLOYEES_DONE,
+    SKIP,
     DepartmentSelect,
     EmployeeToggle,
+    build_client_phone_skip_keyboard,
     build_confirm_keyboard,
     build_department_keyboard,
     build_employee_multiselect_keyboard,
 )
 from middlewares.auth import RoleAccessMiddleware
-from services import notification_service, task_service
+from services import client_service, notification_service, task_service
 from states.task_states import CreateTaskStates
 from trello.client import TrelloAPIError
 from utils.enums import Role
@@ -66,6 +68,11 @@ async def _build_summary_text(data: dict) -> str:
             if employee is not None:
                 names.append(employee.full_name)
 
+        client_name = None
+        if data.get("client_id"):
+            client = await ClientRepository(session).get_by_id(data["client_id"])
+            client_name = client.full_name if client else None
+
     deadline = datetime.fromisoformat(data["deadline"])
     lines = ["Vazifani tasdiqlang:", f"Nomi: {data['title']}"]
     if data.get("description"):
@@ -73,6 +80,7 @@ async def _build_summary_text(data: dict) -> str:
     lines.append(f"Muddat: {format_dt(deadline)}")
     lines.append(f"Yo'nalish: {department.name if department else '-'}")
     lines.append(f"Xodimlar: {', '.join(names) if names else '-'}")
+    lines.append(f"Mijoz: {client_name or '-'}")
     return "\n".join(lines)
 
 
@@ -202,15 +210,70 @@ async def on_employees_done(callback: CallbackQuery, state: FSMContext) -> None:
             await callback.answer("Kamida bitta xodim tanlang.", show_alert=True)
             return
 
-        await state.set_state(CreateTaskStates.confirming)
-        summary = await _build_summary_text(data)
+        await state.set_state(CreateTaskStates.waiting_for_client_phone)
 
         if callback.message:
-            await callback.message.edit_text(summary, reply_markup=build_confirm_keyboard())
+            await callback.message.edit_text(
+                "Mijoz telefon raqamini kiriting (12-band: bosqich o'tganda/\"Stop\" "
+                "bosilganda mijozga avtomatik xabar borishi uchun, ixtiyoriy):",
+                reply_markup=build_client_phone_skip_keyboard(),
+            )
         await callback.answer()
     except Exception:
         logger.exception("on_employees_done xatosi")
         await callback.answer("Kutilmagan xatolik yuz berdi.", show_alert=True)
+
+
+async def _show_confirmation(answer_func, state: FSMContext) -> None:
+    data = await state.get_data()
+    await state.set_state(CreateTaskStates.confirming)
+    summary = await _build_summary_text(data)
+    await answer_func(summary, reply_markup=build_confirm_keyboard())
+
+
+@router.callback_query(CreateTaskStates.waiting_for_client_phone, F.data == SKIP)
+async def on_client_phone_skipped(callback: CallbackQuery, state: FSMContext) -> None:
+    try:
+        if callback.message:
+            await _show_confirmation(callback.message.edit_text, state)
+        await callback.answer()
+    except Exception:
+        logger.exception("on_client_phone_skipped xatosi")
+        await callback.answer("Kutilmagan xatolik yuz berdi.", show_alert=True)
+
+
+@router.message(CreateTaskStates.waiting_for_client_phone)
+async def on_client_phone_received(message: Message, state: FSMContext) -> None:
+    phone = (message.text or "").strip()
+    if not phone or phone == "-":
+        await _show_confirmation(message.answer, state)
+        return
+
+    await state.update_data(client_phone=phone)
+    await state.set_state(CreateTaskStates.waiting_for_client_name)
+    await message.answer("Mijoz F.I.Sh. kiriting:")
+
+
+@router.message(CreateTaskStates.waiting_for_client_name)
+async def on_client_name_received(message: Message, state: FSMContext) -> None:
+    full_name = (message.text or "").strip()
+    if not full_name:
+        await message.answer("Ism bo'sh bo'lishi mumkin emas. Qayta kiriting:")
+        return
+
+    try:
+        data = await state.get_data()
+        client = await client_service.find_or_create_client(
+            phone_number=data["client_phone"], full_name=full_name
+        )
+        await state.update_data(client_id=client.id)
+    except Exception:
+        logger.exception("on_client_name_received xatosi")
+        await state.clear()
+        await message.answer("Kutilmagan xatolik yuz berdi.")
+        return
+
+    await _show_confirmation(message.answer, state)
 
 
 @router.callback_query(CreateTaskStates.confirming, F.data == CANCEL_TASK)
@@ -234,6 +297,7 @@ async def on_confirm_task(callback: CallbackQuery, state: FSMContext, bot: Bot) 
             deadline=deadline,
             department_id=data["department_id"],
             employee_ids=data["employee_ids"],
+            client_id=data.get("client_id"),
         )
     except task_service.DepartmentNotFoundError:
         await callback.answer()

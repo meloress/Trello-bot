@@ -183,6 +183,11 @@ async def on_stop_reason_received(message: Message, state: FSMContext, bot: Bot)
         logger.exception("notify_task_stopped xatosi (stop_log_id=%s)", stop_log.id)
 
     try:
+        await notification_service.notify_client_task_stopped(bot, stop_log.id)
+    except Exception:
+        logger.exception("notify_client_task_stopped xatosi (stop_log_id=%s)", stop_log.id)
+
+    try:
         async with async_session() as session:
             task = await TaskRepository(session).get_by_id(task_id)
         if task is not None:
@@ -272,6 +277,13 @@ async def on_finish_task(callback: CallbackQuery, callback_data: TaskAction, bot
         except Exception:
             logger.exception("advance_task_stage xatosi (task_id=%s)", task.id)
             next_task = None
+
+        # 12-band: "mahsulot bo'limdan CHIQQANDA" — next_task None (buyurtma
+        # to'liq tugagan) bo'lsa ham, bosqichdan chiqish hodisasi shu.
+        try:
+            await notification_service.notify_client_stage_advanced(bot, task.id)
+        except Exception:
+            logger.exception("notify_client_stage_advanced xatosi (task_id=%s)", task.id)
 
         if next_task is not None:
             try:

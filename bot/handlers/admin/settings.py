@@ -17,7 +17,7 @@ from aiogram.types import CallbackQuery, Message
 from core.database import async_session
 from db.models.employee import Employee
 from db.repositories import DepartmentRepository
-from jobs import reminder_job
+from jobs import reminder_job, report_job
 from keyboards.admin_kb import (
     REMINDER_ADD,
     REMINDER_BACK,
@@ -52,6 +52,13 @@ _PROMPTS = {
     "default_penalty_multiplier": "Yangi jarima ko'paytiruvchisini kiriting (masalan: 1.0):",
     "brigade_share_ratio": "Yangi brigadir ulushini kiriting (0 dan 1 gacha, masalan: 0.33):",
     "balls_per_day_shift": "Har necha minus ball uchun to'lov kuni 1 kunga surilishini kiriting (butun son, masalan: 5):",
+    "plus_ball_per_day": "Muddatdan oldin tugatilgan har TO'LIQ kun uchun necha plus ball berilishini kiriting (butun son, masalan: 1):",
+    "plus_ball_max_days": "Plus ball necha kungacha hisoblanishini kiriting (undan ortig'iga qo'shilmaydi, masalan: 2):",
+    "financial_flag_threshold_days": "Bosqich necha kundan ortiq davom etsa moliyaviy bayroq qo'yilishini kiriting (masalan: 5):",
+    "advance_threshold_percent": "Avans necha % dan ko'p/teng olingan bo'lsa 8.6-band ishga tushishini kiriting (0-100, masalan: 80):",
+    "advance_waiver_percent": "Shu shartda mijozdan qolgan necha % talab qilinmasligini kiriting (0-100, masalan: 20):",
+    "report_time": "Kunlik/haftalik/oylik hisobot yuboriladigan vaqtni kiriting (HH:MM, masalan: 20:00):",
+    "lead_follow_up_threshold_days": "Necha kun aloqa bo'lmasa sotuvchiga eslatma borishini kiriting (masalan: 7):",
 }
 
 
@@ -84,6 +91,27 @@ def _parse_value(field: str, text: str) -> object:
         if value <= 0:
             raise ValueError("musbat butun son bo'lishi kerak")
         return value
+    if field in (
+        "plus_ball_per_day", "plus_ball_max_days", "financial_flag_threshold_days",
+        "lead_follow_up_threshold_days",
+    ):
+        value = int(text)
+        if value <= 0:
+            raise ValueError("musbat butun son bo'lishi kerak")
+        return value
+    if field in ("advance_threshold_percent", "advance_waiver_percent"):
+        value = int(text)
+        if not (0 <= value <= 100):
+            raise ValueError("0 dan 100 gacha bo'lishi kerak")
+        return value
+    if field == "report_time":
+        try:
+            hour, minute = text.split(":")
+            if not (0 <= int(hour) <= 23 and 0 <= int(minute) <= 59):
+                raise ValueError
+        except ValueError:
+            raise ValueError("HH:MM formatida bo'lishi kerak (masalan: 20:00)")
+        return f"{int(hour):02d}:{int(minute):02d}"
     raise ValueError(f"noma'lum sozlama: {field}")
 
 
@@ -114,7 +142,7 @@ async def on_setting_field_selected(
 
 
 @router.message(SettingsStates.editing_value)
-async def on_setting_value_received(message: Message, state: FSMContext, employee: Employee) -> None:
+async def on_setting_value_received(message: Message, state: FSMContext, employee: Employee, bot: Bot) -> None:
     data = await state.get_data()
     field = data.get("field")
     text = (message.text or "").strip()
@@ -131,12 +159,17 @@ async def on_setting_value_received(message: Message, state: FSMContext, employe
         return
 
     try:
-        await settings_service.update_setting(**{field: value})
+        updated = await settings_service.update_setting(**{field: value})
     except Exception:
         logger.exception("on_setting_value_received: bazani yangilashda xatolik (field=%s)", field)
         await state.clear()
         await message.answer("Kutilmagan xatolik yuz berdi.")
         return
+
+    if field == "report_time":
+        # 10.2-band: reminder_schedule bilan bir xil naqsh — vaqt o'zgarsa
+        # scheduled job'lar (daily/weekly/monthly) qayta ro'yxatdan o'tkaziladi.
+        report_job.schedule_all(bot, updated.report_time)
 
     await state.clear()
 

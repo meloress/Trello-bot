@@ -1,7 +1,21 @@
 # 4-bosqich: Statistika/dashboard, oylik reytinglar, Telegram hisobotlar, mijoz xabarnomalari
 
-Holat: NAVBATDA. TZda "2-etap, 4-bosqich": "Statistika/dashboard, oylik eng
-yomon/eng yaxshi reytinglar, Telegram hisobotlar; mijoz xabarnomalari".
+Holat: BAJARILGAN, real Railway Postgres'da sinovdan o'tgan (Telegram bot UI
+va brauzer vizual sinovisiz — pastdagi "Tekshirilgan"ga qarang). TZda
+"2-etap, 4-bosqich": "Statistika/dashboard, oylik eng yomon/eng yaxshi
+reytinglar, Telegram hisobotlar; mijoz xabarnomalari".
+
+**Foydalanuvchi tasdiqlagan qarorlar (2026-07-17, ochiq savollarga javoban)**:
+1. Web panel auth — bitta umumiy parol (`.env WEB_ADMIN_PASSWORD`), login
+   sahifa + imzolangan cookie sessiya (session-store jadval/dependency yo'q).
+2. Dashboard grafigi — Chart.js (CDN), jadval bilan birga hoziroq qurildi.
+3. Oylik "eng yomon/eng yaxshi" reyting — Telegram guruhga AVTOMATIK
+   yubormaydi; o'rniga web dashboardda istalgan vaqt ko'riladigan "Reyting"
+   modal bo'limi (TZ 19-band #12 shu tarzda hal qilindi — alohida scheduled
+   job/guruh chat_id sozlamasi kerak bo'lmadi).
+4. Mijoz xabarnomasi — FAQAT Telegram (TZ 19-band #11 shu tarzda hal
+   qilindi — SMS provayder tanlash/integratsiya bu bosqich doirasidan
+   tashqarida qoldi).
 
 TZ manbasi: 10-band (statistika/dashboard), 11.1-band (brigadir statistikasi
 — allaqachon qisman bor), 12-band (mijozlarga avtomatik xabarnoma), 4-band
@@ -137,22 +151,68 @@ ikkala bosqichda ham kerak bo'lishi mumkin — 5-bosqich boshlanishidan oldin
 shu ustun/jadval strukturasini ikkala talabga mos qilib loyihalash tavsiya
 etiladi, ikki marta migratsiya qilmaslik uchun).
 
-## Ochiq savollar (bu bosqichni boshlashdan oldin hal qilinishi tavsiya etiladi)
+## Amalga oshirilgan (yakuniy holat)
 
-1. Web panel autentifikatsiya usuli (A-qism).
-2. Grafik kutubxona tanlovi yoki oddiy jadval bilan boshlash (A-qism).
-3. Oylik reyting avtomatik yuborish yoki qo'lda (C-qism, TZ 19-band #12).
-4. Mijoz xabarnoma kanali: Telegram/SMS/ikkalasi, SMS provayderi (D-qism,
-   TZ 19-band #11).
+- **A** (web dashboard): `web/` endi haqiqiy funksional — `src/auth.js`
+  (parol tekshiruvi + HMAC-imzolangan cookie sessiya, yangi dependency
+  qo'shilmadi), `src/routes/stats.js` (Express router: `/api/stats/monthly`,
+  `/brigade/:id`, `/ranking`, `/brigades` — `bot/services/stats_service.py`
+  bilan BIR XIL SQL mantiq, Node'da qayta yozilgan), `public/index.html` +
+  `public/js/app.js` (bitta oyna: login -> jadval+Chart.js grafik, "Reyting"
+  MODAL oynada — 4.1-band).
+- **B** (davriy Telegram hisobotlar): `jobs/report_job.py` — kunlik/haftalik/
+  oylik, `app_settings.report_time`ga (16-band, yangi ustun) qarab
+  `notification_service.notify_admins_report()` orqali ADMIN+SUPERVISOR'larga.
+  `stats_service.py`ga `get_daily_stats()`/`get_weekly_stats()`/
+  `get_monthly_stats(reference_month=...)` va umumiy `format_stats_table()`
+  qo'shildi (`/stats` bilan bir xil formatlash, kod takrorlanmadi).
+- **C** (oylik reyting): yuqoridagi qarorga ko'ra alohida job/guruh
+  integratsiyasi QURILMADI — web dashboarddagi `/api/stats/ranking` shu
+  o'rnini bosadi (top-5 eng yaxshi/eng ko'p jarima, joriy oy).
+- **D** (mijoz xabarnoma): yangi `clients` jadvali (`b3f7a1c9d204`,
+  `tasks.client_id` bilan), `services/client_service.py`
+  (`find_or_create_client`, `link_client_to_telegram` — registratsiya bilan
+  bir xil naqsh), `notification_service.notify_client_stage_advanced()`/
+  `notify_client_task_stopped()` (`handlers/worker/tasks.py`dan chaqiriladi,
+  ikkinchi-darajali effekt). `handlers/admin/task_create.py`ga mijoz
+  telefon/ism qadami (ixtiyoriy) qo'shildi; mijoz o'zi `/mijoz` orqali
+  bog'lanadi (`handlers/common/client_link.py`).
+- **Qo'shimcha (3-bosqichdan ataylab qoldirilgan qism)**: 8.6-band moliyaviy
+  taklif summasini qo'lda kiritish UI — `handlers/admin/financial.py`
+  (`/moliyaviy` — wage-deduction summasi, `/avanskechirim` — advance-waiver),
+  `financial_service.set_wage_deduction_amount()`. Bu 03-kpi-ball-tizimi.md
+  D-bo'limida "4-bosqichga qoldirilgan" deb aniq belgilangan edi.
 
-## Tekshirish rejasi
+## Tekshirilgan
 
-- **A** (web dashboard): brauzerda ochib, real ma'lumot bilan statistika
-  to'g'ri ko'rsatilganini tekshirish (CLAUDE.md talabi: "UI o'zgarishlari
-  uchun avval brauzerda sinab ko'rish").
-- **B/C** (scheduled hisobotlar/reyting): sun'iy ravishda job vaqtini
-  o'zgartirib yoki qo'lda `run()` chaqirib, real Telegram guruh/xodimlarga
-  xabar yetib borishini tekshirish.
-- **D** (mijoz xabarnoma): sun'iy mijoz+task yaratib, bosqich o'tkazib,
-  mijozga (test Telegram akkaunt) xabar kelishini tekshirish.
-- Har doim real Railway DB'ga qarshi, `bot/_smoke_phase4_*.py` orqali.
+Ikki bosqichda: (1) bot-tomon — `py_compile` + `python -c "import main"`
+butun ilova bo'yicha, so'ng real Railway DB'ga qarshi `alembic upgrade head`
+(`b3f7a1c9d204`) va `bot/_smoke_phase4.py` (client_service to'liq oqim,
+`advance_task_stage` client_id ko'chirilishi — Trello'siz, `trello_card_id=
+NULL` orqali chetlab o'tilgan — final-stage `None` qaytishi, notify_client_
+stage_advanced haqiqatan yuborilishi, financial_service.set_wage_deduction_
+amount, settings_service.report_time validatsiya+yangilash, stats_service
+yangi funksiyalari) — barchasi kutilgan natijani berdi, test qatorlari va
+skript o'chirildi; (2) web-tomon — `npm install` + `node src/server.js` real
+portda ishga tushirilib, `curl` orqali real DB'ga qarshi: unauth 401, noto'g'ri
+parol 401, to'g'ri parol -> sessiya cookie, `/api/stats/monthly`/`ranking`/
+`brigades` to'g'ri JSON, logout'dan keyin qayta 401 — va alohida qo'lda
+qo'shilgan test xodim+kpi_log orqali SQL natijasi Python `stats_service`
+formulasi bilan bir xil ekanligi (`total_score=3, penalty_count=1`)
+tasdiqlandi.
+
+## QILINMAGAN
+
+- Web dashboardni haqiqiy BRAUZERDA vizual tekshirish (CLAUDE.md: "UI
+  o'zgarishlari uchun avval brauzerda sinab ko'rish") — bu muhitda brauzer
+  avtomatlashtirish vositasi yo'q, faqat `curl` orqali API darajasida
+  tekshirildi. Foydalanuvchi `cd web && npm start` qilib `localhost:3000`ni
+  o'zi ochib ko'rishi tavsiya etiladi.
+- `jobs/report_job.py`ning uchta cron job'i (`run_daily`/`run_weekly`/
+  `run_monthly`) va `notify_client_stage_advanced`/`notify_client_task_
+  stopped`ning HAQIQIY Telegram chatga yetib borishi — real Telegram
+  akkaunt/chat kerak, bu muhitda yo'q. Kod DB darajasida (qaysi xabar kimga,
+  qanday matn bilan tayyorlanishi) tekshirildi, lekin `bot.send_message`
+  haqiqiy chaqiruvi sinovdan o'tkazilmadi.
+- `/moliyaviy`, `/avanskechirim`, `/mijoz`, mijoz qadami bilan `/newtask`
+  oqimlarining Telegram UI orqali qo'lda sinovi.

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Float, Integer, JSON
+from sqlalchemy import Float, Integer, JSON, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db.base import TimestampedBase
@@ -15,6 +15,14 @@ DEFAULT_REMINDER_SCHEDULE = [
     {"time": "15:00", "urgency": "warning"},
     {"time": "17:00", "urgency": "urgent"},
 ]
+
+# 5-bosqich (Sotuv CRM), 6.1-band: har (brand, bosqich) juftligi uchun
+# Trello list ID. `departments.trello_list_id` bilan bir xil naqsh: bot UI
+# orqali EMAS, to'g'ridan-to'g'ri bazada sozlanadi.
+DEFAULT_SALES_BOARD_LISTS = {
+    "ezza": {"new_lead": None, "contacted": None, "offer_sent": None, "agreed": None, "closed": None},
+    "melores": {"new_lead": None, "contacted": None, "offer_sent": None, "agreed": None, "closed": None},
+}
 
 
 class AppSetting(TimestampedBase):
@@ -33,3 +41,28 @@ class AppSetting(TimestampedBase):
     default_penalty_multiplier: Mapped[float] = mapped_column(Float, nullable=False)
     brigade_share_ratio: Mapped[float] = mapped_column(Float, nullable=False)
     balls_per_day_shift: Mapped[int] = mapped_column(Integer, nullable=False)
+    # 8.4-band: plus ball — muddatdan necha KUN oldin tugatilsa (dayIndex =
+    # hours_early // 24), shuncha * plus_ball_per_day beriladi,
+    # plus_ball_max_days'dan ortig'iga qo'shimcha ball berilmaydi (cap).
+    plus_ball_per_day: Mapped[int] = mapped_column(Integer, nullable=False)
+    plus_ball_max_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    # 8.6-band: bosqich shuncha kundan ORTIQ (qat'iy >) davom etsa, moliyaviy
+    # taklif avtomatik bayroqlanadi (summa hali noma'lum holatda).
+    financial_flag_threshold_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    # 8.6-band 2-qoida: avans shu foizdan KO'P/TENG olingan bo'lsa va buyurtma
+    # kechiksa, qolgan advance_waiver_percent mijozdan talab qilinmasligi taklif qilinadi.
+    advance_threshold_percent: Mapped[int] = mapped_column(Integer, nullable=False)
+    advance_waiver_percent: Mapped[int] = mapped_column(Integer, nullable=False)
+    # 10.2-band: kunlik/haftalik/oylik Telegram hisobotlari shu vaqtda
+    # (HH:MM, Toshkent) ADMIN/SUPERVISOR'larga yuboriladi (jobs/report_job.py).
+    # Haftalik — yakshanba, oylik — har oyning 1-sanasi, ikkalasi ham shu
+    # bitta soatda (kun tanlovi TZda so'ralmagan, sozlanuvchan qilinmagan).
+    report_time: Mapped[str] = mapped_column(String(5), nullable=False)
+    # 13.3-band: "uzoq vaqt aloqaga chiqilmagan" mijoz uchun necha kun
+    # (foydalanuvchi bilan tasdiqlangan standart: 7). /settings orqali o'zgartiriladi.
+    lead_follow_up_threshold_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    # 6.1-band: {"ezza": {"new_lead": list_id, ...}, "melores": {...}} — har
+    # (brand, bosqich) juftligi uchun Trello list ID. `departments.trello_list_id`
+    # bilan bir xil naqsh: bot UI orqali EMAS, to'g'ridan-to'g'ri bazada
+    # sozlanadi (5-bosqich hujjatiga qarang).
+    sales_board_lists: Mapped[dict] = mapped_column(JSON, nullable=False)

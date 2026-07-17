@@ -66,6 +66,43 @@ def _month_bounds(reference: date) -> tuple[datetime, datetime]:
     return start, end
 
 
+async def _write_scores_for_employees(
+    session, *, employee_ids: list[int], score: int, reason: str, task_id: int, brigade_share_ratio: float
+) -> list[KpiLog]:
+    """Minus (kechikish) va plus (muddatdan oldin) yo'llarining ikkalasi ham
+    shu umumiy yadrodan foydalanadi: berilgan employee_id ro'yxatidagi ISHCHI
+    (Role.WORKER) xodimlarning har biriga bir xil `score`ni yozadi, har biri
+    uchun 8.4-band bo'yicha brigadir ulushini ham qo'shadi (ulush ikki
+    yo'nalishda ham ishlaydi — `score` musbat bo'lsa bonus ulushi, manfiy
+    bo'lsa jarima ulushi, `_apply_brigade_share_for_worker` sof arifmetika)."""
+    employee_repo = EmployeeRepository(session)
+    brigade_repo = BrigadeRepository(session)
+    kpi_repo = KpiLogRepository(session)
+
+    created_logs: list[KpiLog] = []
+    for employee_id in employee_ids:
+        employee = await employee_repo.get_by_id(employee_id)
+        if employee is None or employee.role != Role.WORKER:
+            continue
+
+        log = await kpi_repo.create(employee_id=employee_id, score=score, reason=reason)
+        created_logs.append(log)
+
+        brigadier_log = await _apply_brigade_share_for_worker(
+            brigade_repo,
+            employee_repo,
+            kpi_repo,
+            worker=employee,
+            worker_score=score,
+            ratio=brigade_share_ratio,
+            task_id=task_id,
+        )
+        if brigadier_log is not None:
+            created_logs.append(brigadier_log)
+
+    return created_logs
+
+
 async def apply_penalty_for_employees(
     *, task_id: int, department_id: int | None, employee_ids: list[int], hours_late: int, reason_label: str
 ) -> list[KpiLog]:
@@ -78,9 +115,6 @@ async def apply_penalty_for_employees(
     brigadir ulushini ham qo'shadi."""
     async with async_session() as session:
         rule_repo = PenaltyRuleRepository(session)
-        employee_repo = EmployeeRepository(session)
-        brigade_repo = BrigadeRepository(session)
-        kpi_repo = KpiLogRepository(session)
 
         rule = await rule_repo.find_applicable_rule(hours_late, department_id)
         if rule is None:
@@ -91,31 +125,41 @@ async def apply_penalty_for_employees(
         app_settings = await settings_service.get_settings()
         final_score = round(rule.score * app_settings.default_penalty_multiplier)
 
-        created_logs: list[KpiLog] = []
-        for employee_id in employee_ids:
-            employee = await employee_repo.get_by_id(employee_id)
-            if employee is None or employee.role != Role.WORKER:
-                continue
+        created_logs = await _write_scores_for_employees(
+            session,
+            employee_ids=employee_ids,
+            score=final_score,
+            reason=f"{reason_label}: {hours_late} soat (vazifa #{task_id})",
+            task_id=task_id,
+            brigade_share_ratio=app_settings.brigade_share_ratio,
+        )
+        await session.commit()
+        result_employee_ids = [log.employee_id for log in created_logs]
 
-            log = await kpi_repo.create(
-                employee_id=employee_id,
-                score=final_score,
-                reason=f"{reason_label}: {hours_late} soat (vazifa #{task_id})",
-            )
-            created_logs.append(log)
+    for employee_id in result_employee_ids:
+        await update_payment_date_if_needed(employee_id)
 
-            brigadier_log = await _apply_brigade_share_for_worker(
-                brigade_repo,
-                employee_repo,
-                kpi_repo,
-                worker=employee,
-                worker_score=final_score,
-                ratio=app_settings.brigade_share_ratio,
-                task_id=task_id,
-            )
-            if brigadier_log is not None:
-                created_logs.append(brigadier_log)
+    return created_logs
 
+
+async def apply_plus_ball_for_employees(*, task_id: int, employee_ids: list[int], hours_early: int) -> list[KpiLog]:
+    """8.4-band: `calculate_and_apply_task_penalty()` muddatdan OLDIN tugagan
+    vazifa uchun chaqiradi. `calculate_plus_ball()` 0 qaytarsa (masalan
+    24 soatlik "grace period"dan kam bo'lsa) hech narsa yozmaydi."""
+    plus_score = await calculate_plus_ball(hours_early)
+    if plus_score == 0:
+        return []
+
+    async with async_session() as session:
+        app_settings = await settings_service.get_settings()
+        created_logs = await _write_scores_for_employees(
+            session,
+            employee_ids=employee_ids,
+            score=plus_score,
+            reason=f"Muddatdan oldin tugatish: {hours_early} soat oldin (vazifa #{task_id})",
+            task_id=task_id,
+            brigade_share_ratio=app_settings.brigade_share_ratio,
+        )
         await session.commit()
         result_employee_ids = [log.employee_id for log in created_logs]
 
@@ -126,11 +170,14 @@ async def apply_penalty_for_employees(
 
 
 async def calculate_and_apply_task_penalty(task_id: int) -> list[KpiLog]:
-    """8.1/8.2-band: vazifa yakunlanganda chaqiriladi. Muddatidan kech tugagan bo'lsa,
-    `apply_penalty_for_employees()` orqali vazifaga biriktirilgan xodim(lar)ga
-    jarima yozadi (brigadir ulushi bilan birga). Muddatida yoki muddatidan
-    oldin tugagan bo'lsa — bo'sh ro'yxat qaytaradi, hech narsa yozilmaydi
-    (8.1: jarima FAQAT muddatni buzganga nisbatan).
+    """8.1/8.2/8.4-band: vazifa yakunlanganda chaqiriladi.
+    - Muddatidan KECH tugagan bo'lsa: 24 soatlik "grace period"dan keyin
+      (`hours_late < 24` bo'lsa hech narsa yozilmaydi — bu `penalty_rules`
+      jadvalidagi bracket'lar endi 24 soatdan boshlangani uchun tabiiy kelib
+      chiqadi) `apply_penalty_for_employees()` orqali jarima.
+    - Aniq MUDDATIDA tugagan bo'lsa: bo'sh ro'yxat, hech narsa yozilmaydi.
+    - Muddatidan OLDIN tugagan bo'lsa: `apply_plus_ball_for_employees()`
+      orqali 8.4-band plus balli.
 
     8.3-band: agar buyurtma brigadaga o'tkazilgan bo'lsa (`task.reassigned_at`
     NOT NULL), kechikish shu paytdan hisoblanadi (`deadline`dan emas) — eski
@@ -147,12 +194,20 @@ async def calculate_and_apply_task_penalty(task_id: int) -> list[KpiLog]:
             raise InvalidTaskStateError(f"Task {task_id} hali yakunlanmagan")
 
         reference_start = task.reassigned_at or task.deadline
-        if task.finished_at <= reference_start:
-            return []
-
-        hours_late = int((task.finished_at - reference_start).total_seconds() // 3600)
+        delta_seconds = (task.finished_at - reference_start).total_seconds()
         department_id = task.current_department_id
         employee_ids = [a.employee_id for a in await assignment_repo.list_by_task(task_id)]
+
+    if delta_seconds == 0:
+        return []
+
+    if delta_seconds < 0:
+        hours_early = int(-delta_seconds // 3600)
+        return await apply_plus_ball_for_employees(task_id=task_id, employee_ids=employee_ids, hours_early=hours_early)
+
+    hours_late = int(delta_seconds // 3600)
+    if hours_late < 24:
+        return []  # 8.1/8.2-band: 24 soatlik grace period, dayIndex=0 -> jarima yo'q
 
     return await apply_penalty_for_employees(
         task_id=task_id,
@@ -246,6 +301,26 @@ async def calculate_total_score(
     return sum(log.score for log in logs)
 
 
+async def calculate_monthly_rollup(employee_id: int, *, month: str) -> tuple[int, int]:
+    """Statistika uchun: `calculate_total_score()`dan farqli o'laroq, oylik
+    minus va plus ballarni ALOHIDA qaytaradi (bitta "net" songa qo'shilmaydi —
+    xodim qancha jarima va qancha bonus olganini alohida ko'rish kerak bo'lgan
+    hisobotlar uchun, masalan 4-bosqich dashboard). `month`: "YYYY-MM" formatida.
+
+    Qaytaradi: (monthly_minus, monthly_plus) — ikkalasi ham 0 yoki musbat son
+    (monthly_minus manfiy ballarning yig'indisi ABSOLYUT qiymatda EMAS, balki
+    o'z ishorasi bilan, ya'ni <= 0)."""
+    year, mon = (int(part) for part in month.split("-"))
+    since, until = _month_bounds(date(year, mon, 1))
+
+    async with async_session() as session:
+        logs = await KpiLogRepository(session).list_by_employee_in_range(employee_id, since, until)
+
+    monthly_minus = sum(log.score for log in logs if log.score < 0)
+    monthly_plus = sum(log.score for log in logs if log.score > 0)
+    return monthly_minus, monthly_plus
+
+
 async def update_payment_date_if_needed(employee_id: int) -> Employee:
     """8.5-band: joriy oyda to'plangan minus ballarga qarab to'lov/avans kunini
     qayta hisoblaydi. Har chaqirilganda joriy oy ma'lumotlaridan NOLDAN qayta
@@ -277,10 +352,20 @@ async def update_payment_date_if_needed(employee_id: int) -> Employee:
         return employee
 
 
-def calculate_plus_ball(task_id: int) -> int:
-    """8.4-band: plus ball mezonlari hali tasdiqlanmagan (19-band ochiq savol).
-    Mezon kelishilgach shu funksiya to'ldiriladi; hozircha stub."""
-    return 0
+async def calculate_plus_ball(hours_early: int) -> int:
+    """8.4-band: muddatdan `hours_early` soat oldin tugatilgan bo'lsa, necha
+    ball berilishini hisoblaydi. Yondashuv (foydalanuvchi tasdiqlagan): faqat
+    muddatdan oldin tugatish mezon, sifat/nazoratchi tasdig'i shart emas.
+    dayIndex = hours_early // 24 (necha TO'LIQ kun oldin) — har kuni
+    `plus_ball_per_day` ball, `plus_ball_max_days`dan ortiq kun uchun
+    qo'shimcha ball berilmaydi (cap, ikkalasi ham /settings orqali sozlanadi)."""
+    if hours_early <= 0:
+        return 0
+
+    day_index = hours_early // 24
+    app_settings = await settings_service.get_settings()
+    capped_days = min(day_index, app_settings.plus_ball_max_days)
+    return capped_days * app_settings.plus_ball_per_day
 
 
 async def apply_brigade_share(worker_score: int, ratio: float | None = None) -> float:

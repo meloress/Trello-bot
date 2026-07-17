@@ -15,4 +15,6 @@ class CreateTaskStates(StatesGroup):
     waiting_for_deadline = State()
     waiting_for_department = State()
     waiting_for_employees = State()
+    waiting_for_client_phone = State()
+    waiting_for_client_name = State()
     confirming = State()

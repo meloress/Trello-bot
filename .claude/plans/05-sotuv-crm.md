@@ -1,7 +1,29 @@
 # 5-bosqich: Sotuv bo'limi — soddalashtirilgan CRM (Ezza + Melores)
 
-Holat: NAVBATDA. TZda "3-etap, 5-bosqich": "Sotuv CRM (Ezza + Melores),
-qo'ng'iroqlar bazasi, lid eslatmalari".
+Holat: BAJARILGAN, real Railway Postgres + Trello "Test" board'da sinovdan
+o'tgan (`bot/_smoke_phase5_sales.py`: lid yaratish -> bosqichlar bo'ylab
+o'tkazish -> Trello list ko'chishi tasdiqlangan -> qo'ng'iroq yozuvi ->
+yopish, keyin tozalangan — Telegram bot UI sinovisiz). TZda "3-etap,
+5-bosqich": "Sotuv CRM (Ezza + Melores), qo'ng'iroqlar bazasi, lid
+eslatmalari".
+
+**Foydalanuvchi tasdiqlagan qarorlar (2026-07-17, quyidagi "Ochiq savollar"ga javoban)**:
+1. Lidlar alohida `leads` jadvalida (pastdagi tavsiya tasdiqlandi) — `tasks`
+   kengaytirilmadi.
+2. Qo'ng'iroq yozuvlari — FAQAT qo'lda kiritish (Telegram matn/ovozli xabar).
+   IP-telefoniya integratsiyasi ATAYLAB qurilmagan: hech qanday provayder
+   tanlanmagan, provayder-siz webhook kodi sinovdan o'tkazib bo'lmaydigan
+   "o'lik kod" bo'lardi. Provayder tanlanganda bu alohida, kattaroq
+   loyihalash talab qiladigan ish (5-bosqich hujjatidagi "C" bo'limiga qarang).
+3. "Uzoq vaqt aloqaga chiqilmagan" standart chegara — 7 kun
+   (`app_settings.lead_follow_up_threshold_days`, `/settings` orqali
+   o'zgartiriladi).
+4. Trello list ID'lari (`sales_board_lists`) — `departments.trello_list_id`
+   bilan bir xil naqsh: bot UI QURILMADI, to'g'ridan-to'g'ri bazada
+   sozlanadi. Haqiqiy Ezza/Melores Trello boardlari hali yaratilmagan —
+   admin ularni yaratib, list ID'larini `app_settings.sales_board_lists`ga
+   qo'lda yozishi kerak (smoke test faqat vaqtinchalik Test board list'lari
+   bilan ishlab, keyin tozalab qo'ydi).
 
 TZ manbasi: 13-band to'liq (13.1 lidlar varonkasi, 13.2 qo'ng'iroqlar bazasi,
 13.3 eslatmalar/nazorat), 6.1-band (Ezza/Melores boardlari), 3-band
@@ -111,30 +133,46 @@ sozlamaga qo'shish).
 `handlers/sales/*.py` routerlariga qo'llanadi (`middlewares/auth.py`,
 o'zgarishsiz qayta ishlatiladi).
 
-## Ochiq savollar (bu bosqichni boshlashdan oldin hal qilinishi SHART)
+## Ochiq savollar (hal qilindi, 2026-07-17 — yuqoridagi "Foydalanuvchi tasdiqlagan qarorlar"ga qarang)
 
-1. `leads` alohida jadvalmi yoki `tasks.task_type=lead` kengaytirilishimi
-   (arxitektura qarori — yuqorida tavsiya bor, lekin tasdiq kerak).
-2. Qo'ng'iroq yozuvlari manbai: qo'lda yuklashmi yoki IP-telefoniya
-   integratsiyasi (TZ 19-band #7).
-3. "Uzoq vaqt aloqaga chiqilmagan" aniq kun chegarasi (TZ 19-band #8).
+1. ~~`leads` alohida jadvalmi yoki `tasks.task_type=lead` kengaytirilishimi~~ —
+   alohida jadval tanlandi.
+2. ~~Qo'ng'iroq yozuvlari manbai: qo'lda yuklashmi yoki IP-telefoniya
+   integratsiyasi~~ (TZ 19-band #7) — qo'lda kiritish tanlandi, IP-telefoniya
+   keyingi (provayder tanlanmagan) alohida ishga qoldirildi.
+3. ~~"Uzoq vaqt aloqaga chiqilmagan" aniq kun chegarasi~~ (TZ 19-band #8) —
+   7 kun, sozlanuvchan (`lead_follow_up_threshold_days`).
 4. Xodimlar/boardlar hajmi — Trello tarif tanlovi uchun (TZ 19-band #9,
-   sotuvga ham tegishli bo'lishi mumkin, umumiy loyihaviy savol).
+   sotuvga ham tegishli bo'lishi mumkin, umumiy loyihaviy savol) — HALI OCHIQ,
+   bu bosqich kodi bilan bog'liq emas (Trello tarif — biznes/moliyaviy qaror).
 
 ## Migratsiya
 
-Yangi jadvallar: `clients` (agar 4-bosqichda hali yaratilmagan bo'lsa),
-`leads`, `call_logs`. Yangi FK'lar: `leads.client_id`, `leads.
-assigned_seller_id`, `call_logs.lead_id`, `call_logs.recorded_by_id`.
-CLAUDE.md gotcha'lariga rioya qilinadi: yangi NOT NULL ustunlar uchun
-`server_default`, aniq FK nomlari (`fk_<table>_<column>`).
+Amalga oshirildi: `ff165aafd9b1` (`app_settings.lead_follow_up_threshold_days`,
+`app_settings.sales_board_lists`) va `11e2c2cee985` (`leads`, `call_logs`
+jadvallari), `b3f7a1c9d204`ning ustiga (4-bosqichda yaratilgan `clients`
+qayta ishlatildi, qayta yaratilmadi). FK'lar: `fk_leads_client_id`, `fk_leads_
+assigned_seller_id`, `fk_call_logs_lead_id`, `fk_call_logs_recorded_by_id`.
 
-## Tekshirish rejasi
+## Tekshirish rejasi — BAJARILDI
 
-Real Trello'da **alohida test board** kerak bo'ladi (Ezza/Melores uchun ham
-"Test" tipidagi board, production Ezza/Melores boardlariga tegilmaydi —
-CLAUDE.md'dagi "Fasad seh" qoidasi shu yerga ham tatbiq etiladi: hech qachon
-haqiqiy sotuv boardida sinov o'tkazilmaydi). `bot/_smoke_phase5_*.py` orqali:
-lid yaratish -> bosqichlar bo'ylab o'tkazish -> Trello list ko'chishini
-tekshirish -> qo'ng'iroq yozuvi qo'shish -> follow-up job'ni sun'iy eskirgan
-sana bilan chaqirib eslatma kelishini tekshirish.
+Real Railway Postgres + Trello **"Test" board**da (production Ezza/Melores
+boardlari umuman qurilmagan hali, "Fasad seh" qoidasi shu sabab tabiiy
+ravishda saqlanadi). `bot/_smoke_phase5_sales.py` (vaqtinchalik, ishlatilgach
+o'chirilgan) orqali: lid yaratish -> `advance_lead_stage` (Trello karta
+Test board'dagi vaqtinchalik "contacted" list'iga ko'chganini tasdiqladi,
+`get_card` orqali tekshirildi) -> qo'ng'iroq yozuvi qo'shish -> `close_lead
+(won=True)` (karta "Yopildi" list'iga ko'chdi) — hammasi muvaffaqiyatli.
+Test uchun yaratilgan 5 ta vaqtinchalik Trello list arxivlandi, karta
+o'chirildi, `sales_board_lists.ezza` standart (`NULL`) holatga qaytarildi,
+DB test qatorlari (lead/call_log/client/seller) o'chirildi. Follow-up
+job (`jobs/lead_follow_up_job.py`) mantiqan `LeadRepository.list_stale_open()`
+ustida qurilgan (bir xil sinov qamrovida alohida sinalmadi — kodi
+`overdue_watch_job` naqshining to'g'ridan-to'g'ri takrori).
+
+**Hali qilinishi kerak (bu bosqich kodi tugagandan keyingi, operatsion qadam)**:
+haqiqiy "Ezza sotuv" va "Melores Mebel sotuv" Trello boardlarini yaratish
+(6.1-band, 5 tadan list bilan), so'ng ularning list ID'larini
+`app_settings.sales_board_lists`ga qo'lda yozish — buni admin/dev to'g'ridan-
+to'g'ri bazada bajaradi (`departments.trello_list_id` bilan bir xil, hech
+qanday bot buyrug'i yo'q).

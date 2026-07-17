@@ -1,158 +1,124 @@
 # 3-bosqich: KPI — minus/plus ball, brigadir ulushi, checklist jarayoni
 
-Holat: NAVBATDA (2-bosqich tugagach boshlanadi). TZda "2-etap, 3-bosqich"
-sifatida rasman belgilangan: "KPI: minus/plus ball, brigadir ulushi,
-checklist jarayoni (qoidalar hujjati asosida)".
+Holat: BAJARILGAN, real Railway Postgres'da sinovdan o'tgan. TZda "2-etap,
+3-bosqich" sifatida rasman belgilangan: "KPI: minus/plus ball, brigadir
+ulushi, checklist jarayoni (qoidalar hujjati asosida)".
 
 TZ manbasi: 8-band to'liq (8.1–8.7), ayniqsa 8.4 (brigadir ulushi va plus
 ball), 8.5 (maosh/avans kuniga ta'sir), 8.6 (moliyaviy javobgarlik
 bayroqlash), 8.7 (xodim roziligi).
 
-## MUHIM: bu bosqichning yadrosi ALLAQACHON ishlayapti
+**Sinov holati**: `alembic upgrade head` real Railway DB'ga muvaffaqiyatli
+qo'llandi (`f98817708ac9`). `bot/_smoke_phase3_kpi.py` orqali real DB'ga
+qarshi to'liq oqim tekshirildi (Trello'siz, MISC vazifalar bilan): plus ball
+(30 soat oldin -> +1), grace period (10 soat kech -> 0), minus jarima (50
+soat kech -> shifted bracket -2), 8.6 avtomatik bayroqlash (6 kunlik bosqich
+-> applicable, idempotentlik tasdiqlandi) — barchasi kutilganidek ishladi,
+test qatorlari o'chirildi, skript o'zi ham ishlatilgach o'chirildi.
 
-Boshqa bosqichlardan farqli o'laroq, 8-bandning katta qismi 1-bosqich
-davomida `services/penalty_service.py`da qurib bo'lingan. Bu hujjat asosan
-QOLGAN, hali qilinmagan yoki ochiq savolga bog'liq bo'laklarni sanaydi —
-mavjud narsani qayta yozish EMAS.
+## A. Plus ball mezonlari (8.4-band) — BAJARILGAN
 
-### Allaqachon ishlaydigan qismlar (`penalty_service.py`, tekshirilgan)
-- **8.1/8.2 (kechikish jarima jadvali)**: `calculate_and_apply_task_penalty()`
-  — vazifa yakunlanganda chaqiriladi, `finished_at > deadline` bo'lsagina
-  ishga tushadi, `penalty_rules` jadvalidan (`department_id`ga qarab yoki
-  global fallback) mos qoidani topib ISHCHI (`Role.WORKER`) xodim(lar)ga
-  `KpiLog` yozadi. Muddatida/oldin tugagan bo'lsa — hech narsa yozilmaydi.
-  Qoida topilmasa `PenaltyRuleNotConfiguredError` (eng yaqin qiymatga
-  "yopishib qolmaydi" — atayin qat'iy).
-  Seed qilingan bracket'lar (`835647e37c2a` migratsiyasi, global):
-  0-24 soat -> -1, 24-48 soat -> -2, 48-72 soat -> -5, 72-96 soat -> -8.
-  96 soatdan keyingisi hali kelishilmagan.
-- **8.4 (brigadir ulushi)**: `_apply_brigade_share_for_worker()` — ishchi
-  ball olganda (bonus/jarima), uning brigadiriga `app_settings.
-  brigade_share_ratio` (default 0.33) nisbatida avtomatik ulush yoziladi
-  (`apply_brigade_share()`). Brigada/brigadir yo'q bo'lsa jim o'tkaziladi.
-  Sozlanadigan (`/settings` orqali, kodga tikilmagan).
-- **8.5 (maosh/avans kuniga ta'sir)**: `update_payment_date_if_needed()` —
-  joriy oyda to'plangan minus ballarga qarab (`balls_per_day_shift`,
-  default 5) `employee.next_payment_date`ni `BASE_PAYMENT_DAY` (15,
-  hozircha konstanta) dan siljitadi. Har chaqirilganda NOLDAN qayta
-  hisoblanadi (idempotent) — alohida "oylik reset" job kerak emas.
-- **Qo'lda ball**: `add_manual_kpi(employee_id, score, reason)` — admin/
-  nazoratchi tomonidan qo'lda bonus/jarima yozish, `reason` majburiy.
-- **Bildirishnoma**: `notification_service.notify_penalty_applied()` —
-  ball yozilganda xodimga sabab+miqdor bilan xabar.
+Yondashuv (foydalanuvchi tasdiqlagan, 2026-07-17): faqat muddatdan oldin
+tugatish mezon, sifat/nazoratchi tasdig'i talab qilinmaydi. Aniq formula
+(foydalanuvchi tasdiqlagan, 2026-07-17): `dayIndex = hours_early // 24`,
+har TO'LIQ kun uchun `plus_ball_per_day` ball (default 1), `plus_ball_max_days`
+kunidan (default 2) ortig'iga qo'shilmaydi (cap). Ikkalasi ham
+`app_settings` orqali sozlanadigan (16-band, kodga tikilmagan).
 
-### QILINMAGAN / TO'LIQ EMAS qismlar
+- `penalty_service.calculate_plus_ball(hours_early)` — endi async, real
+  formula (avvalgi stub emas).
+- `penalty_service.apply_plus_ball_for_employees()` — yangi funksiya,
+  `calculate_and_apply_task_penalty()` muddatdan OLDIN tugagan vazifa uchun
+  chaqiradi. Brigadir ulushi (8.4-band) va 8.5-band to'lov kuni qayta
+  hisoblash ikkalasi ham avtomatik ishlaydi (minus yo'li bilan bir xil umumiy
+  yadro, `_write_scores_for_employees()`).
+- `notify_penalty_applied()` o'zgarishsiz — musbat/manfiy ballarni allaqachon
+  farqlaydi.
 
-## A. Plus ball mezonlari (8.4-band, TZ 19-band ochiq savol #4)
+## B. Brigadir ulushi aniq foizi (8.4-band) — BAJARILGAN
 
-TZ matni: "Plus ball mezonlari (muddatidan oldin/sifatli bajarilgan ish
-uchun) ham alohida tasdiqlanishi kerak." Hozir `penalty_service.
-calculate_plus_ball(task_id) -> int` STUB — doim `0` qaytaradi, tanaffussiz
-kod izohida "mezon kelishilgach to'ldiriladi" deb yozilgan.
+0.33 (1/3) YAKUNIY qiymat sifatida tasdiqlangan (2026-07-17). Kod o'zgarishi
+kerak emas edi — default qiymat allaqachon to'g'ri. Qo'shimcha: ulush endi
+ANIQ ikki yo'nalishda ham ishlaydi (musbat/manfiy), `_apply_brigade_share_for_worker`
+sof arifmetika bo'lgani uchun bu allaqachon avtomatik ta'minlangan edi.
 
-**HAL QILINDI** (foydalanuvchi tasdiqlagan, 2026-07-17): faqat muddatdan
-oldin tugatish mezon bo'ladi — sifat/nazoratchi tasdig'i talab qilinmaydi
-(eng oddiy variant tanlandi). Aniq formula (necha soat oldin -> necha ball)
-hali kod yozishdan oldin belgilanishi kerak — bu 3-bosqich boshlanganda
-hal qilinadi, hozircha faqat "yondashuv" tasdiqlangan, "formula" emas.
+## Yon-effekt: 24 soatlik "grace period" (8.1/8.2-band)
 
-Mezon aniqlangач:
-- `penalty_service.calculate_plus_ball()` to'ldiriladi va `finish_task()`
-  yoki `advance_task_stage()` oqimiga ulanadi (qaysi payt chaqirilishi —
-  vazifa tugaganda yoki bosqich tugaganda — mezonga bog'liq).
-- `notify_penalty_applied()` allaqachon musbat/manfiy ballarni farqlaydi
-  (`score > 0` -> "🎁 bonus"), qo'shimcha o'zgarish shart emas.
+Plus ball formulasi bilan bir vaqtda foydalanuvchi minus jarima uchun ham
+aniq dayIndex-asosli formulani tasdiqladi: `hours_late < 24` bo'lsa hech
+qanday jarima yo'q (avvalgi versiyada 0 soatdan boshlab -1 berilardi).
+`penalty_rules` jadvalidagi 4 ta bracket +24 soatga siljitildi (score'lar
+o'zgarmadi): endi `[24,48)→-1, [48,72)→-2, [72,96)→-5, [96,120)→-8`,
+120+ hali kelishilmagan (`PenaltyRuleNotConfiguredError`). Migratsiya:
+`f98817708ac9` (`UPDATE penalty_rules SET min/max_hours_late += 24`).
 
-## B. Brigadir ulushi aniq foizi (8.4-band, TZ 19-band ochiq savol #3)
+## C. Checklist jarayoni (6.2-band) — o'zgarishsiz
 
-TZ matni: "Ishchining minus balidan brigadirga ulush o'tishi
-rejalashtirilgan (ilgari taklif: ≈1/3). Aniq foiz hali RASMAN
-tasdiqlanmagan." Hozir `app_settings.brigade_share_ratio` default `0.33`
-bilan **KODDA ALLAQACHON SOZLANADIGAN** (admin `/settings` orqali
-o'zgartira oladi).
+2-bosqichda hal qilingan (avtomatik, bo'lim zanjiri bo'yicha). 3-bosqichda
+qolgan yagona narsa — statistikada checklist holatini ko'rsatish — hali
+ham 4-bosqichga (dashboard) bog'liq, bu yerda qilinmadi.
 
-**HAL QILINDI** (foydalanuvchi tasdiqlagan, 2026-07-17): 0.33 (1/3) YAKUNIY
-qiymat sifatida tasdiqlandi. Kod o'zgarishi kerak emas — default qiymat
-allaqachon to'g'ri.
+## D. 8.6-band: moliyaviy javobgarlik bayroqlash — ASOSIY QISM BAJARILGAN
 
-## C. Checklist jarayoni (6.2-band, 2-bosqich C.2 bilan bog'liq)
+Foydalanuvchi tasdiqlagan (2026-07-17): faqat bayroqlash emas, summa
+hisob-kitobi ham kerak — ikkita mustaqil pure-function bilan:
 
-TZ 19-band ochiq savol #1: "Checklist qanday to'ldiriladi — tayyor tugmali
-variantlar orqalimi yoki erkin matn bilanmi?" — bu savol **2-bosqichda**
-foydalanuvchi bilan hal qilingan: bo'lim zanjiri bo'yicha avtomatik (har
-bosqich = 1 punkt, avtomatik belgilanadi, xodim qo'lda checklist matni
-yozmaydi). Demak, checklist jarayonining ASOSIY qismi 2-bosqichning C.2
-qismida amalga oshiriladi, 3-bosqichda faqat quyidagilar qoladi:
+- `financial_service.calculate_wage_deduction_suggestion()` — 1-qoida
+  (bo'lim aybi bilan mijozdan to'lov olinmasa): `stage_duration_days >
+  threshold_days` bo'lsa applicable; summa ma'lum bo'lsa `* 0.5` taklif.
+- `financial_service.calculate_advance_waiver()` — 2-qoida (80% avans +
+  kechikish): applicable bo'lsa `order_total_value * (waiver_percent/100)`
+  kechiriladigan summa.
+- Natijalar yangi `financial_suggestions` jadvaliga yoziladi, `status` doim
+  `pending_manager_review` — tasdiqlash/rad etish BOSHQA (hali qurilmagan)
+  modul ishi, bu yerda faqat interfeys tayyor.
 
-- Checklist holatini statistika/hisobotda ko'rsatish (qaysi bosqichlar
-  bajarilgan, qaysilari qolgan — `stats_service`ga integratsiya, ixtiyoriy,
-  agar foydalanuvchi so'rasa).
-- Agar kelajakda "erkin qo'shimcha checklist punktlari" (masalan sifat
-  nazorati qadamlari) kerak bo'lsa — bu YANGI ochiq savol, hozircha TZda
-  yo'q, o'ylab topilmaydi.
+**Avtomatik ishlaydigan qism**: `overdue_watch_job._process_financial_flags()`
+har soat bosqich davomiyligini (`task.started_at`) tekshiradi, chegaradan
+(`financial_flag_threshold_days`, default 5) ortiq bo'lsa 1-qoida bo'yicha
+taklif yaratadi (summasi hali `NULL` — "kutilmoqda"), NAZORATCHI+ADMIN'larga
+signal yuboradi (`notify_financial_flag`).
 
-## D. 8.6-band: moliyaviy javobgarlik bayroqlash
+**HALI qurilmagan (bu bosqich doirasidan tashqarida qoldirilgan, ataylab)**:
+tizimda hech qanday to'lov/avans/shartnoma summasi manbai yo'q (moliya
+moduli TZ 18-band bo'yicha chegaradan tashqarida), shuning uchun:
+- `amount_withheld_by_customer` (1-qoida summasi) va 2-qoidaning barcha
+  kirish qiymatlari (`advance_percent_paid`, `order_total_value`, `is_late`)
+  HAR DOIM qo'lda kiritiladi — buning uchun admin Telegram UI/FSM oqimi hali
+  YO'Q (`financial_service.create_advance_waiver_suggestion()` chaqirishga
+  tayyor, lekin hech qayerdan chaqirilmaydi).
+- Bu UI 4-bosqich (statistika/dashboard) bilan tabiiy bog'liq — o'sha
+  bosqichda qurilishi rejalashtirilgan, bu yerda qasddan qoldirilgan (scope
+  creep emas).
 
-TZ matni: "Agar biror bo'lim aybi bilan mijozdan to'liq to'lov olinmasa va
-o'sha bo'lim shu bosqichda 4-6 kundan ortiq vaqt o'tkazgan bo'lsa..." va
-"2025-yil 1-fevraldan: 80% avans olingandan keyin muddat o'tkazib
-yuborilsa, qolgan 20% mijozdan talab QILINMAYDI." TZ o'zi aniq cheklaydi:
-"Tizim, hozircha, faqat quyidagilarni bayroqlashi kifoya: 'bu bosqich 4
-kundan ortiq davom etdi' va '80% avans olingan-olinmagani'. Aniq summa
-hisob-kitobi va to'lovni amalga oshirish keyingi (moliya) fazaga
-qoldiriladi" (18-band: moliya moduli bu TZ chegarasidan tashqarida).
+## E. 8.7-band: xodimning roziligi — o'zgarishsiz
 
-TZ 19-band ochiq savol #4b: "Tizim faqat BAYROQLASHI yetarlimi, yoki summa
-hisob-kitobi ham kerakmi?" — **QISMAN HAL QILINDI** (foydalanuvchi
-tasdiqlagan, 2026-07-17): faqat bayroqlash EMAS, summa hisob-kitobi ham
-kerak. **Hali BLOKLANGAN qoladi**: bu tizimda hech qanday to'lov/avans/
-shartnoma summasi ma'lumoti umuman yo'q (moliya moduli yo'q, TZ 18-band
-buni tashqarida deb belgilaydi) — "summa hisob-kitobi" qilish uchun avval
-qaysi summalar (buyurtma narxi? avans foizi? valyuta?) va ular qayerdan
-kiritilishi (admin qo'lda? alohida moliya integratsiyasi?) ANIQLANISHI
-SHART. 3-bosqich boshlanganda shu tafsilotlar bo'yicha qo'shimcha savol
-kerak bo'ladi — taxmin qilinmaydi.
+Process/siyosat xarakterli, kod talab qilinmaydi ("Stop" tugmasi allaqachon
+ishlaydi).
 
-Agar faqat bayroqlash tasdiqlansa (TZning o'z matni shuni aytadi):
-- `tasks` jadvaliga yangi bool/flag ustun: masalan `flagged_long_duration`
-  (bosqich 4-6 kundan ortiq davom etganda, `overdue_watch_job` yoki alohida
-  kunlik job orqali avtomatik belgilanadi).
-- `advance_prepayment_percent` kabi ustun — 80%/20% avans holatini kim
-  kiritadi? TZda aniq emas — bu ham ochiq savol, chunki hozirgi tizimda
-  to'lov/avans ma'lumoti umuman yo'q (moliya moduli yo'q). Ehtimol admin
-  vazifa yaratishda qo'lda belgilaydi (checkbox: "80% avans olingan").
-- Bayroqlangan tasklar admin/rahbar statistikasida alohida ko'rinadi
-  (4-bosqichdagi statistika bilan bog'liq).
+## Yangi migratsiya: `f98817708ac9`
 
-**Bu band boshqalardan ko'ra ko'proq ochiq savol** — amalga oshirishdan
-oldin AskUserQuestion orqali aniqlashtirish tavsiya etiladi.
+- `app_settings`ga 5 ta yangi ustun: `plus_ball_per_day`, `plus_ball_max_days`,
+  `financial_flag_threshold_days`, `advance_threshold_percent`,
+  `advance_waiver_percent` (barchasi `/settings` orqali tahrirlanadi).
+- `penalty_rules` bracket'lari +24 soatga siljitilgan (data migration).
+- Yangi `financial_suggestions` jadvali.
 
-## E. 8.7-band: xodimning roziligi
+## Tekshirilgan
 
-TZ matni: "Har bir xodim ushbu jarima qoidalariga rozi bo'lishi kerak; rozi
-bo'lmasa, ishlamaslik huquqiga ega. Norozilik yoki qarshilikni bildirishning
-yagona rasmiy yo'li — 'Stop' tugmasi." Bu band **process/siyosat** xarakterli
-— "Stop" funksiyasi allaqachon 2-bosqichda (aslida 1-bosqichda) to'liq
-ishlaydi. Qo'shimcha kod talab qilinmaydi, faqat hujjatlashtirish (masalan
-xodim ro'yxatga olinganda "jarima qoidalariga rozilik" matnini ko'rsatish —
-agar foydalanuvchi shuni xohlasa, aks holda process darajasida qoladi).
+Ikki bosqichda: avval sof funksiyalar/formulalar (`py_compile` + qo'lda
+assert, DB'siz) foydalanuvchi bergan test jadvallariga solishtirildi;
+keyin `.env` mavjud bo'lgach real Railway DB'ga qarshi (`alembic upgrade
+head` + `bot/_smoke_phase3_kpi.py`, Trello'siz MISC vazifalar bilan)
+to'liq oqim — plus ball, grace period, shifted minus bracket, 8.6 avtomatik
+bayroqlash + idempotentlik. Barchasi kutilgan natijani berdi.
 
-## Migratsiya (agar D bo'yicha tasdiq kelsa)
+## QILINMAGAN
 
-Yangi ustunlar faqat 8.6-band D qismi tasdiqlansa kerak bo'ladi (`tasks`
-jadvaliga). Boshqa hech narsa (A/B/C/E) yangi migratsiya talab qilmaydi —
-mavjud infratuzilma (`penalty_rules`, `app_settings.brigade_share_ratio`)
-allaqachon yetarli.
-
-## Tekshirish rejasi
-
-- **A** (plus ball): mezon tasdiqlangach, sun'iy "muddatidan oldin tugagan"
-  task yaratib `calculate_plus_ball()`/yangi hisoblash to'g'ri musbat ball
-  qaytarishini va `KpiLog`ga yozilishini tekshirish.
-- **B** (brigadir ulushi): faqat qiymat yangilash, kod o'zgarishi yo'q —
-  alohida smoke-test shart emas, mavjud `_apply_brigade_share_for_worker`
-  logikasi 1-bosqichda allaqachon sinovdan o'tgan.
-- **D** (8.6 bayroqlash, tasdiqlangandan keyin): sun'iy 5 kunlik bosqichda
-  turgan task -> flag avtomatik qo'yilganini tekshirish.
-- Har doim real Railway DB'ga qarshi, `bot/_smoke_phase3_*.py` orqali,
-  ishlatilgach o'chiriladi.
+- Real Telegram botda `/settings` orqali yangi 5 ta maydonni qo'lda UI
+  sinovi (kod real DB'ga qarshi tekshirildi, lekin Telegram interfeysi
+  orqali emas).
+- Real "Test" Trello board bilan integratsiya sinovi (kerak emas edi — bu
+  bosqichning barcha o'zgarishlari Trello'ga umuman tegmaydi, faqat DB).
+- 8.6-band advance-waiver uchun admin qo'lda-kiritish UI (qasddan
+  4-bosqichga qoldirilgan, yuqoridagi D bo'limiga qarang).

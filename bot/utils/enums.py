@@ -33,3 +33,41 @@ class ReminderUrgency(str, Enum):
     INFO = "info"
     WARNING = "warning"
     URGENT = "urgent"
+
+
+class FinancialSuggestionKind(str, Enum):
+    """8.6-band: ikkita mustaqil moliyaviy qoida — bittasi xodim ish haqidan
+    ushlab qolish, ikkinchisi mijozdan avans kechirimi."""
+
+    WAGE_DEDUCTION = "wage_deduction"
+    ADVANCE_WAIVER = "advance_waiver"
+
+
+class FinancialSuggestionStatus(str, Enum):
+    """8.6-band: tizim faqat TAKLIF yozadi (`PENDING_MANAGER_REVIEW`) —
+    tasdiqlash/rad etish INSON tomonidan, boshqa modulda amalga oshiriladi."""
+
+    PENDING_MANAGER_REVIEW = "pending_manager_review"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class LeadBrand(str, Enum):
+    """6.1-band: ikkita mustaqil sotuv yo'nalishi — har biri o'z Trello
+    board'iga ega (Ezza sotuv / Melores Mebel sotuv)."""
+
+    EZZA = "ezza"
+    MELORES = "melores"
+
+
+class LeadStage(str, Enum):
+    """13.1-band varonka bosqichlari. CLOSED_WON/CLOSED_LOST ikkalasi ham
+    Trello'da bitta "Yopildi" list'iga tushadi (TZ 6.1-band board'da faqat
+    5 ta list bor) — g'alaba/yo'qotish farqi faqat shu ustunda saqlanadi."""
+
+    NEW_LEAD = "new_lead"
+    CONTACTED = "contacted"
+    OFFER_SENT = "offer_sent"
+    AGREED = "agreed"
+    CLOSED_WON = "closed_won"
+    CLOSED_LOST = "closed_lost"

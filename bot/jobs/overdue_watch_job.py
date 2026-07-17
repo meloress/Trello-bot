@@ -16,7 +16,7 @@ from aiogram import Bot
 
 from core.database import async_session
 from db.repositories import TaskRepository
-from services import notification_service
+from services import financial_service, notification_service, settings_service
 from utils.enums import TaskStatus
 
 logger = logging.getLogger(__name__)
@@ -83,6 +83,40 @@ async def _process_reassignment_signals(bot: Bot, now: datetime) -> int:
     return len(task_ids)
 
 
+async def _process_financial_flags(bot: Bot, now: datetime) -> int:
+    """8.6-band 1-qoida: bosqich sozlangan `financial_flag_threshold_days`dan
+    ortiq davom etsa, moliyaviy taklif (summa hali noma'lum holatda)
+    avtomatik yaratiladi — admin keyinroq summani kelajakdagi UI orqali
+    to'ldiradi. Idempotentlik `FinancialSuggestionRepository.exists_for_task`
+    orqali (`financial_service.flag_long_duration_stage` ichida)."""
+    threshold_days = (await settings_service.get_settings()).financial_flag_threshold_days
+    async with async_session() as session:
+        candidates = await TaskRepository(session).list_long_running_stages(
+            threshold_days=threshold_days, now=now
+        )
+        task_ids = [t.id for t in candidates]
+
+    suggestion_ids = []
+    for task_id in task_ids:
+        try:
+            suggestion = await financial_service.flag_long_duration_stage(task_id)
+        except Exception:
+            logger.exception("overdue_watch_job: flag_long_duration_stage xatosi (task_id=%s)", task_id)
+            continue
+        if suggestion is not None:
+            suggestion_ids.append(suggestion.id)
+
+    for suggestion_id in suggestion_ids:
+        try:
+            await notification_service.notify_financial_flag(bot, suggestion_id)
+        except Exception:
+            logger.exception(
+                "overdue_watch_job: notify_financial_flag xatosi (suggestion_id=%s)", suggestion_id
+            )
+
+    return len(suggestion_ids)
+
+
 async def run(bot: Bot) -> None:
     now = datetime.now(timezone.utc)
 
@@ -104,7 +138,14 @@ async def run(bot: Bot) -> None:
         logger.exception("overdue_watch_job: reassignment-signal bosqichida xatolik")
         reassignment = 0
 
+    try:
+        financial_flags = await _process_financial_flags(bot, now)
+    except Exception:
+        logger.exception("overdue_watch_job: moliyaviy bayroqlash bosqichida xatolik")
+        financial_flags = 0
+
     logger.info(
-        "overdue_watch_job yakunlandi: %s ta '1 kun qoldi', %s ta yangi OVERDUE, %s ta reassignment signali",
-        approaching, overdue, reassignment,
+        "overdue_watch_job yakunlandi: %s ta '1 kun qoldi', %s ta yangi OVERDUE, "
+        "%s ta reassignment signali, %s ta moliyaviy bayroq",
+        approaching, overdue, reassignment, financial_flags,
     )

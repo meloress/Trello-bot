@@ -5,9 +5,65 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Boshqaruv paneli</title>
   <link rel="stylesheet" href="css/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 </head>
 <body>
-  <div id="app"></div>
+  <div id="app">
+    <section id="login-screen" class="screen">
+      <form id="login-form" class="login-card">
+        <h1>Boshqaruv paneli</h1>
+        <input type="password" id="login-password" placeholder="Parol" autocomplete="current-password" required />
+        <button type="submit">Kirish</button>
+        <p id="login-error" class="error hidden"></p>
+      </form>
+    </section>
+
+    <section id="dashboard-screen" class="screen hidden">
+      <header class="topbar">
+        <h1>📊 Statistika — joriy oy</h1>
+        <div class="topbar-actions">
+          <select id="brigade-filter">
+            <option value="">Barcha xodimlar</option>
+          </select>
+          <button id="ranking-btn">🏆 Reyting</button>
+          <button id="logout-btn">Chiqish</button>
+        </div>
+      </header>
+
+      <main>
+        <canvas id="score-chart" height="90"></canvas>
+
+        <table id="stats-table">
+          <thead>
+            <tr>
+              <th>Xodim</th>
+              <th>Bajarilgan</th>
+              <th>Ball</th>
+              <th>Jarima</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </main>
+    </section>
+
+    <div id="ranking-modal" class="modal hidden">
+      <div class="modal-content">
+        <button class="modal-close" id="ranking-close">✕</button>
+        <h2>🏆 Oylik reyting</h2>
+        <div class="ranking-columns">
+          <div>
+            <h3>Eng yaxshi</h3>
+            <ol id="ranking-best"></ol>
+          </div>
+          <div>
+            <h3>Eng ko'p jarima</h3>
+            <ol id="ranking-worst"></ol>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
   <script src="js/app.js"></script>
 </body>
 </html>

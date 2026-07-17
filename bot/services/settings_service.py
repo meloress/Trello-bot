@@ -25,6 +25,14 @@ class AppSettingsSnapshot:
     default_penalty_multiplier: float
     brigade_share_ratio: float
     balls_per_day_shift: int
+    plus_ball_per_day: int
+    plus_ball_max_days: int
+    financial_flag_threshold_days: int
+    advance_threshold_percent: int
+    advance_waiver_percent: int
+    report_time: str
+    lead_follow_up_threshold_days: int
+    sales_board_lists: dict
 
 
 _cache: AppSettingsSnapshot | None = None
@@ -53,6 +61,17 @@ def validate_reminder_schedule(schedule: list[dict]) -> None:
             )
 
 
+def validate_time_str(value: str) -> None:
+    """10.2-band: `report_time` HH:MM formatida bo'lishi kerak (reminder
+    vaqtlari bilan bir xil qoida)."""
+    try:
+        hour, minute = value.split(":")
+        if not (0 <= int(hour) <= 23 and 0 <= int(minute) <= 59):
+            raise ValueError
+    except (AttributeError, ValueError):
+        raise InvalidReminderScheduleError(f"Noto'g'ri vaqt formati: {value!r} (HH:MM kerak)")
+
+
 async def _load_from_db() -> AppSettingsSnapshot:
     async with async_session() as session:
         row = await AppSettingRepository(session).get_singleton()
@@ -61,6 +80,14 @@ async def _load_from_db() -> AppSettingsSnapshot:
         default_penalty_multiplier=row.default_penalty_multiplier,
         brigade_share_ratio=row.brigade_share_ratio,
         balls_per_day_shift=row.balls_per_day_shift,
+        plus_ball_per_day=row.plus_ball_per_day,
+        plus_ball_max_days=row.plus_ball_max_days,
+        financial_flag_threshold_days=row.financial_flag_threshold_days,
+        advance_threshold_percent=row.advance_threshold_percent,
+        advance_waiver_percent=row.advance_waiver_percent,
+        report_time=row.report_time,
+        lead_follow_up_threshold_days=row.lead_follow_up_threshold_days,
+        sales_board_lists=row.sales_board_lists,
     )
 
 
@@ -84,6 +111,8 @@ async def update_setting(**fields: object) -> AppSettingsSnapshot:
     Masalan: `await update_setting(brigade_share_ratio=0.4)`."""
     if "reminder_schedule" in fields:
         validate_reminder_schedule(fields["reminder_schedule"])
+    if "report_time" in fields:
+        validate_time_str(fields["report_time"])
 
     async with async_session() as session:
         repo = AppSettingRepository(session)

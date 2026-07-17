@@ -8,6 +8,7 @@ tizimni qulatmaydi.
 """
 
 import logging
+from datetime import datetime, timezone
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError, TelegramBadRequest, TelegramForbiddenError
@@ -17,9 +18,12 @@ from core.database import async_session
 from db.models.task import Task
 from db.repositories import (
     BrigadeRepository,
+    ClientRepository,
     DepartmentRepository,
     EmployeeRepository,
+    FinancialSuggestionRepository,
     KpiLogRepository,
+    LeadRepository,
     StopLogRepository,
     TaskAssignmentRepository,
     TaskRepository,
@@ -306,6 +310,105 @@ async def notify_reassignment_candidate(bot: Bot, task_id: int) -> None:
         await _send(bot, telegram_id, text, reply_markup=keyboard)
 
 
+async def notify_financial_flag(bot: Bot, suggestion_id: int) -> None:
+    """8.6-band 1-qoida: bosqich sozlangan chegaradan ortiq davom etgani
+    avtomatik bayroqlanganda — bo'lim NAZORATCHI(lari) + barcha ADMIN'larga
+    signal. Summa hali noma'lum (kelajakdagi admin UI keyin to'ldiradi),
+    shu sabab xabar faqat bayroqni e'lon qiladi, aniq son bermaydi."""
+    async with async_session() as session:
+        suggestion = await FinancialSuggestionRepository(session).get_by_id(suggestion_id)
+        if suggestion is None:
+            logger.warning("notify_financial_flag: suggestion %s topilmadi", suggestion_id)
+            return
+
+        task = await TaskRepository(session).get_by_id(suggestion.task_id)
+        if task is None:
+            logger.warning("notify_financial_flag: task %s topilmadi", suggestion.task_id)
+            return
+
+        employee_repo = EmployeeRepository(session)
+        recipients: dict[int, int | None] = {}
+        if task.current_department_id is not None:
+            for employee in await employee_repo.list_by_department(task.current_department_id):
+                if employee.role == Role.SUPERVISOR:
+                    recipients[employee.id] = employee.telegram_id
+        for admin in await employee_repo.list_by_role(Role.ADMIN):
+            recipients[admin.id] = admin.telegram_id
+
+    text = (
+        f"💰 \"{task.title}\" bosqichi {suggestion.stage_duration_days} kundan ortiq davom etmoqda "
+        "(8.6-band). Mijoz to'lovi ushlanib qolgan bo'lsa, moliyaviy taklifni ko'rib chiqing."
+    )
+    for telegram_id in recipients.values():
+        await _send(bot, telegram_id, text)
+
+
+async def notify_admins_report(bot: Bot, text: str) -> None:
+    """10.2-band: `jobs/report_job.py`ning kunlik/haftalik/oylik hisobotlari
+    barcha ADMIN+SUPERVISOR'larga shu orqali yuboriladi (Markdown kod-blok
+    matni — `stats_service.format_stats_table()` chiqarishi)."""
+    async with async_session() as session:
+        employee_repo = EmployeeRepository(session)
+        recipients: dict[int, int | None] = {}
+        for role in (Role.ADMIN, Role.SUPERVISOR):
+            for employee in await employee_repo.list_by_role(role):
+                recipients[employee.id] = employee.telegram_id
+
+    for telegram_id in recipients.values():
+        if telegram_id is None:
+            continue
+        try:
+            await bot.send_message(telegram_id, text, parse_mode="Markdown")
+        except (TelegramForbiddenError, TelegramBadRequest, TelegramAPIError):
+            logger.warning("notify_admins_report: xabar yetmadi (telegram_id=%s)", telegram_id)
+
+
+async def notify_client_stage_advanced(bot: Bot, task_id: int) -> None:
+    """12-band: "Mahsulot qaysidir bo'limdan CHIQQANDA mijozga xabar boradi."
+    `task_id` — endigina yakunlangan bosqich-qator (`task_service.
+    advance_task_stage()` chaqiruvchisi tomonidan, karta hali arxivlanmagan
+    holatda). Mijoz bog'lanmagan (`client_id IS NULL`) yoki Telegram'ga hali
+    ulanmagan (`telegram_id IS NULL`) bo'lsa — jim o'tkazib yuboriladi."""
+    async with async_session() as session:
+        task = await TaskRepository(session).get_by_id(task_id)
+        if task is None or task.client_id is None:
+            return
+
+        client = await ClientRepository(session).get_by_id(task.client_id)
+        if client is None or client.telegram_id is None:
+            return
+
+        department = (
+            await DepartmentRepository(session).get_by_id(task.current_department_id)
+            if task.current_department_id is not None
+            else None
+        )
+
+    department_name = department.name if department is not None else "joriy bosqich"
+    text = f"📦 Buyurtmangiz \"{task.title}\" {department_name} bosqichidan o'tdi."
+    await _send(bot, client.telegram_id, text)
+
+
+async def notify_client_task_stopped(bot: Bot, stop_log_id: int) -> None:
+    """12-band: "'Stop' bosilganda ham mijozga avtomatik xabarnoma yuboriladi."
+    `notify_task_stopped` bilan bir xil `stop_log_id`dan chaqiriladi."""
+    async with async_session() as session:
+        stop_log = await StopLogRepository(session).get_by_id(stop_log_id)
+        if stop_log is None:
+            return
+
+        task = await TaskRepository(session).get_by_id(stop_log.task_id)
+        if task is None or task.client_id is None:
+            return
+
+        client = await ClientRepository(session).get_by_id(task.client_id)
+        if client is None or client.telegram_id is None:
+            return
+
+    text = f"⏸ Buyurtmangiz \"{task.title}\" vaqtincha to'xtatildi.\nSabab: {stop_log.reason}"
+    await _send(bot, client.telegram_id, text)
+
+
 async def notify_task_reassigned(
     bot: Bot, task_id: int, *, old_employee_ids: list[int], new_employee_ids: list[int]
 ) -> None:
@@ -334,3 +437,25 @@ async def notify_task_reassigned(
         await _send(bot, telegram_id, old_text)
     for telegram_id in new_recipients.values():
         await _send(bot, telegram_id, new_text)
+
+
+async def notify_lead_follow_up(bot: Bot, lead_id: int) -> None:
+    """13.3-band: mas'ul sotuvchiga "uzoq aloqasiz lid" eslatmasi
+    (`jobs/lead_follow_up_job.py`, kunlik — chegaradan ortiq turgan har
+    kuni qayta yuboriladi, TZ "avtomatik eslatma bo'lib boradi" iborasi
+    bir martalik emas, davomiy signalni nazarda tutadi)."""
+    async with async_session() as session:
+        lead = await LeadRepository(session).get_by_id(lead_id)
+        if lead is None:
+            logger.warning("notify_lead_follow_up: lead %s topilmadi", lead_id)
+            return
+
+        client = await ClientRepository(session).get_by_id(lead.client_id)
+        seller = await EmployeeRepository(session).get_by_id(lead.assigned_seller_id)
+        if seller is None:
+            return
+
+    client_name = client.full_name if client else "noma'lum mijoz"
+    days_idle = (datetime.now(timezone.utc) - lead.last_contacted_at).days
+    text = f"📞 \"{client_name}\" bilan {days_idle} kundan beri aloqa yo'q. Qo'ng'iroq qiling."
+    await _send(bot, seller.telegram_id, text)

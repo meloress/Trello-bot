@@ -51,6 +51,12 @@ def _last_7_days_bounds(reference: datetime) -> tuple[datetime, datetime]:
     return reference - timedelta(days=7), reference
 
 
+def _today_bounds(reference: datetime) -> tuple[datetime, datetime]:
+    """[bugun 00:00, ertaga 00:00) — kunlik hisobot uchun (10.2-band)."""
+    start = reference.replace(hour=0, minute=0, second=0, microsecond=0)
+    return start, start + timedelta(days=1)
+
+
 async def _compute_stats(
     employees: list[tuple[int, str]], since: datetime, until: datetime
 ) -> list[EmployeeStats]:
@@ -118,10 +124,12 @@ async def _compute_stats(
     ]
 
 
-async def get_monthly_stats() -> list[EmployeeStats]:
-    """Barcha FAOL xodimlar uchun joriy oy statistikasi (10-band, admin/stats).
+async def get_monthly_stats(reference_month: datetime | None = None) -> list[EmployeeStats]:
+    """Barcha FAOL xodimlar uchun oy statistikasi (10-band, admin/stats).
+    `reference_month` — shu oyning istalgan sanasi (Default: joriy oy);
+    `jobs/report_job.py`ning oylik hisoboti O'TGAN oy uchun shu orqali chaqiradi.
     Faoliyati bo'sh xodim ham 0 qiymatlar bilan ro'yxatda bo'ladi."""
-    since, until = _month_bounds(datetime.now(timezone.utc))
+    since, until = _month_bounds(reference_month or datetime.now(timezone.utc))
 
     async with async_session() as session:
         employees = (
@@ -150,6 +158,37 @@ async def get_brigade_monthly_stats(brigade_id: int) -> list[EmployeeStats]:
     return await _compute_stats(employees, since, until)
 
 
+async def get_daily_stats() -> list[EmployeeStats]:
+    """10.2-band: `jobs/report_job.py`ning kunlik hisoboti — barcha FAOL
+    xodimlar, bugungi kun (UTC kalendar kuni)."""
+    since, until = _today_bounds(datetime.now(timezone.utc))
+
+    async with async_session() as session:
+        employees = (
+            await session.execute(
+                select(Employee.id, Employee.full_name).where(Employee.is_active.is_(True))
+            )
+        ).all()
+
+    return await _compute_stats(employees, since, until)
+
+
+async def get_weekly_stats() -> list[EmployeeStats]:
+    """10.2-band: `jobs/report_job.py`ning haftalik hisoboti — barcha FAOL
+    xodimlar, oxirgi 7 kun (11.1-band bitta-xodim variantidan farqli, bu
+    yerda hammasi bitta jadvalda)."""
+    since, until = _last_7_days_bounds(datetime.now(timezone.utc))
+
+    async with async_session() as session:
+        employees = (
+            await session.execute(
+                select(Employee.id, Employee.full_name).where(Employee.is_active.is_(True))
+            )
+        ).all()
+
+    return await _compute_stats(employees, since, until)
+
+
 async def get_employee_weekly_stats(employee_id: int) -> EmployeeStats | None:
     """11.1-band: bitta xodimning oxirgi 7 kunlik hisoboti. Xodim topilmasa
     None qaytaradi."""
@@ -167,3 +206,37 @@ async def get_employee_weekly_stats(employee_id: int) -> EmployeeStats | None:
 
     results = await _compute_stats([tuple(row)], since, until)
     return results[0] if results else None
+
+
+def format_stats_table(stats: list[EmployeeStats], title: str) -> str:
+    """10-band: statistikani Telegram kod-blok jadvaliga formatlaydi — xodim
+    ismidagi maxsus belgilar (_, *, `) Markdown parserini buzmasligi uchun
+    (kod blok ichida Telegram hech narsani formatlab o'qimaydi, hammasi
+    literal matn). `handlers/admin/stats.py` (on-demand) va
+    `jobs/report_job.py` (scheduled) ikkalasi ham shu funksiyani ishlatadi."""
+    if not stats:
+        return f"{title}\n\nFaol xodimlar topilmadi."
+
+    stats = sorted(stats, key=lambda s: s.total_score, reverse=True)
+
+    name_width = max(len("Xodim"), max(len(s.full_name) for s in stats))
+    header = f"{'Xodim'.ljust(name_width)} | Bajar. | Ball | Jarima"
+    separator = "-" * len(header)
+
+    lines = [f"{title} ({len(stats)} xodim)", "", header, separator]
+    for s in stats:
+        lines.append(
+            f"{s.full_name.ljust(name_width)} | {str(s.completed_tasks).rjust(6)} | "
+            f"{str(s.total_score).rjust(4)} | {str(s.penalty_count).rjust(6)}"
+        )
+
+    best = max(stats, key=lambda s: s.total_score)
+    worst = max(stats, key=lambda s: s.penalty_count)
+
+    lines.append("")
+    if best.total_score > 0:
+        lines.append(f"Eng yuqori ball: {best.full_name} ({best.total_score:+d})")
+    if worst.penalty_count > 0:
+        lines.append(f"Eng ko'p jarima (past unumdorlik): {worst.full_name} ({worst.penalty_count} marta)")
+
+    return "```\n" + "\n".join(lines) + "\n```"

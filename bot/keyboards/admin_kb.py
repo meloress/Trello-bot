@@ -4,6 +4,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from db.models.brigade import Brigade
 from db.models.department import Department
 from db.models.employee import Employee
+from db.models.financial_suggestion import FinancialSuggestion
 from utils.enums import Role
 
 EMPLOYEES_DONE = "employees_done"
@@ -93,6 +94,13 @@ class DepartmentAutoReassignToggle(CallbackData, prefix="deptauto"):
     brigadaga-o'tkazish signalini yoqish/o'chirish."""
 
     department_id: int
+
+
+class FinancialSuggestionSelect(CallbackData, prefix="finsug"):
+    """8.6-band: `/moliyaviy` — summasi hali kutilayotgan takliflar ro'yxatidan
+    bittasini tanlash (handlers/admin/financial.py)."""
+
+    suggestion_id: int
 
 
 REMINDER_BACK = "reminder_back"
@@ -225,6 +233,13 @@ SETTING_FIELD_LABELS: dict[str, str] = {
     "default_penalty_multiplier": "📊 Jarima ko'paytiruvchisi",
     "brigade_share_ratio": "👥 Brigadir ulushi",
     "balls_per_day_shift": "📅 Kun-siljish uchun ball",
+    "plus_ball_per_day": "🎁 Plus ball (har kun uchun)",
+    "plus_ball_max_days": "🎁 Plus ball maksimal kun (cap)",
+    "financial_flag_threshold_days": "💰 Moliyaviy bayroq: bosqich chegarasi (kun)",
+    "advance_threshold_percent": "💰 Avans chegarasi (%)",
+    "advance_waiver_percent": "💰 Kechiriladigan foiz (%)",
+    "report_time": "🕗 Hisobot vaqti (kunlik/haftalik/oylik)",
+    "lead_follow_up_threshold_days": "📞 Lid follow-up chegarasi (kun)",
 }
 
 URGENCY_LABELS: dict[str, str] = {
@@ -311,3 +326,23 @@ def build_reassign_review_keyboard(task_id: int) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="🔁 Ko'rib chiqish", callback_data=ReassignReview(task_id=task_id).pack())]
         ]
     )
+
+
+def build_client_phone_skip_keyboard() -> InlineKeyboardMarkup:
+    """7.1-band: vazifa yaratishda mijoz biriktirish ixtiyoriy."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="⏭ Mijozsiz davom etish", callback_data=SKIP)]]
+    )
+
+
+def build_financial_suggestions_keyboard(suggestions: list[FinancialSuggestion]) -> InlineKeyboardMarkup:
+    rows = [
+        [
+            InlineKeyboardButton(
+                text=f"Task #{s.task_id} — {s.stage_duration_days} kun",
+                callback_data=FinancialSuggestionSelect(suggestion_id=s.id).pack(),
+            )
+        ]
+        for s in suggestions
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
