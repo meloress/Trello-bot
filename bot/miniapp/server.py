@@ -21,6 +21,14 @@ from utils.enums import Role
 PUBLIC_DIR = Path(__file__).resolve().parent / "public"
 
 
+async def _index(request: web.Request) -> web.FileResponse:
+    """`add_static` "/" so'roviga index.html'ni AVTOMATIK bermaydi (uni
+    papka sifatida ko'radi, `show_index=False` bo'lgani uchun 403 qaytaradi)
+    — Mini App ochilganda aynan shu "/" so'raladi, shuning uchun aniq route
+    kerak. Static mount'dan OLDIN ro'yxatga olinishi kerak."""
+    return web.FileResponse(PUBLIC_DIR / "index.html")
+
+
 def create_app(bot: Bot) -> web.Application:
     api_app = web.Application(middlewares=[auth_middleware])
     api_app.add_routes(common.routes)
@@ -41,6 +49,7 @@ def create_app(bot: Bot) -> web.Application:
     app = web.Application()
     app["bot"] = bot
     app.add_subapp("/api/miniapp", api_app)
+    app.router.add_get("/", _index)
     app.router.add_static("/", PUBLIC_DIR, show_index=False)
     return app
 
