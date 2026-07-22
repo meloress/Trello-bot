@@ -130,7 +130,7 @@ const I18N = {
     savedOk: "Saqlandi ✅",
 
     // Sozlamalar (16-band)
-    settingsNav: "⚙️ Sozlamalar",
+    settingsNav: "Sozlamalar",
     settingsTitle: "Sozlamalar",
     setting_default_penalty_multiplier: "Jarima ko'paytiruvchisi",
     setting_brigade_share_ratio: "Brigadir ulushi",
@@ -142,9 +142,9 @@ const I18N = {
     setting_advance_waiver_percent: "Kechiriladigan foiz (%)",
     setting_report_time: "Hisobot vaqti (HH:MM)",
     setting_lead_follow_up_threshold_days: "Lid follow-up chegarasi (kun)",
-    departmentChainNav: "🔗 Bo'lim ketma-ketligi",
-    autoreassignNav: "🔁 Avto-o'tkazish (48s)",
-    remindersNav: "🕗 Eslatmalar",
+    departmentChainNav: "Bo'lim ketma-ketligi",
+    autoreassignNav: "Avto-o'tkazish (48s)",
+    remindersNav: "Eslatmalar",
 
     departmentChainTitle: "Bo'lim ketma-ketligi",
     departmentChainPick: "Qaysi bo'limning KEYINGI bosqichini sozlaysiz?",
@@ -160,7 +160,7 @@ const I18N = {
     urgency_urgent: "🚨 Shoshilinch",
     deleteBtn: "🗑 O'chirish",
 
-    advanceWaiverNav: "➕ Avans kechirim",
+    advanceWaiverNav: "Avans kechirim",
     advanceWaiverTitle: "Avans kechirim taklifi",
     taskIdField: "Vazifa (task) ID",
     advancePercentField: "Avans necha % olingan",
@@ -317,7 +317,7 @@ const I18N = {
     saveChanges: "Сохранить",
     savedOk: "Сохранено ✅",
 
-    settingsNav: "⚙️ Настройки",
+    settingsNav: "Настройки",
     settingsTitle: "Настройки",
     setting_default_penalty_multiplier: "Множитель штрафа",
     setting_brigade_share_ratio: "Доля бригадира",
@@ -329,9 +329,9 @@ const I18N = {
     setting_advance_waiver_percent: "Прощаемый процент (%)",
     setting_report_time: "Время отчёта (ЧЧ:ММ)",
     setting_lead_follow_up_threshold_days: "Порог напоминания по лиду (дни)",
-    departmentChainNav: "🔗 Цепочка отделов",
-    autoreassignNav: "🔁 Авто-передача (48ч)",
-    remindersNav: "🕗 Напоминания",
+    departmentChainNav: "Цепочка отделов",
+    autoreassignNav: "Авто-передача (48ч)",
+    remindersNav: "Напоминания",
 
     departmentChainTitle: "Цепочка отделов",
     departmentChainPick: "Для какого отдела настроить СЛЕДУЮЩИЙ этап?",
@@ -347,7 +347,7 @@ const I18N = {
     urgency_urgent: "🚨 Срочное",
     deleteBtn: "🗑 Удалить",
 
-    advanceWaiverNav: "➕ Прощение аванса",
+    advanceWaiverNav: "Прощение аванса",
     advanceWaiverTitle: "Предложение прощения аванса",
     taskIdField: "ID задачи",
     advancePercentField: "Сколько % аванса получено",

@@ -15,6 +15,7 @@ from aiogram.exceptions import TelegramAPIError, TelegramBadRequest, TelegramFor
 from aiogram.types import InlineKeyboardMarkup
 
 from core.database import async_session
+from keyboards.miniapp_kb import build_miniapp_button
 from db.models.task import Task
 from db.repositories import (
     BrigadeRepository,
@@ -67,8 +68,10 @@ async def notify_task_started(bot: Bot, task_id: int) -> None:
         ]
 
     text = f"🆕 Yangi vazifa: {task.title}\nMuddat: {_format_dt(task.deadline)}\nBatafsil: Mini App'da ko'ring."
+    miniapp_button = build_miniapp_button()
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[miniapp_button]]) if miniapp_button else None
     for employee in employees:
-        await _send(bot, employee.telegram_id, text)
+        await _send(bot, employee.telegram_id, text, reply_markup=keyboard)
 
 
 async def notify_task_stopped(bot: Bot, stop_log_id: int) -> None:

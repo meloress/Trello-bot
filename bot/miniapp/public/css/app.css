@@ -55,14 +55,19 @@
   --critical: #e34948; --critical-bg: #f9e3da;
 }
 
-* { box-sizing: border-box; }
-html, body { margin: 0; }
+* { box-sizing: border-box; min-width: 0; }
+html, body { margin: 0; overflow-x: hidden; }
 body {
   background: var(--bg);
   color: var(--ink);
   font-family: var(--font);
   padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px) + 90px); /* tab-bar + Telegram MainButton joyi */
 }
+/* `min-width: 0` on every element (above) stops any single unshrinkable child
+   (a long unbroken title, a row of buttons that don't fit) from pushing the
+   whole flex/grid layout — and with it the page's horizontal scroll — wider
+   than the screen; `overflow-x: hidden` is the last-resort backstop for
+   anything that still manages to overflow. */
 #app { padding: 14px 16px 20px; display: flex; flex-direction: column; gap: 12px; }
 
 /* ---------- Pastki tab-bar (doimiy navigatsiya) ---------- */
@@ -112,7 +117,7 @@ body {
 }
 .nav-card.accent { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .nav-card .ic { font-size: 18px; }
-.nav-card .grow { flex: 1; }
+.nav-card .grow { flex: 1; min-width: 0; }
 .badge {
   background: var(--accent-soft); color: var(--accent-strong); font-family: var(--font-mono);
   font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; min-width: 20px; text-align: center;
@@ -189,17 +194,21 @@ body {
 .dot-status { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
 .dot-status.on { background: var(--positive); }
 .dot-status.off { background: var(--ink-faint); }
-.emp-row .grow { flex: 1; }
+.emp-row .grow { flex: 1; min-width: 0; }
 .emp-row .name { font-size: 14px; font-weight: 600; }
 .emp-row .role { font-size: 12px; color: var(--ink-soft); }
 
 .fin-card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 13px; display: flex; flex-direction: column; gap: 8px; }
 .fin-card .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.fin-card .task { font-size: 13.5px; font-weight: 700; }
+.fin-card .task { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 13.5px; font-weight: 700; }
+.fin-card .top .status-pill { flex: 0 0 auto; }
 .fin-card .desc { font-size: 12.5px; color: var(--ink-soft); margin: 0; }
 .fin-card .amount-row { display: flex; gap: 8px; }
-.fin-card .amount-row input { flex: 1; }
-.fin-card .amount-row button { flex: 0 0 auto; padding: 10px 14px; }
+.fin-card .amount-row input { flex: 1; min-width: 0; }
+/* `.btn`'s width:100% resolves to flex-basis:auto in a row container — without
+   this override every button here demands 100% of the row's width regardless
+   of siblings, blowing the row (and the whole card) way past the screen edge. */
+.fin-card .amount-row button { flex: 1; width: auto; min-width: 0; padding: 10px 14px; }
 
 .member-card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 13px; border-left: 4px solid var(--line-strong); display: flex; flex-direction: column; gap: 8px; }
 .member-card.low { border-left-color: var(--critical); }
@@ -229,7 +238,7 @@ body {
   padding: 12px 14px; font: inherit; font-size: 13.5px; font-weight: 600; color: var(--warn); cursor: pointer;
 }
 .alert-card .ic { font-size: 18px; }
-.alert-card .grow { flex: 1; }
+.alert-card .grow { flex: 1; min-width: 0; }
 
 /* ---------- To'liq statistika jadvali ---------- */
 .stat-row {
@@ -249,23 +258,26 @@ body {
   background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
   padding: 12px 13px; font: inherit; color: var(--ink); cursor: pointer;
 }
-.settings-row .lbl { font-size: 13.5px; font-weight: 600; }
-.settings-row .val { font-family: var(--font-mono); font-size: 13px; color: var(--ink-soft); }
+.settings-row .lbl { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 600; }
+.settings-row .val { flex: 0 0 auto; max-width: 45%; text-align: right; font-family: var(--font-mono); font-size: 13px; color: var(--ink-soft); overflow-wrap: anywhere; }
 
 .toggle-row {
   display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; text-align: left;
   background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
   padding: 12px 13px; font: inherit; font-size: 13.5px; font-weight: 600; color: var(--ink); cursor: pointer;
 }
-.toggle-pill { font-size: 11.5px; font-weight: 700; padding: 4px 10px; border-radius: 999px; background: var(--surface-sunken); color: var(--ink-faint); }
+.toggle-row > span:first-child { flex: 1; min-width: 0; }
+.toggle-pill { flex: 0 0 auto; font-size: 11.5px; font-weight: 700; padding: 4px 10px; border-radius: 999px; background: var(--surface-sunken); color: var(--ink-faint); }
 .toggle-pill.on { background: var(--positive-bg); color: var(--positive); }
 
 .radio-row {
-  display: flex; align-items: center; justify-content: space-between; width: 100%; text-align: left;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; text-align: left;
   background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
   padding: 12px 13px; font: inherit; font-size: 14px; font-weight: 600; color: var(--ink); cursor: pointer;
+  overflow-wrap: anywhere;
 }
 .radio-row[aria-selected="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-strong); }
+.radio-row .hint { flex: 0 0 auto; }
 
 .segmented { display: flex; background: var(--surface-sunken); border-radius: 11px; padding: 3px; gap: 3px; }
 .segmented button { flex: 1; font: inherit; font-size: 13px; font-weight: 700; padding: 8px; border-radius: 8px; border: none; background: none; color: var(--ink-soft); cursor: pointer; }
