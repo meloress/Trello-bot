@@ -546,15 +546,42 @@ async function screenNewTaskForm(kind) {
   }
 }
 
+/* Yuzlab xodim bo'lganda yagona uzun ro'yxat aralashib chalkash bo'ladi —
+   shuning uchun avval rol bo'yicha qisqa kategoriya ro'yxati ko'rsatiladi,
+   har biri bosilganda o'sha roldagi xodimlarning o'z alohida ro'yxati ochiladi. */
 async function screenEmployees() {
   setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
   const employees = await api("/admin/employees");
+  const roles = Object.keys(ROLE_LABELS[state.lang]).filter((r) => employees.some((e) => e.role === r));
   setScreen(`
     <p class="page-title">${esc(t("employeesNav"))} (${employees.length})</p>
+    ${roles.map((r) => {
+      const count = employees.filter((e) => e.role === r).length;
+      const [icon, ...rest] = ROLE_LABELS[state.lang][r].split(" ");
+      return `
+        <button class="nav-card" data-role="${r}">
+          <span class="ic">${icon}</span><span class="grow">${esc(rest.join(" "))}</span><span class="badge">${count}</span><span class="chev">›</span>
+        </button>
+      `;
+    }).join("")}
+  `);
+  root.querySelectorAll(".nav-card").forEach((el) => {
+    el.onclick = () => show(screenEmployeesByRole, el.dataset.role);
+  });
+  setMainButton(`➕ ${t("addEmployee")}`, () => show(screenAddEmployee), "#2f6f62");
+}
+
+async function screenEmployeesByRole(role) {
+  setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
+  // ponytail: to'liq ro'yxatni olib mijozda filtrlaymiz — yuzlab xodim uchun yetarli,
+  // minglab bo'lsa /admin/employees?role= kabi serverga filtr qo'shish kerak bo'ladi.
+  const employees = (await api("/admin/employees")).filter((e) => e.role === role);
+  setScreen(`
+    <p class="page-title">${esc(ROLE_LABELS[state.lang][role])} (${employees.length})</p>
     ${employees.map((e, i) => `
       <button class="emp-row" data-i="${i}">
         <span class="dot-status ${e.is_active ? "on" : "off"}"></span>
-        <span class="grow"><div class="name">${esc(e.full_name)}</div><div class="role">${esc(e.role_label)}${e.department ? " · " + esc(e.department) : ""}</div></span>
+        <span class="grow"><div class="name">${esc(e.full_name)}</div>${e.department ? `<div class="role">${esc(e.department)}</div>` : ""}</span>
         <span class="chev">›</span>
       </button>
     `).join("")}
@@ -563,7 +590,6 @@ async function screenEmployees() {
     const emp = employees[Number(el.dataset.i)];
     el.onclick = () => show(screenEmployeeDetail, emp.id);
   });
-  setMainButton(`➕ ${t("addEmployee")}`, () => show(screenAddEmployee), "#2f6f62");
 }
 
 async function screenEmployeeDetail(employeeId) {
