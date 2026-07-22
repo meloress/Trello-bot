@@ -6,15 +6,18 @@ boshqaradigan brigada avtomatik topiladi; SUPERVISOR `brigade_id` so'rov
 parametri orqali (o'z bo'limidagi yoki barcha) brigadalardan birini tanlaydi.
 """
 
+import logging
+
 from aiohttp import web
 
 from core.database import async_session
-from db.repositories import BrigadeRepository, TaskAssignmentRepository, TaskRepository
+from db.repositories import BrigadeRepository, EmployeeRepository, TaskAssignmentRepository, TaskRepository
 from miniapp.util import err
-from services import stats_service
-from utils.enums import Role, TaskStatus
+from services import notification_service, stats_service, task_service
+from utils.enums import Role, TaskStatus, TaskType
 
 routes = web.RouteTableDef()
+logger = logging.getLogger(__name__)
 
 
 async def _resolve_brigade(request: web.Request):
@@ -86,6 +89,78 @@ async def member_weekly_report(request: web.Request) -> web.Response:
             "penalty_count": stats.penalty_count,
         }
     )
+
+
+@routes.get("/pending-delegation")
+async def list_pending_delegation(request: web.Request) -> web.Response:
+    """Brigadirga to'g'ridan-to'g'ri tushgan, hali o'z brigadasidagi biror
+    xodimga topshirilmagan vazifalar ("Yangi ish" navbati) — `create_task()`/
+    `activate_pending_stage()` endi vazifani xuddi shu brigadirga beradi,
+    brigadir buni ko'rib, `POST /tasks/{id}/delegate` orqali xodimga topshiradi.
+    Topshirilgach brigadir `task_assignments`dan chiqib ketadi, shu sabab bu
+    ro'yxat avtomatik bo'shab boradi — alohida "delegated" bayrog'i shart emas."""
+    employee = request["employee"]
+    async with async_session() as session:
+        assignment_repo = TaskAssignmentRepository(session)
+        task_repo = TaskRepository(session)
+
+        assignments = await assignment_repo.list_by_employee(employee.id)
+        items = []
+        for assignment in assignments:
+            task = await task_repo.get_by_id(assignment.task_id)
+            if task is None or task.task_type != TaskType.ORDER or task.status == TaskStatus.COMPLETED:
+                continue
+            items.append(
+                {
+                    "id": task.id,
+                    "title": task.title,
+                    "deadline": task.deadline.isoformat() if task.deadline else None,
+                }
+            )
+    return web.json_response(items)
+
+
+@routes.get("/brigade-members")
+async def list_brigade_members(request: web.Request) -> web.Response:
+    """Brigadir vazifani topshirishi uchun O'Z brigadasidagi faol xodimlar."""
+    brigade = await _resolve_brigade(request)
+    if brigade is None:
+        return err("brigada topilmadi", 404)
+    async with async_session() as session:
+        members = await EmployeeRepository(session).list_by_brigade(brigade.id)
+    return web.json_response([{"id": m.id, "full_name": m.full_name} for m in members])
+
+
+@routes.post("/tasks/{task_id}/delegate")
+async def delegate_task(request: web.Request) -> web.Response:
+    employee = request["employee"]
+    task_id = int(request.match_info["task_id"])
+    body = await request.json()
+    worker_ids = [int(e) for e in (body.get("employee_ids") or [])]
+    if not worker_ids:
+        return err("employee_ids majburiy")
+
+    brigade = await _resolve_brigade(request)
+    if brigade is None:
+        return err("brigada topilmadi", 404)
+    async with async_session() as session:
+        own_member_ids = {m.id for m in await EmployeeRepository(session).list_by_brigade(brigade.id)}
+    if not set(worker_ids) <= own_member_ids:
+        return err("faqat o'z brigadangizdagi xodimlarga topshirishingiz mumkin", 403)
+
+    try:
+        task = await task_service.delegate_task(task_id, brigadier_id=employee.id, worker_ids=worker_ids)
+    except task_service.TaskNotFoundError:
+        return err("not_found", 404)
+    except (task_service.InvalidTaskStateError, ValueError) as exc:
+        return err(str(exc), 409)
+
+    try:
+        await notification_service.notify_task_started(request.config_dict["bot"], task.id)
+    except Exception:
+        logger.exception("notify_task_started xatosi (task_id=%s)", task.id)
+
+    return web.json_response({"id": task.id, "status": task.status.value})
 
 
 @routes.get("/members/{employee_id}/tasks")

@@ -123,19 +123,52 @@ async def list_brigades(request: web.Request) -> web.Response:
     return web.json_response([{"id": b.id, "name": b.name} for b in brigades])
 
 
+@routes.get("/departments/{department_id}/brigadiers")
+async def list_department_brigadiers(request: web.Request) -> web.Response:
+    """Yangi vazifa/bosqich uchun: rahbar bo'limni tanlagach, faqat SHU
+    bo'limdagi brigadalarning brigadirlari (ism-familiyasi bilan) ko'rsatiladi
+    — endi vazifa to'g'ridan-to'g'ri xodimga emas, brigadirga beriladi,
+    brigadir esa Mini App'da o'z brigadasidagi xodimga topshiradi."""
+    department_id = int(request.match_info["department_id"])
+    async with async_session() as session:
+        brigades = await BrigadeRepository(session).list_by_department(department_id)
+        employee_repo = EmployeeRepository(session)
+        items = []
+        for brigade in brigades:
+            if brigade.brigadier_id is None:
+                continue
+            brigadier = await employee_repo.get_by_id(brigade.brigadier_id)
+            if brigadier is None or not brigadier.is_active:
+                continue
+            items.append(
+                {
+                    "brigade_id": brigade.id,
+                    "brigade_name": brigade.name,
+                    "brigadier_id": brigadier.id,
+                    "brigadier_name": brigadier.full_name,
+                }
+            )
+    return web.json_response(items)
+
+
 @routes.post("/tasks")
 async def create_task(request: web.Request) -> web.Response:
     body = await request.json()
     title = (body.get("title") or "").strip()
     department_id = body.get("department_id")
-    employee_ids = body.get("employee_ids") or []
-    if not title or not department_id or not employee_ids:
-        return err("title, department_id, employee_ids majburiy")
+    brigadier_id = body.get("brigadier_id")
+    if not title or not department_id or not brigadier_id:
+        return err("title, department_id, brigadier_id majburiy")
 
     try:
         deadline = datetime.fromisoformat(body["deadline"])
     except (KeyError, ValueError):
         return err("deadline noto'g'ri formatda (ISO 8601 kerak)")
+
+    async with async_session() as session:
+        brigades = await BrigadeRepository(session).list_by_department(int(department_id))
+    if int(brigadier_id) not in {b.brigadier_id for b in brigades}:
+        return err("brigadir bu bo'limga tegishli emas")
 
     client_id = None
     client_phone = (body.get("client_phone") or "").strip()
@@ -152,7 +185,7 @@ async def create_task(request: web.Request) -> web.Response:
             description=body.get("description"),
             deadline=deadline,
             department_id=int(department_id),
-            employee_ids=[int(e) for e in employee_ids],
+            employee_ids=[int(brigadier_id)],
             client_id=client_id,
         )
     except task_service.DepartmentNotFoundError:
@@ -598,19 +631,30 @@ async def list_pending_setup(request: web.Request) -> web.Response:
 
 @routes.post("/tasks/{task_id}/activate")
 async def activate_pending_stage(request: web.Request) -> web.Response:
+    """6.1/7.4-band: bosqich boshlanganda ham (yangi vazifa yaratishdagi kabi)
+    to'g'ridan-to'g'ri xodim emas, SHU bo'limning brigadiri tanlanadi —
+    brigadir keyin Mini App'da o'z brigadasidagi xodimga topshiradi."""
     task_id = int(request.match_info["task_id"])
     body = await request.json()
-    employee_ids = body.get("employee_ids") or []
-    if not employee_ids:
-        return err("employee_ids majburiy")
+    brigadier_id = body.get("brigadier_id")
+    if not brigadier_id:
+        return err("brigadier_id majburiy")
     try:
         deadline = datetime.fromisoformat(body["deadline"])
     except (KeyError, ValueError):
         return err("deadline noto'g'ri formatda (ISO 8601 kerak)")
 
+    async with async_session() as session:
+        task = await TaskRepository(session).get_by_id(task_id)
+        if task is None or task.current_department_id is None:
+            return err("not_found", 404)
+        brigades = await BrigadeRepository(session).list_by_department(task.current_department_id)
+    if int(brigadier_id) not in {b.brigadier_id for b in brigades}:
+        return err("brigadir bu bo'limga tegishli emas")
+
     try:
         task = await task_service.activate_pending_stage(
-            task_id, deadline=deadline, employee_ids=[int(e) for e in employee_ids]
+            task_id, deadline=deadline, employee_ids=[int(brigadier_id)]
         )
     except task_service.TaskNotFoundError:
         return err("not_found", 404)

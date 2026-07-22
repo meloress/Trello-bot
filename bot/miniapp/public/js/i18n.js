@@ -107,9 +107,9 @@ const I18N = {
     tab_brigade: "Brigada", tab_leads: "Lidlarim",
 
     // Admin bosh sahifa: kutilayotgan amallar
-    pendingSetupAlert: (n) => `⏳ Sozlash kutilmoqda (${n})`,
-    reassignAlert: (n) => `🔁 Ko'rib chiqish kutilmoqda (${n})`,
-    newTaskCta: "➕ Yangi vazifa",
+    pendingSetupAlert: (n) => `Sozlash kutilmoqda (${n})`,
+    reassignAlert: (n) => `Ko'rib chiqish kutilmoqda (${n})`,
+    newTaskCta: "Yangi vazifa",
 
     // Yangi vazifa: Buyurtma/Maxsus almashtirgich (9-band)
     orderType: "📦 Buyurtma",
@@ -181,6 +181,19 @@ const I18N = {
     selectBrigadeTitle: "Qaysi brigadaga o'tkazasiz?",
     reassignConfirmBtn: "🔁 O'tkazish",
     noBrigadeOptions: "Bu bo'limda boshqa brigada yo'q.",
+
+    // Ikki bosqichli tayinlash: rahbar -> brigadir -> ishchi
+    brigadierField: "Brigadir",
+    pickDepartmentFirst: "Avval bo'limni tanlang.",
+    noBrigadierInDept: "Bu bo'limda brigadir tayinlangan brigada yo'q.",
+    newWorkNav: "🆕 Yangi ish",
+    newWorkAlert: (n) => `Yangi ish kutmoqda (${n})`,
+    newWorkTitle: "Yangi ish",
+    noNewWork: "Hozircha yangi ish yo'q.",
+    delegateTitle: "Xodimga topshirish",
+    delegateWorkers: "Brigadangizdagi xodim(lar)ni tanlang",
+    delegateBtn: "📤 Topshirish",
+    noBrigadeMembers: "Brigadangizda faol xodim yo'q.",
   },
   ru: {
     loading: "Загрузка...",
@@ -285,9 +298,9 @@ const I18N = {
     tab_home: "Главная", tab_stats: "Статистика", tab_employees: "Сотрудники", tab_financial: "Финансы",
     tab_brigade: "Бригада", tab_leads: "Мои лиды",
 
-    pendingSetupAlert: (n) => `⏳ Ожидает настройки (${n})`,
-    reassignAlert: (n) => `🔁 Ожидает рассмотрения (${n})`,
-    newTaskCta: "➕ Новая задача",
+    pendingSetupAlert: (n) => `Ожидает настройки (${n})`,
+    reassignAlert: (n) => `Ожидает рассмотрения (${n})`,
+    newTaskCta: "Новая задача",
 
     orderType: "📦 Заказ",
     miscType: "📋 Отдельное поручение",
@@ -355,5 +368,17 @@ const I18N = {
     selectBrigadeTitle: "В какую бригаду передать?",
     reassignConfirmBtn: "🔁 Передать",
     noBrigadeOptions: "В этом отделе нет другой бригады.",
+
+    brigadierField: "Бригадир",
+    pickDepartmentFirst: "Сначала выберите отдел.",
+    noBrigadierInDept: "В этом отделе нет бригады с назначенным бригадиром.",
+    newWorkNav: "🆕 Новая работа",
+    newWorkAlert: (n) => `Ожидает новая работа (${n})`,
+    newWorkTitle: "Новая работа",
+    noNewWork: "Пока новой работы нет.",
+    delegateTitle: "Передать сотруднику",
+    delegateWorkers: "Выберите сотрудника(ов) из вашей бригады",
+    delegateBtn: "📤 Передать",
+    noBrigadeMembers: "В вашей бригаде нет активных сотрудников.",
   },
 };

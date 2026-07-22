@@ -408,6 +408,33 @@ async function screenNewTaskForm(kind) {
     api("/admin/departments"), api("/admin/employees"),
   ]);
   const activeEmployees = employees.filter((e) => e.is_active);
+  let selectedBrigadierId = null;
+
+  async function renderBrigadierPicker(departmentId) {
+    const container = root.querySelector("#brigadier-picker");
+    if (!container) return;
+    selectedBrigadierId = null;
+    if (!departmentId) {
+      container.innerHTML = `<p class="hint">${esc(t("pickDepartmentFirst"))}</p>`;
+      return;
+    }
+    container.innerHTML = `<p class="loading">${esc(t("loading"))}</p>`;
+    const brigadiers = await api(`/admin/departments/${departmentId}/brigadiers`);
+    if (!brigadiers.length) {
+      container.innerHTML = `<p class="empty-state">${esc(t("noBrigadierInDept"))}</p>`;
+      return;
+    }
+    container.innerHTML = brigadiers.map((b, i) => `
+      <button class="radio-row" data-i="${i}">${esc(b.brigadier_name)} <span class="hint">(${esc(b.brigade_name)})</span></button>
+    `).join("");
+    container.querySelectorAll(".radio-row").forEach((el) => {
+      const b = brigadiers[Number(el.dataset.i)];
+      el.onclick = () => {
+        selectedBrigadierId = b.brigadier_id;
+        container.querySelectorAll(".radio-row").forEach((r) => r.setAttribute("aria-selected", r === el));
+      };
+    });
+  }
 
   setScreen(`
     <p class="page-title">${esc(t("newTask"))}</p>
@@ -422,10 +449,8 @@ async function screenNewTaskForm(kind) {
       <div class="field"><label>${esc(t("departmentField"))}</label>
         <select id="f-dept"><option value="">—</option>${departments.map((d) => `<option value="${d.id}">${esc(d.name)}</option>`).join("")}</select>
       </div>
-      <p class="section-lbl">${esc(t("employeesField"))}</p>
-      ${activeEmployees.map((e) => `
-        <label class="check-row"><input type="checkbox" value="${e.id}" class="f-emp" />${esc(e.full_name)} — ${esc(e.role_label)}</label>
-      `).join("")}
+      <p class="section-lbl">${esc(t("brigadierField"))}</p>
+      <div id="brigadier-picker"><p class="hint">${esc(t("pickDepartmentFirst"))}</p></div>
       <div class="field"><label>${esc(t("clientName"))}</label><input id="f-client-name" type="text" /></div>
       <div class="field"><label>${esc(t("clientPhone"))}</label><input id="f-client-phone" type="text" /></div>
     ` : `
@@ -443,13 +468,14 @@ async function screenNewTaskForm(kind) {
   });
 
   if (kind === "order") {
+    root.querySelector("#f-dept").onchange = (ev) => renderBrigadierPicker(ev.target.value);
+
     setMainButton(`➕ ${t("create")}`, async () => {
       const title = root.querySelector("#f-title").value.trim();
       const deptId = root.querySelector("#f-dept").value;
       const deadlineRaw = root.querySelector("#f-deadline").value;
-      const empIds = Array.from(root.querySelectorAll(".f-emp:checked")).map((el) => Number(el.value));
-      if (!title || !deptId || !deadlineRaw || !empIds.length) {
-        showError(`${t("title")}, ${t("departmentField")}, ${t("deadline")}, ${t("employeesField")}`);
+      if (!title || !deptId || !deadlineRaw || !selectedBrigadierId) {
+        showError(`${t("title")}, ${t("departmentField")}, ${t("deadline")}, ${t("brigadierField")}`);
         return;
       }
       const app = tg();
@@ -462,7 +488,7 @@ async function screenNewTaskForm(kind) {
             description: root.querySelector("#f-desc").value.trim() || null,
             deadline: new Date(deadlineRaw).toISOString(),
             department_id: Number(deptId),
-            employee_ids: empIds,
+            brigadier_id: selectedBrigadierId,
             client_full_name: root.querySelector("#f-client-name").value.trim(),
             client_phone: root.querySelector("#f-client-phone").value.trim(),
           }),
@@ -967,21 +993,27 @@ async function screenPendingSetup() {
 
 async function screenActivateStage(task) {
   setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
-  const employees = task.department_id ? await api(`/admin/employees?department_id=${task.department_id}`) : [];
-  const activeEmployees = employees.filter((e) => e.is_active);
+  const brigadiers = task.department_id ? await api(`/admin/departments/${task.department_id}/brigadiers`) : [];
+  let selectedBrigadierId = null;
   setScreen(`
     <p class="page-title">${esc(task.title)}</p>
     <div class="field"><label>${esc(t("deadline"))}</label><input id="f-deadline" type="datetime-local" /></div>
-    <p class="section-lbl">${esc(t("employeesField"))}</p>
-    ${activeEmployees.length ? activeEmployees.map((e) => `
-      <label class="check-row"><input type="checkbox" value="${e.id}" class="f-emp" />${esc(e.full_name)}</label>
-    `).join("") : `<p class="empty-state">${esc(t("noPendingSetup"))}</p>`}
+    <p class="section-lbl">${esc(t("brigadierField"))}</p>
+    ${brigadiers.length ? brigadiers.map((b, i) => `
+      <button class="radio-row" data-i="${i}">${esc(b.brigadier_name)} <span class="hint">(${esc(b.brigade_name)})</span></button>
+    `).join("") : `<p class="empty-state">${esc(t("noBrigadierInDept"))}</p>`}
   `);
+  root.querySelectorAll(".radio-row").forEach((el) => {
+    const b = brigadiers[Number(el.dataset.i)];
+    el.onclick = () => {
+      selectedBrigadierId = b.brigadier_id;
+      root.querySelectorAll(".radio-row").forEach((r) => r.setAttribute("aria-selected", r === el));
+    };
+  });
   setMainButton(t("activateStageBtn"), async () => {
     const deadlineRaw = root.querySelector("#f-deadline").value;
-    const empIds = Array.from(root.querySelectorAll(".f-emp:checked")).map((el) => Number(el.value));
-    if (!deadlineRaw || !empIds.length) {
-      showError(`${t("deadline")}, ${t("employeesField")}`);
+    if (!deadlineRaw || !selectedBrigadierId) {
+      showError(`${t("deadline")}, ${t("brigadierField")}`);
       return;
     }
     const app = tg();
@@ -989,7 +1021,7 @@ async function screenActivateStage(task) {
     try {
       await api(`/admin/tasks/${task.id}/activate`, {
         method: "POST",
-        body: JSON.stringify({ deadline: new Date(deadlineRaw).toISOString(), employee_ids: empIds }),
+        body: JSON.stringify({ deadline: new Date(deadlineRaw).toISOString(), brigadier_id: selectedBrigadierId }),
       });
       app.HapticFeedback && app.HapticFeedback.notificationOccurred("success");
       await goBack();
@@ -1060,8 +1092,10 @@ async function screenBrigadierHome() {
     setScreen(`<p class="empty-state">${esc(t("noBrigade"))}</p>`);
     return;
   }
+  const pendingWork = await api("/brigadier/pending-delegation");
   setScreen(`
     <p class="page-title">${esc(t("brigade_title"))}: ${esc(brigade.name)}</p>
+    ${pendingWork.length ? `<button class="alert-card" id="nav-new-work"><span class="ic">🆕</span><span class="grow">${esc(t("newWorkAlert", pendingWork.length))}</span><span class="chev">›</span></button>` : ""}
     ${brigade.members.map((m, i) => `
       <div class="member-card ${m.total_score < 0 ? "low" : m.total_score > 0 ? "high" : ""}" data-i="${i}">
         <div class="member-top"><span class="nm">${esc(m.full_name)}</span><span class="score ${m.total_score > 0 ? "pos" : m.total_score < 0 ? "neg" : "zero"}">${m.total_score > 0 ? "+" : ""}${m.total_score} ${state.lang === "ru" ? "б." : "ball"}</span></div>
@@ -1084,6 +1118,65 @@ async function screenBrigadierHome() {
       show(screenMemberTasks, member.employee_id, member.full_name);
     };
   });
+  const newWorkBtn = root.querySelector("#nav-new-work");
+  if (newWorkBtn) newWorkBtn.onclick = () => show(screenNewWork);
+}
+
+async function screenNewWork() {
+  setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
+  const items = await api("/brigadier/pending-delegation");
+  if (!items.length) {
+    setScreen(`<p class="page-title">${esc(t("newWorkTitle"))}</p><p class="empty-state">${esc(t("noNewWork"))}</p>`);
+    return;
+  }
+  setScreen(`
+    <p class="page-title">${esc(t("newWorkTitle"))}</p>
+    ${items.map((tsk, i) => `
+      <button class="nav-card accent" data-i="${i}"><span class="ic">🆕</span><span class="grow">${esc(tsk.title)}<div class="t-sub">${esc(t("deadline"))}: ${esc(formatDt(tsk.deadline))}</div></span><span class="chev">›</span></button>
+    `).join("")}
+  `);
+  root.querySelectorAll(".nav-card").forEach((el) => {
+    const tsk = items[Number(el.dataset.i)];
+    el.onclick = () => show(screenDelegateTask, tsk);
+  });
+}
+
+async function screenDelegateTask(task) {
+  setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
+  const members = await api("/brigadier/brigade-members");
+  if (!members.length) {
+    setScreen(`<p class="page-title">${esc(task.title)}</p><p class="empty-state">${esc(t("noBrigadeMembers"))}</p>`);
+    return;
+  }
+  setScreen(`
+    <p class="page-title">${esc(task.title)}</p>
+    <p class="page-sub">${esc(t("delegateWorkers"))}</p>
+    ${members.map((m) => `
+      <label class="check-row"><input type="checkbox" value="${m.id}" class="f-worker" />${esc(m.full_name)}</label>
+    `).join("")}
+  `);
+  setMainButton(t("delegateBtn"), async () => {
+    const workerIds = Array.from(root.querySelectorAll(".f-worker:checked")).map((el) => Number(el.value));
+    if (!workerIds.length) {
+      showError(t("delegateWorkers"));
+      return;
+    }
+    const app = tg();
+    app.MainButton.showProgress();
+    try {
+      await api(`/brigadier/tasks/${task.id}/delegate`, {
+        method: "POST",
+        body: JSON.stringify({ employee_ids: workerIds }),
+      });
+      app.HapticFeedback && app.HapticFeedback.notificationOccurred("success");
+      await goBack();
+      await show(screenNewWork);
+    } catch (e) {
+      showError(e.message);
+    } finally {
+      app.MainButton.hideProgress();
+    }
+  }, "#2f6f62");
 }
 
 async function screenMemberTasks(employeeId, fullName) {

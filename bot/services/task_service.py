@@ -309,6 +309,54 @@ async def activate_pending_stage(task_id: int, *, deadline: datetime, employee_i
     return task
 
 
+async def delegate_task(task_id: int, *, brigadier_id: int, worker_ids: list[int]) -> Task:
+    """Ikki bosqichli tayinlash oqimi: `create_task()`/`activate_pending_stage()`
+    endi vazifani to'g'ridan-to'g'ri ishchiga emas, BRIGADIRga beradi (Mini App
+    yangi vazifa/bosqich yaratishda endi xodim emas, brigadir tanlatadi) —
+    brigadir Mini App'da o'ziga tushgan vazifani ko'radi va shu yerda o'z
+    brigadasidagi xodim(lar)ga topshiradi. Eski `task_assignments' (brigadir)
+    to'liq o'chiriladi, tanlangan xodim(lar) qo'shiladi — `reassign_task_
+    brigade()`dagi bilan bir xil "to'liq almashtirish" qoidasi (qisman
+    birgalikda egalik qilish yo'q). Brigadirning o'zi hech qachon
+    `task_assignments`da qolmaydi, lekin bu KPI ulushini yo'qotmaydi —
+    `penalty_service`dagi brigadir ulushi `brigades.brigadier_id` orqali
+    avtomatik hisoblanadi, `task_assignments`da qatnashishga bog'liq emas."""
+    if not worker_ids:
+        raise ValueError("Kamida bitta xodim tanlanishi kerak")
+
+    async with async_session() as session:
+        task_repo = TaskRepository(session)
+        assignment_repo = TaskAssignmentRepository(session)
+
+        task = await task_repo.get_by_id(task_id)
+        if task is None:
+            raise TaskNotFoundError(f"Task {task_id} topilmadi")
+
+        current_assignments = await assignment_repo.list_by_task(task_id)
+        if brigadier_id not in {a.employee_id for a in current_assignments}:
+            raise InvalidTaskStateError("Bu vazifa sizga tayinlanmagan")
+
+        for assignment in current_assignments:
+            await assignment_repo.delete(assignment)
+        for worker_id in worker_ids:
+            await assignment_repo.create(task_id=task_id, employee_id=worker_id)
+
+        await session.commit()
+        card_id = task.trello_card_id
+
+    if card_id:
+        try:
+            await _remove_members_from_card(card_id, [brigadier_id])
+        except Exception:
+            logger.exception("Task %s: brigadir kartadan olib tashlanmadi", task_id)
+        try:
+            await _add_members_to_card(card_id, worker_ids)
+        except Exception:
+            logger.exception("Task %s: xodim(lar) kartaga qo'shilmadi", task_id)
+
+    return task
+
+
 async def reassign_task_brigade(task_id: int, new_brigade_id: int) -> Task:
     """8.3-band: uzoq kechikkan (OVERDUE, avtomatik aniqlangan —
     `overdue_watch_job._process_reassignment_signals`) buyurtmani boshqa
