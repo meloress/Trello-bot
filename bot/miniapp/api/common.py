@@ -4,9 +4,9 @@ from aiohttp import web
 
 from core.database import async_session
 from db.repositories import BrigadeRepository, DepartmentRepository
-from keyboards.admin_kb import ROLE_LABELS
 from miniapp.util import err
 from services import employee_service
+from utils.formatters import ROLE_LABELS
 
 routes = web.RouteTableDef()
 

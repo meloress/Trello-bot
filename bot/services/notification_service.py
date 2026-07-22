@@ -28,8 +28,6 @@ from db.repositories import (
     TaskAssignmentRepository,
     TaskRepository,
 )
-from keyboards.admin_kb import ReassignReview, build_advance_setup_keyboard, build_reassign_review_keyboard
-from keyboards.worker_kb import build_task_keyboard
 from utils.enums import ReminderUrgency, Role
 from utils.formatters import format_dt as _format_dt
 
@@ -68,13 +66,9 @@ async def notify_task_started(bot: Bot, task_id: int) -> None:
             e for e in [await employee_repo.get_by_id(a.employee_id) for a in assignments] if e is not None
         ]
 
-    text = f"🆕 Yangi vazifa: {task.title}\nMuddat: {_format_dt(task.deadline)}"
-    if task.trello_card_id:  # MISC vazifada (9-band) Trello karta umuman yo'q
-        text += f"\nKarta: {task.trello_card_id}"
-
-    keyboard = build_task_keyboard(task)
+    text = f"🆕 Yangi vazifa: {task.title}\nMuddat: {_format_dt(task.deadline)}\nBatafsil: Mini App'da ko'ring."
     for employee in employees:
-        await _send(bot, employee.telegram_id, text, reply_markup=keyboard)
+        await _send(bot, employee.telegram_id, text)
 
 
 async def notify_task_stopped(bot: Bot, stop_log_id: int) -> None:
@@ -157,11 +151,10 @@ async def notify_stage_pending_setup(bot: Bot, task_id: int) -> None:
     department_name = department.name if department is not None else "noma'lum bo'lim"
     text = (
         f"⏳ Buyurtma \"{task.title}\" {department_name} bo'limiga keldi.\n"
-        f"Muddat va xodim(lar)ni belgilash uchun quyidagi tugmani bosing:"
+        f"Muddat va xodim(lar)ni belgilash uchun Mini App'ning \"⏳ Sozlash kutilmoqda\" bo'limini oching."
     )
-    keyboard = build_advance_setup_keyboard(task.id)
     for telegram_id in recipients.values():
-        await _send(bot, telegram_id, text, reply_markup=keyboard)
+        await _send(bot, telegram_id, text)
 
 
 async def notify_penalty_applied(bot: Bot, kpi_log_id: int) -> None:
@@ -305,11 +298,10 @@ async def notify_reassignment_candidate(bot: Bot, task_id: int) -> None:
 
     text = (
         f"🔁 \"{task.title}\" 48 soatdan ortiq kechikmoqda.\n"
-        "Boshqa brigadaga o'tkazishni ko'rib chiqing:"
+        "Boshqa brigadaga o'tkazishni Mini App'ning \"🔁 Ko'rib chiqish kutilmoqda\" bo'limida ko'rib chiqing."
     )
-    keyboard = build_reassign_review_keyboard(task.id)
     for telegram_id in recipients.values():
-        await _send(bot, telegram_id, text, reply_markup=keyboard)
+        await _send(bot, telegram_id, text)
 
 
 async def notify_financial_flag(bot: Bot, suggestion_id: int) -> None:

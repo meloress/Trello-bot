@@ -47,6 +47,12 @@ def create_app(bot: Bot) -> web.Application:
     api_app.add_subapp("/seller", seller_app)
 
     app = web.Application()
+    # `add_subapp()` sub-app "state"ni ota-ilovadan avtomatik meros qilib
+    # olmaydi — shu sabab "bot" faqat shu (ROOT) darajada saqlanadi, va
+    # handlerlar ichida (istalgan chuqurlikdagi sub-app bo'lsa ham)
+    # `request.app["bot"]` EMAS, `request.config_dict["bot"]` orqali
+    # o'qiladi (aiohttp'ning shu maqsad uchun mo'ljallangan ChainMapProxy'i —
+    # `match_info.apps` bo'yicha barcha ota-ilovalarni ko'rib chiqadi).
     app["bot"] = bot
     app.add_subapp("/api/miniapp", api_app)
     app.router.add_get("/", _index)

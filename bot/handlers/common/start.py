@@ -1,50 +1,33 @@
-"""Ro'yxatdan o'tish va rolga mos asosiy menyu (5.2-band).
+"""Ro'yxatdan o'tish va Mini App'ga yo'naltirish (5.2-band).
 
-`/start`: telegram_id bazada topilsa -> darhol roliga mos menyu. Topilmasa ->
-FSM orqali to'liq ism so'raladi, `registration_service` orqali mavjud
-xodim yozuviga bog'lanadi.
+Bot endi barcha rol uchun to'liq Mini App'ga bog'langan — chatda /buyruq
+yoki tugmali menyu yo'q, faqat `/start` (ro'yxatdan o'tish + ilova tugmasi)
+va `/mijoz` (`handlers/common/client_link.py`, mijozlar uchun — ular xodim
+emas, Mini App'ga kira olmaydi). Boshqa istalgan xabar shu modul oxiridagi
+"hammasiga javob" handleri orqali ilovani ochishga yo'naltiriladi.
 """
 
 import logging
 
 from aiogram import Router
-from aiogram.filters import Command
+from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message
-
-from aiogram.types import InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardMarkup, Message
 
 from core.database import async_session
 from db.repositories import EmployeeRepository
 from keyboards.miniapp_kb import build_miniapp_button
-from keyboards.worker_kb import build_worker_menu_keyboard
 from services import registration_service
 from states.registration_states import RegistrationStates
-from utils.enums import Role
 
 logger = logging.getLogger(__name__)
 
 router = Router(name="common_start")
 
-_ROLE_MENUS = {
-    Role.WORKER: "👷 Ishchi paneli\n\nQuyidagi bo'limlardan birini tanlang "
-    "(yoki /tasks, /misctasks, /myscore komandalaridan foydalaning):",
-    Role.ADMIN: "👔 Rahbar paneli\n\n/newtask — yangi vazifa yaratish\n/settings — tizim sozlamalari",
-    Role.SUPERVISOR: "👔 Nazoratchi paneli\n\n/newtask — yangi vazifa yaratish\n/settings — tizim sozlamalari",
-    Role.BRIGADIER: "👨‍💼 Brigadir paneli\n\n/brigade — brigadangiz KPI holati",
-    Role.SELLER: "💼 Sotuvchi paneli\n\n/yangilid — yangi lid qo'shish\n/lidlarim — lidlar voronkasi",
-}
-_DEFAULT_MENU = "Ro'yxatdan o'tish muvaffaqiyatli. Sizning rolingiz uchun funksiyalar hali ishlab chiqilmoqda."
+_OPEN_APP_TEXT = "📱 Barcha amallar Mini App ichida — pastdagi tugmani bosing."
 
 
-def _menu_for_role(role: Role) -> str:
-    return _ROLE_MENUS.get(role, _DEFAULT_MENU)
-
-
-def _keyboard_for_role(role: Role) -> InlineKeyboardMarkup | None:
-    if role == Role.WORKER:
-        return build_worker_menu_keyboard()
-
+def _miniapp_keyboard() -> InlineKeyboardMarkup | None:
     miniapp_button = build_miniapp_button()
     if miniapp_button is None:
         return None
@@ -59,8 +42,8 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
 
         if employee is not None:
             await message.answer(
-                f"Xush kelibsiz, {employee.full_name}!\n\n{_menu_for_role(employee.role)}",
-                reply_markup=_keyboard_for_role(employee.role),
+                f"Xush kelibsiz, {employee.full_name}!\n\n{_OPEN_APP_TEXT}",
+                reply_markup=_miniapp_keyboard(),
             )
             return
 
@@ -110,6 +93,19 @@ async def on_full_name_received(message: Message, state: FSMContext) -> None:
     await state.clear()
     logger.info("Xodim Telegramga bog'landi: %s (telegram_id=%s)", employee.full_name, employee.telegram_id)
     await message.answer(
-        f"✅ Muvaffaqiyatli bog'landingiz, {employee.full_name}!\n\n{_menu_for_role(employee.role)}",
-        reply_markup=_keyboard_for_role(employee.role),
+        f"✅ Muvaffaqiyatli bog'landingiz, {employee.full_name}!\n\n{_OPEN_APP_TEXT}",
+        reply_markup=_miniapp_keyboard(),
     )
+
+
+@router.message(StateFilter(None))
+async def on_any_other_message(message: Message) -> None:
+    """Chat endi hech qanday /buyruq yoki tugmali menyuni qo'llab-quvvatlamaydi
+    — faol FSM oqimi yo'q holatda kelgan HAR QANDAY xabar shu javobni oladi.
+    (Faol FSM oqimi bo'lsa — masalan `/mijoz` yoki ro'yxatdan o'tish — bu
+    handler `StateFilter(None)` tufayli ishga tushmaydi, oqim o'z holicha davom etadi.)"""
+    async with async_session() as session:
+        employee = await EmployeeRepository(session).get_by_telegram_id(message.from_user.id)
+    if employee is None:
+        return  # ro'yxatdan o'tmagan foydalanuvchi — /start orqali yo'naltiriladi
+    await message.answer(_OPEN_APP_TEXT, reply_markup=_miniapp_keyboard())

@@ -94,6 +94,19 @@ class TaskRepository(BaseRepository[Task]):
         )
         return list(result.scalars().all())
 
+    async def list_awaiting_reassignment_review(self) -> list[Task]:
+        """8.3-band admin UI (Mini App): signal allaqachon berilgan
+        (`reassignment_signaled_at`), hali OVERDUE va hali qo'lda ko'rib
+        chiqilmagan (`reassigned_at IS NULL`) buyurtmalar ro'yxati."""
+        result = await self.session.execute(
+            select(Task).where(
+                Task.status == TaskStatus.OVERDUE,
+                Task.reassignment_signaled_at.isnot(None),
+                Task.reassigned_at.is_(None),
+            )
+        )
+        return list(result.scalars().all())
+
     async def list_long_running_stages(self, *, threshold_days: int, now: datetime) -> list[Task]:
         """8.6-band 1-qoida: hozirgi bosqichda (`started_at`dan hisoblab)
         `threshold_days`dan ORTIQ (qat'iy >) turib qolgan, hali yakunlanmagan

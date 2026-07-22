@@ -112,7 +112,7 @@ async def start_task(request: web.Request) -> web.Response:
         return err(str(exc), 409)
 
     try:
-        await notification_service.notify_task_started(request.app["bot"], task.id)
+        await notification_service.notify_task_started(request.config_dict["bot"], task.id)
     except Exception:
         logger.exception("notify_task_started xatosi (task_id=%s)", task.id)
 
@@ -133,7 +133,7 @@ async def stop_task(request: web.Request) -> web.Response:
     except (timer_service.InvalidTaskStateError, ValueError) as exc:
         return err(str(exc), 409)
 
-    bot = request.app["bot"]
+    bot = request.config_dict["bot"]
     try:
         await notification_service.notify_task_stopped(bot, stop_log.id)
     except Exception:
@@ -171,7 +171,7 @@ async def finish_task(request: web.Request) -> web.Response:
     except timer_service.InvalidTaskStateError as exc:
         return err(str(exc), 409)
 
-    bot = request.app["bot"]
+    bot = request.config_dict["bot"]
 
     # 8.1/8.2/8.4-band: kechikish/erta tugatish jarima-ball hisob-kitobi —
     # chatdagi on_finish_task bilan bir xil, qoida sozlanmagan bo'lsa ham
