@@ -121,6 +121,7 @@ const I18N = {
 
     // To'liq statistika (10-band)
     fullStatsTitle: "Statistika (joriy oy)",
+    overallRanking: "Umumiy reyting",
     noStats: "Bu oy uchun ma'lumot yo'q.",
 
     // Xodim tafsiloti/tahrirlash
@@ -314,6 +315,7 @@ const I18N = {
     misctaskCreated: "Поручение создано",
 
     fullStatsTitle: "Статистика (текущий месяц)",
+    overallRanking: "Общий рейтинг",
     noStats: "За этот месяц данных нет.",
 
     editEmployee: "Редактировать сотрудника",

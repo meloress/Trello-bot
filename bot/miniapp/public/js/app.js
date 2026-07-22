@@ -795,6 +795,20 @@ async function screenAdvanceWaiverForm() {
   }, "#2f6f62");
 }
 
+function statRowsHtml(stats) {
+  return stats.map((s, i) => `
+    <div class="stat-row">
+      <span class="rank">${i + 1}</span>
+      <span class="nm">${esc(s.full_name)}<div class="completed">${s.completed_tasks} ${esc(t("completedThisMonth"))} · ${s.penalty_count} ${esc(t("penaltyCountLbl")).toLowerCase()}</div></span>
+      <span class="score ${s.total_score > 0 ? "pos" : s.total_score < 0 ? "neg" : ""}">${s.total_score > 0 ? "+" : ""}${s.total_score}</span>
+    </div>
+  `).join("");
+}
+
+/* Statistikaga faqat ISHCHI/BRIGADIR kiradi (rahbar/nazoratchi/sotuvchida
+   KPI yo'q — backend'ning o'zi shularni chiqarib tashlaydi). Xodimlar
+   ekranidagi kabi: avval umumiy (aralash, saralangan) reyting, ustida esa
+   rol bo'yicha alohida ro'yxatga o'tish tugmalari. */
 async function screenFullStats() {
   setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
   const stats = await api("/admin/stats");
@@ -802,15 +816,32 @@ async function screenFullStats() {
     setScreen(`<p class="page-title">${esc(t("fullStatsTitle"))}</p><p class="empty-state">${esc(t("noStats"))}</p>`);
     return;
   }
+  const roles = Object.keys(ROLE_LABELS[state.lang]).filter((r) => stats.some((s) => s.role === r));
   setScreen(`
     <p class="page-title">${esc(t("fullStatsTitle"))}</p>
-    ${stats.map((s, i) => `
-      <div class="stat-row">
-        <span class="rank">${i + 1}</span>
-        <span class="nm">${esc(s.full_name)}<div class="completed">${s.completed_tasks} ${esc(t("completedThisMonth"))} · ${s.penalty_count} ${esc(t("penaltyCountLbl")).toLowerCase()}</div></span>
-        <span class="score ${s.total_score > 0 ? "pos" : s.total_score < 0 ? "neg" : ""}">${s.total_score > 0 ? "+" : ""}${s.total_score}</span>
-      </div>
-    `).join("")}
+    ${roles.length > 1 ? roles.map((r) => {
+      const count = stats.filter((s) => s.role === r).length;
+      const [icon, ...rest] = ROLE_LABELS[state.lang][r].split(" ");
+      return `
+        <button class="nav-card" data-role="${r}">
+          <span class="ic">${icon}</span><span class="grow">${esc(rest.join(" "))}</span><span class="badge">${count}</span><span class="chev">›</span>
+        </button>
+      `;
+    }).join("") : ""}
+    <p class="section-lbl">${esc(t("overallRanking"))}</p>
+    ${statRowsHtml(stats)}
+  `);
+  root.querySelectorAll(".nav-card").forEach((el) => {
+    el.onclick = () => show(screenStatsByRole, el.dataset.role);
+  });
+}
+
+async function screenStatsByRole(role) {
+  setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
+  const stats = (await api("/admin/stats")).filter((s) => s.role === role);
+  setScreen(`
+    <p class="page-title">${esc(ROLE_LABELS[state.lang][role])} (${stats.length})</p>
+    ${stats.length ? statRowsHtml(stats) : `<p class="empty-state">${esc(t("noStats"))}</p>`}
   `);
 }
 

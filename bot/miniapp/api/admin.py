@@ -58,8 +58,11 @@ async def dashboard(request: web.Request) -> web.Response:
     stats = await stats_service.get_monthly_stats()
     active_employees = len(stats)
     completed_total = sum(s.completed_tasks for s in stats)
-    avg_score = round(sum(s.total_score for s in stats) / active_employees) if active_employees else 0
-    top = max(stats, key=lambda s: s.total_score, default=None)
+    # O'rtacha ball/yetakchi faqat KPI oladigan rollardan (rahbar/nazoratchi/
+    # sotuvchida ball yo'q — aralashtirilsa o'rtacha sun'iy pasayadi).
+    kpi_stats = [s for s in stats if s.role in stats_service.KPI_ROLES]
+    avg_score = round(sum(s.total_score for s in kpi_stats) / len(kpi_stats)) if kpi_stats else 0
+    top = max(kpi_stats, key=lambda s: s.total_score, default=None)
 
     async with async_session() as session:
         pending_financial = len(await FinancialSuggestionRepository(session).list_pending())
@@ -498,13 +501,20 @@ async def create_misc_task(request: web.Request) -> web.Response:
 @routes.get("/stats")
 async def full_stats(request: web.Request) -> web.Response:
     """10-band: `/stats`ning to'liq versiyasi — dashboard'dagi xulosa
-    tile'laridan farqli, har bir xodim bo'yicha to'liq saralangan jadval."""
-    stats = sorted(await stats_service.get_monthly_stats(), key=lambda s: s.total_score, reverse=True)
+    tile'laridan farqli, har bir xodim bo'yicha to'liq saralangan jadval.
+    Faqat KPI oladigan rollar (ishchi/brigadir) — rahbar/nazoratchi/sotuvchida
+    ball umuman bo'lmagani uchun ro'yxatga qo'shilmaydi."""
+    stats = sorted(
+        (s for s in await stats_service.get_monthly_stats() if s.role in stats_service.KPI_ROLES),
+        key=lambda s: s.total_score,
+        reverse=True,
+    )
     return web.json_response(
         [
             {
                 "employee_id": s.employee_id,
                 "full_name": s.full_name,
+                "role": s.role.value,
                 "completed_tasks": s.completed_tasks,
                 "total_score": s.total_score,
                 "penalty_count": s.penalty_count,

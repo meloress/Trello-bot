@@ -24,13 +24,22 @@ from db.models.employee import Employee
 from db.models.kpi_log import KpiLog
 from db.models.task import Task
 from db.models.task_assignment import TaskAssignment
-from utils.enums import TaskStatus
+from utils.enums import Role, TaskStatus
+
+# KPI/jarima faqat shu ikki operatsion rolga tegishli (penalty_service faqat
+# WORKER'ni jarimalaydi, BRIGADIER esa brigade_share_ratio orqali ulush oladi) —
+# admin/nazoratchi/sotuvchi/kuzatuvchida umuman ball bo'lmaydi. KPI reytingi/
+# o'rtacha ball hisoblanadigan joylarda shu bilan filtrlanadi (lekin
+# get_monthly_stats() o'zi filtrlamaydi — u "faol xodim" umumiy hisobi kabi
+# KPI'ga aloqasiz narsalar uchun ham ishlatiladi, ular hamma rolni ko'rishi kerak).
+KPI_ROLES = (Role.WORKER, Role.BRIGADIER)
 
 
 @dataclass(frozen=True)
 class EmployeeStats:
     employee_id: int
     full_name: str
+    role: Role
     completed_tasks: int
     total_score: int
     penalty_count: int
@@ -58,13 +67,13 @@ def _today_bounds(reference: datetime) -> tuple[datetime, datetime]:
 
 
 async def _compute_stats(
-    employees: list[tuple[int, str]], since: datetime, until: datetime
+    employees: list[tuple[int, str, Role]], since: datetime, until: datetime
 ) -> list[EmployeeStats]:
-    """`employees` = (id, full_name) juftliklari ro'yxati — chaqiruvchi
+    """`employees` = (id, full_name, role) uchtaliklari ro'yxati — chaqiruvchi
     tomonidan oldindan filtrlangan (masalan bitta brigada a'zolari)."""
     if not employees:
         return []
-    employee_ids = [employee_id for employee_id, _ in employees]
+    employee_ids = [employee_id for employee_id, _, _ in employees]
 
     async with async_session() as session:
         completed_by_employee = dict(
@@ -116,16 +125,20 @@ async def _compute_stats(
         EmployeeStats(
             employee_id=employee_id,
             full_name=full_name,
+            role=role,
             completed_tasks=completed_by_employee.get(employee_id, 0),
             total_score=score_by_employee.get(employee_id, 0),
             penalty_count=penalty_count_by_employee.get(employee_id, 0),
         )
-        for employee_id, full_name in employees
+        for employee_id, full_name, role in employees
     ]
 
 
 async def get_monthly_stats(reference_month: datetime | None = None) -> list[EmployeeStats]:
-    """Barcha FAOL xodimlar uchun oy statistikasi (10-band, admin/stats).
+    """Barcha FAOL xodimlar uchun oy statistikasi (10-band, admin/stats/
+    dashboard) — rol bo'yicha filtrlanmagan (dashboard'ning "faol xodim"
+    umumiy hisobi ham shundan kelib chiqadi). KPI-ga xos ko'rinishlar (reyting,
+    o'rtacha ball) chaqiruvchi tomonda `KPI_ROLES` bilan filtrlanadi.
     `reference_month` — shu oyning istalgan sanasi (Default: joriy oy);
     `jobs/report_job.py`ning oylik hisoboti O'TGAN oy uchun shu orqali chaqiradi.
     Faoliyati bo'sh xodim ham 0 qiymatlar bilan ro'yxatda bo'ladi."""
@@ -134,7 +147,7 @@ async def get_monthly_stats(reference_month: datetime | None = None) -> list[Emp
     async with async_session() as session:
         employees = (
             await session.execute(
-                select(Employee.id, Employee.full_name).where(Employee.is_active.is_(True))
+                select(Employee.id, Employee.full_name, Employee.role).where(Employee.is_active.is_(True))
             )
         ).all()
 
@@ -149,7 +162,7 @@ async def get_brigade_monthly_stats(brigade_id: int) -> list[EmployeeStats]:
     async with async_session() as session:
         employees = (
             await session.execute(
-                select(Employee.id, Employee.full_name).where(
+                select(Employee.id, Employee.full_name, Employee.role).where(
                     Employee.brigade_id == brigade_id, Employee.is_active.is_(True)
                 )
             )
@@ -166,7 +179,7 @@ async def get_daily_stats() -> list[EmployeeStats]:
     async with async_session() as session:
         employees = (
             await session.execute(
-                select(Employee.id, Employee.full_name).where(Employee.is_active.is_(True))
+                select(Employee.id, Employee.full_name, Employee.role).where(Employee.is_active.is_(True))
             )
         ).all()
 
@@ -182,7 +195,7 @@ async def get_weekly_stats() -> list[EmployeeStats]:
     async with async_session() as session:
         employees = (
             await session.execute(
-                select(Employee.id, Employee.full_name).where(Employee.is_active.is_(True))
+                select(Employee.id, Employee.full_name, Employee.role).where(Employee.is_active.is_(True))
             )
         ).all()
 
@@ -197,7 +210,7 @@ async def get_employee_weekly_stats(employee_id: int) -> EmployeeStats | None:
     async with async_session() as session:
         row = (
             await session.execute(
-                select(Employee.id, Employee.full_name).where(Employee.id == employee_id)
+                select(Employee.id, Employee.full_name, Employee.role).where(Employee.id == employee_id)
             )
         ).first()
 
