@@ -1160,10 +1160,19 @@ async function screenBrigadierHome() {
     return;
   }
   const pendingWork = await api("/brigadier/pending-delegation");
+  // Brigadirning o'z KPI yozuvi ham `members`da keladi (brigade_share_ratio
+  // ulushi orqali) — ishchilaridan ajratib, alohida yuqorida ko'rsatiladi,
+  // aks holda o'z balini o'z brigadasi ichida "yashirilib" ko'rmas edi.
+  const own = brigade.members.find((m) => m.employee_id === state.employee.id);
+  const workers = brigade.members.filter((m) => m.employee_id !== state.employee.id);
   setScreen(`
     <p class="page-title">${esc(t("brigade_title"))}: ${esc(brigade.name)}</p>
+    <div class="hero-tile ${own && own.total_score >= 0 ? "positive" : ""}">
+      <span class="num">${own ? (own.total_score > 0 ? "+" : "") + own.total_score : "—"}</span>
+      <span class="lbl">${esc(t("currentMonthScore"))}</span>
+    </div>
     ${pendingWork.length ? `<button class="alert-card" id="nav-new-work"><span class="ic">🆕</span><span class="grow">${esc(t("newWorkAlert", pendingWork.length))}</span><span class="chev">›</span></button>` : ""}
-    ${brigade.members.length ? brigade.members.map((m, i) => `
+    ${workers.length ? workers.map((m, i) => `
       <div class="member-card ${m.total_score < 0 ? "low" : m.total_score > 0 ? "high" : ""}" data-i="${i}">
         <div class="member-top"><span class="nm">${esc(m.full_name)}</span><span class="score ${m.total_score > 0 ? "pos" : m.total_score < 0 ? "neg" : "zero"}">${m.total_score > 0 ? "+" : ""}${m.total_score} ${state.lang === "ru" ? "б." : "ball"}</span></div>
         <div class="member-actions"><button class="btn-report">📅 ${esc(t("weeklyReport"))}</button><button class="btn-tasks">📋 ${esc(t("currentTasks"))}</button></div>
@@ -1171,7 +1180,7 @@ async function screenBrigadierHome() {
     `).join("") : `<p class="empty-state">${esc(t("noBrigadeMembers"))}</p>`}
   `);
   root.querySelectorAll(".member-card").forEach((card) => {
-    const member = brigade.members[Number(card.dataset.i)];
+    const member = workers[Number(card.dataset.i)];
     card.querySelector(".btn-report").onclick = async (ev) => {
       ev.stopPropagation();
       const r = await api(`/brigadier/members/${member.employee_id}/report`);
