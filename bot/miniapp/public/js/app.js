@@ -115,6 +115,14 @@ function daysUntil(iso) {
   return Math.floor((new Date(iso).getTime() - Date.now()) / 86400000);
 }
 
+/* daysUntil()'ni manfiylab kechikishni hisoblash noto'g'ri (har doim 1 kunga
+   yuqoriga yaxlitlaydi, masalan 30 daqiqa kechikish "1 kun kechikdi" bo'lib
+   chiqadi) — shuning uchun kechikish uchun alohida, to'g'ri floor yo'nalishi. */
+function daysLate(iso) {
+  if (!iso) return null;
+  return Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86400000));
+}
+
 function statusClass(status) {
   return { active: "st-active", overdue: "st-overdue", stopped: "st-stopped", completed: "", pending_setup: "st-warn" }[status] || "";
 }
@@ -205,7 +213,8 @@ async function renderCurrent() {
   try {
     await fn(...args);
   } catch (e) {
-    setScreen(`<p class="error-banner">${esc(e.message || t("error_generic"))}</p>`);
+    setScreen(`<p class="error-banner">${esc(e.message || t("error_generic"))}</p><button class="btn" id="btn-retry">${esc(t("retry"))}</button>`);
+    root.querySelector("#btn-retry").onclick = renderCurrent;
   }
   renderTabBar();
 }
@@ -226,7 +235,7 @@ async function screenWorkerOrders() {
     <p class="greet">${esc(state.employee.full_name)} 👋</p>
     <div class="hero-row">
       <div class="hero-tile ${score.total >= 0 ? "positive" : ""}"><span class="num">${score.total > 0 ? "+" : ""}${score.total}</span><span class="lbl">${esc(t("currentMonthScore"))}</span></div>
-      <div class="hero-tile ${nearestDays !== null && nearestDays <= 1 ? "warn" : ""}"><span class="num">${nearestDays === null ? "—" : nearestDays <= 0 ? t("statusOverdue")[0] + "!" : nearestDays + "d"}</span><span class="lbl">${esc(t("nearestDeadline"))}</span></div>
+      <div class="hero-tile ${nearestDays !== null && nearestDays <= 1 ? "warn" : ""}"><span class="num">${nearestDays === null ? "—" : nearestDays <= 0 ? "⚠️" : nearestDays + "d"}</span><span class="lbl">${esc(t("nearestDeadline"))}</span></div>
     </div>
     <p class="section-lbl">${esc(t("myOrders"))}</p>
     ${orders.length ? orders.map((tsk, i) => `
@@ -269,7 +278,7 @@ async function screenTaskList(kind) {
 function taskStatusLine(tsk) {
   if (tsk.status === "stopped") return `🛑 ${esc(t("statusStopped"))}`;
   if (tsk.status === "overdue") {
-    const days = tsk.deadline ? -daysUntil(tsk.deadline) : null;
+    const days = tsk.deadline ? daysLate(tsk.deadline) : null;
     return `⚠ ${days ? esc(t("daysLate", days)) : esc(t("statusOverdue"))}`;
   }
   if (tsk.status === "active" && tsk.deadline) {
@@ -289,7 +298,7 @@ async function screenTaskDetail(taskId) {
     <span class="status-pill ${pillClass}">${esc(statusLabel(tsk.status))}</span>
     <div class="panel">
       <div class="kv-row"><span class="k">${esc(t("deadline"))}</span><span class="v">${esc(formatDt(tsk.deadline))}</span></div>
-      ${tsk.status === "overdue" && tsk.deadline ? `<div class="kv-row"><span class="k">${esc(t("lateness"))}</span><span class="v">${-daysUntil(tsk.deadline)} kun</span></div>` : ""}
+      ${tsk.status === "overdue" && tsk.deadline ? `<div class="kv-row"><span class="k">${esc(t("lateness"))}</span><span class="v">${esc(t("daysLate", daysLate(tsk.deadline)))}</span></div>` : ""}
       <div class="kv-row"><span class="k">${esc(t("department"))}</span><span class="v">${esc(tsk.department || "—")}</span></div>
       ${tsk.client_name ? `<div class="kv-row"><span class="k">${esc(t("client"))}</span><span class="v">${esc(tsk.client_name)}</span></div>` : ""}
     </div>
@@ -461,7 +470,7 @@ async function screenNewTaskForm(kind) {
       <p class="section-lbl">${esc(t("brigadierField"))}</p>
       <div id="brigadier-picker"><p class="hint">${esc(t("pickDepartmentFirst"))}</p></div>
       <div class="field"><label>${esc(t("clientName"))}</label><input id="f-client-name" type="text" /></div>
-      <div class="field"><label>${esc(t("clientPhone"))}</label><input id="f-client-phone" type="text" /></div>
+      <div class="field"><label>${esc(t("clientPhone"))}</label><input id="f-client-phone" type="text" inputmode="tel" /></div>
     ` : `
       <div class="field"><label>${esc(t("miscTaskText"))}</label><input id="f-text" type="text" placeholder="${esc(t("miscTaskTextPh"))}" /></div>
       <div class="field"><label>${esc(t("deadline"))}</label><input id="f-deadline" type="datetime-local" /></div>
@@ -577,9 +586,9 @@ async function screenEmployeeDetail(employeeId) {
 
   setScreen(`
     <p class="page-title">${esc(employee.full_name)}</p>
-    <span class="status-pill ${employee.is_active ? "positive" : "neutral"}">${employee.is_active ? esc(t("activate")) : esc(t("deactivate"))}</span>
+    <span class="status-pill ${employee.is_active ? "positive" : "neutral"}">${employee.is_active ? esc(t("activeStatus")) : esc(t("inactiveStatus"))}</span>
     <div class="field"><label>${esc(t("fullName"))}</label><input id="f-name" type="text" value="${esc(employee.full_name)}" /></div>
-    <div class="field"><label>${esc(t("phoneNumber"))}</label><input id="f-phone" type="text" value="${esc(employee.phone_number || "")}" /></div>
+    <div class="field"><label>${esc(t("phoneNumber"))}</label><input id="f-phone" type="text" inputmode="tel" value="${esc(employee.phone_number || "")}" /></div>
     <div class="field"><label>${esc(t("trelloUsername"))}</label><input id="f-trello" type="text" value="${esc(employee.trello_username || "")}" /></div>
     <div class="field"><label>${esc(t("role"))}</label><select id="f-role">${roleOptions}</select></div>
     <div class="field"><label>${esc(t("departmentField"))}</label>
@@ -638,7 +647,7 @@ async function screenAddEmployee() {
   setScreen(`
     <p class="page-title">${esc(t("addEmployee"))}</p>
     <div class="field"><label>${esc(t("fullName"))}</label><input id="f-name" type="text" /></div>
-    <div class="field"><label>${esc(t("phoneNumber"))}</label><input id="f-phone" type="text" placeholder="+998901234567" /></div>
+    <div class="field"><label>${esc(t("phoneNumber"))}</label><input id="f-phone" type="text" inputmode="tel" placeholder="+998901234567" /></div>
     <div class="field"><label>${esc(t("role"))}</label><select id="f-role">${roleOptions}</select></div>
     <div class="field"><label>${esc(t("departmentField"))}</label>
       <select id="f-dept"><option value="">—</option>${departments.map((d) => `<option value="${d.id}">${esc(d.name)}</option>`).join("")}</select>
@@ -684,7 +693,7 @@ async function screenFinancial() {
     <button class="nav-card accent" id="nav-advance-waiver"><span class="ic">➕</span><span class="grow">${esc(t("advanceWaiverNav"))}</span><span class="chev">›</span></button>
     ${items.length ? items.map((s, i) => `
       <div class="fin-card" data-i="${i}">
-        <div class="top"><span class="task">Task #${s.task_id}${s.task_title ? " — " + esc(s.task_title) : ""}</span><span class="status-pill warn">${esc(t(s.kind))}</span></div>
+        <div class="top"><span class="task">${esc(t("taskLabel"))} #${s.task_id}${s.task_title ? " — " + esc(s.task_title) : ""}</span><span class="status-pill warn">${esc(t(s.kind))}</span></div>
         ${s.kind === "wage_deduction" && s.suggested_deduction_amount === null ? `
           <div class="amount-row"><input type="number" class="f-amount" placeholder="${esc(t("enterAmount"))}" /><button class="btn primary f-amount-save">${esc(t("save"))}</button></div>
         ` : `<p class="desc">${s.suggested_deduction_amount !== null ? s.suggested_deduction_amount : s.waived_amount}</p>`}
@@ -909,7 +918,7 @@ async function screenReminders() {
       <div class="fin-card" data-i="${i}">
         <div class="top"><span class="task">🕗 ${esc(entry.time)}</span><span class="status-pill warn">${esc(t("urgency_" + entry.urgency))}</span></div>
         <div class="amount-row">
-          <button class="btn f-edit">✏️ ${esc(t("saveChanges"))}</button>
+          <button class="btn f-edit">${esc(t("edit"))}</button>
           <button class="btn danger f-delete">${esc(t("deleteBtn"))}</button>
         </div>
       </div>
@@ -937,7 +946,7 @@ async function screenReminderForm(mode, index, entry) {
   setScreen(`
     <p class="page-title">${esc(t("addReminderBtn"))}</p>
     <div class="field"><label>${esc(t("reminderTime"))}</label><input id="f-time" type="text" placeholder="15:00" value="${esc(entry ? entry.time : "")}" /></div>
-    <p class="section-lbl">${esc(t("urgency_info")).replace("ℹ️ ", "")}</p>
+    <p class="section-lbl">${esc(t("urgencyLevel"))}</p>
     <div class="segmented" id="urgency-toggle">
       ${urgencies.map((u) => `<button data-u="${u}" aria-selected="${u === urgency}">${esc(t("urgency_" + u))}</button>`).join("")}
     </div>
@@ -1231,7 +1240,7 @@ async function screenLeadDetail(leadId) {
     <span class="status-pill positive">${esc(t("stage_" + lead.stage))}</span>
     <div class="panel">
       <div class="kv-row"><span class="k">${esc(t("phone"))}</span><span class="v">${esc(lead.client_phone || "—")}</span></div>
-      <div class="kv-row"><span class="k">${esc(t("lastContact"))}</span><span class="v">${esc(t("daysAgo", Math.max(0, -daysUntil(lead.last_contacted_at))))}</span></div>
+      <div class="kv-row"><span class="k">${esc(t("lastContact"))}</span><span class="v">${lead.last_contacted_at ? esc(t("daysAgo", Math.max(0, -daysUntil(lead.last_contacted_at)))) : "—"}</span></div>
     </div>
     <button class="btn" id="btn-call">📞 ${esc(t("addCall"))}</button>
     ${isOpen ? `<button class="btn danger" id="btn-close-lost">❌ ${esc(t("closeLost"))}</button><button class="btn primary" id="btn-close-won">✅ ${esc(t("closeWon"))}</button>` : ""}
@@ -1324,6 +1333,7 @@ async function screenProfile() {
       const lang = btn.dataset.lang;
       if (lang === state.lang) return;
       state.lang = lang;
+      document.documentElement.lang = lang;
       try {
         await api("/me/language", { method: "POST", body: JSON.stringify({ language: lang }) });
       } catch (e) {
@@ -1361,8 +1371,14 @@ async function bootstrap() {
   try {
     state.employee = await api("/me");
     state.lang = state.employee.language || "uz";
+    document.documentElement.lang = state.lang;
   } catch (e) {
-    setScreen(`<p class="error-banner">${e.status === 403 ? I18N.uz.not_registered : I18N.uz.error_generic}</p>`);
+    if (e.status === 403) {
+      setScreen(`<p class="error-banner">${I18N.uz.not_registered}</p>`);
+      return;
+    }
+    setScreen(`<p class="error-banner">${I18N.uz.error_generic}</p><button class="btn" id="btn-retry">${I18N.uz.retry}</button>`);
+    root.querySelector("#btn-retry").onclick = bootstrap;
     return;
   }
 

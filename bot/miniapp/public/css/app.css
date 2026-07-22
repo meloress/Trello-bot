@@ -242,7 +242,7 @@ body {
 
 /* ---------- To'liq statistika jadvali ---------- */
 .stat-row {
-  display: grid; grid-template-columns: 26px 1fr auto auto; align-items: center; gap: 10px;
+  display: grid; grid-template-columns: 26px 1fr auto; align-items: center; gap: 10px;
   background: var(--surface); border: 1px solid var(--line); border-radius: 11px; padding: 10px 12px;
 }
 .stat-row .rank { font-family: var(--font-mono); font-weight: 700; color: var(--ink-faint); text-align: center; }

@@ -8,7 +8,7 @@ const I18N = {
     not_registered: "Siz tizimda ro'yxatdan o'tmagansiz. Avval botga /start bosing.",
     retry: "Qayta urinish",
     save: "Saqlash",
-    close: "Yopish",
+    edit: "✏️ Tahrirlash",
 
     greeting: "Assalomu alaykum,",
     sections: "Bo'limlar",
@@ -65,6 +65,7 @@ const I18N = {
     trelloUsername: "Trello username (ixtiyoriy)",
     employeeCreated: "Xodim qo'shildi",
     noPendingFinancial: "Kutilayotgan moliyaviy takliflar yo'q.",
+    taskLabel: "Vazifa",
     wage_deduction: "Bosqich uzoq",
     advance_waiver: "Avans kechirim",
     enterAmount: "Summani kiriting",
@@ -124,6 +125,8 @@ const I18N = {
 
     // Xodim tafsiloti/tahrirlash
     editEmployee: "Xodimni tahrirlash",
+    activeStatus: "Faol",
+    inactiveStatus: "Nofaol",
     activate: "✅ Faollashtirish",
     deactivate: "🚫 Faolsizlantirish",
     saveChanges: "Saqlash",
@@ -155,6 +158,7 @@ const I18N = {
     remindersTitle: "Kunlik eslatma jadvali",
     addReminderBtn: "➕ Yangi vaqt qo'shish",
     reminderTime: "Vaqt (HH:MM)",
+    urgencyLevel: "Muhimlik darajasi",
     urgency_info: "ℹ️ Oddiy",
     urgency_warning: "⚠️ Ogohlantirish",
     urgency_urgent: "🚨 Shoshilinch",
@@ -201,7 +205,7 @@ const I18N = {
     not_registered: "Вы не зарегистрированы в системе. Сначала нажмите /start в боте.",
     retry: "Повторить",
     save: "Сохранить",
-    close: "Закрыть",
+    edit: "✏️ Редактировать",
 
     greeting: "Здравствуйте,",
     sections: "Разделы",
@@ -258,6 +262,7 @@ const I18N = {
     trelloUsername: "Имя пользователя Trello (необязательно)",
     employeeCreated: "Сотрудник добавлен",
     noPendingFinancial: "Нет ожидающих финансовых предложений.",
+    taskLabel: "Задача",
     wage_deduction: "Долгий этап",
     advance_waiver: "Прощение аванса",
     enterAmount: "Введите сумму",
@@ -312,6 +317,8 @@ const I18N = {
     noStats: "За этот месяц данных нет.",
 
     editEmployee: "Редактировать сотрудника",
+    activeStatus: "Активен",
+    inactiveStatus: "Неактивен",
     activate: "✅ Активировать",
     deactivate: "🚫 Деактивировать",
     saveChanges: "Сохранить",
@@ -342,6 +349,7 @@ const I18N = {
     remindersTitle: "Расписание напоминаний",
     addReminderBtn: "➕ Добавить время",
     reminderTime: "Время (ЧЧ:ММ)",
+    urgencyLevel: "Уровень важности",
     urgency_info: "ℹ️ Обычное",
     urgency_warning: "⚠️ Предупреждение",
     urgency_urgent: "🚨 Срочное",
