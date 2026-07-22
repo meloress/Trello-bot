@@ -21,12 +21,15 @@ class KpiLogRepository(BaseRepository[KpiLog]):
     async def list_by_employee_in_range(
         self, employee_id: int, since: datetime, until: datetime
     ) -> list[KpiLog]:
-        """[since, until) yarim ochiq oraliqda — oylik hisob-kitob uchun (8.5-band)."""
+        """[since, until) yarim ochiq oraliqda, yangisidan eskisiga — oylik
+        hisob-kitob va xodimning o'z ball tarixini ko'rish uchun (8.5-band)."""
         result = await self.session.execute(
-            select(KpiLog).where(
+            select(KpiLog)
+            .where(
                 KpiLog.employee_id == employee_id,
                 KpiLog.created_at >= since,
                 KpiLog.created_at < until,
             )
+            .order_by(KpiLog.created_at.desc())
         )
         return list(result.scalars().all())

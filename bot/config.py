@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     trello_token: str
     database_url: str
     web_port: int = 3000
+    # Mini App HTTP serveri (bot jarayoni ichida, aiohttp). Railway public
+    # domain yoqilganda $PORT'ni beradi — shu o'zgaruvchi nomi bilan mos keladi.
+    port: int = 8080
+    miniapp_base_url: str = ""
 
     model_config = SettingsConfigDict(
         env_file=BASE_DIR / ".env",

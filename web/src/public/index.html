@@ -3,15 +3,38 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Boshqaruv paneli</title>
+  <title>Boshqaruv paneli — Melores Mebel</title>
+  <meta name="color-scheme" content="light dark" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+    rel="stylesheet"
+  />
   <link rel="stylesheet" href="css/style.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 </head>
 <body>
+  <!-- Ikonka to'plami — hech qanday tashqi kutubxonasiz, bir marta aniqlanadi, <use> orqali qayta ishlatiladi. -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="icon-gauge" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9M12 3v3M12 12l5-3M19 8l1.7-1" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="icon-trophy" viewBox="0 0 24 24"><path d="M7 4h10v4a5 5 0 0 1-10 0V4Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M7 5H4v1a4 4 0 0 0 4 4M17 5h3v1a4 4 0 0 1-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M12 13v3m-3 4h6m-6 0 1-3h4l1 3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="icon-add" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+      <symbol id="icon-logout" viewBox="0 0 24 24"><path d="M9 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h4M16 17l4-5-4-5M20 12H9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="icon-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 2v2.2M12 19.8V22M4.2 4.2l1.6 1.6M18.2 18.2l1.6 1.6M2 12h2.2M19.8 12H22M4.2 19.8l1.6-1.6M18.2 5.8l1.6-1.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+      <symbol id="icon-moon" viewBox="0 0 24 24"><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+      <symbol id="icon-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+      <symbol id="icon-chevron" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    </defs>
+  </svg>
+
   <div id="app">
     <section id="login-screen" class="screen">
       <form id="login-form" class="login-card">
+        <span class="login-mark">MM</span>
         <h1>Boshqaruv paneli</h1>
+        <p class="login-sub">Melores Mebel — ishlab chiqarish nazorati</p>
         <input type="password" id="login-password" placeholder="Parol" autocomplete="current-password" required />
         <button type="submit">Kirish</button>
         <p id="login-error" class="error hidden"></p>
@@ -20,47 +43,182 @@
 
     <section id="dashboard-screen" class="screen hidden">
       <header class="topbar">
-        <h1>📊 Statistika — joriy oy</h1>
+        <div class="brand">
+          <span class="brand-mark">MM</span>
+          <div>
+            <h1>Statistika</h1>
+            <p class="brand-sub">Joriy oy — ishlab chiqarish nazorati</p>
+          </div>
+        </div>
         <div class="topbar-actions">
-          <select id="brigade-filter">
+          <select id="brigade-filter" aria-label="Brigada bo'yicha filtr">
             <option value="">Barcha xodimlar</option>
           </select>
-          <button id="ranking-btn">🏆 Reyting</button>
-          <button id="logout-btn">Chiqish</button>
+          <button id="ranking-btn" class="btn-icon"><svg><use href="#icon-trophy"/></svg>Reyting</button>
+          <button id="add-employee-btn" class="btn-icon"><svg><use href="#icon-add"/></svg>Xodim qo'shish</button>
+          <button id="theme-toggle" class="btn-icon btn-square" aria-label="Mavzuni almashtirish" title="Mavzuni almashtirish">
+            <svg class="icon-sun"><use href="#icon-sun"/></svg>
+            <svg class="icon-moon"><use href="#icon-moon"/></svg>
+          </button>
+          <button id="logout-btn" class="btn-icon btn-ghost"><svg><use href="#icon-logout"/></svg>Chiqish</button>
         </div>
       </header>
 
       <main>
-        <canvas id="score-chart" height="90"></canvas>
+        <div class="tiles" id="stat-tiles">
+          <div class="tile">
+            <span class="tile-label">Faol xodimlar</span>
+            <span class="tile-value" id="tile-employees">—</span>
+          </div>
+          <div class="tile">
+            <span class="tile-label">Bu oy bajarilgan</span>
+            <span class="tile-value" id="tile-completed">—</span>
+          </div>
+          <div class="tile">
+            <span class="tile-label">O'rtacha ball</span>
+            <span class="tile-value" id="tile-avg-score">—</span>
+          </div>
+          <div class="tile">
+            <span class="tile-label">Yetakchi</span>
+            <span class="tile-value tile-value-name" id="tile-top-performer">—</span>
+          </div>
+        </div>
 
-        <table id="stats-table">
-          <thead>
-            <tr>
-              <th>Xodim</th>
-              <th>Bajarilgan</th>
-              <th>Ball</th>
-              <th>Jarima</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Ball dinamikasi</h2>
+            <div class="chart-legend">
+              <span><i class="dot dot-positive"></i>Ijobiy</span>
+              <span><i class="dot dot-negative"></i>Salbiy</span>
+            </div>
+          </div>
+          <div class="chart-wrap">
+            <canvas id="score-chart"></canvas>
+          </div>
+        </div>
+
+        <div class="panel panel-flush">
+          <table id="stats-table">
+            <thead>
+              <tr>
+                <th>Xodim</th>
+                <th>Bajarilgan</th>
+                <th>Ball</th>
+                <th>Jarima</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </main>
     </section>
 
     <div id="ranking-modal" class="modal hidden">
       <div class="modal-content">
-        <button class="modal-close" id="ranking-close">✕</button>
-        <h2>🏆 Oylik reyting</h2>
+        <button class="modal-close" id="ranking-close"><svg><use href="#icon-close"/></svg></button>
+        <h2><svg class="heading-icon"><use href="#icon-trophy"/></svg>Oylik reyting</h2>
         <div class="ranking-columns">
           <div>
             <h3>Eng yaxshi</h3>
-            <ol id="ranking-best"></ol>
+            <ol id="ranking-best" class="rank-list"></ol>
           </div>
           <div>
             <h3>Eng ko'p jarima</h3>
-            <ol id="ranking-worst"></ol>
+            <ol id="ranking-worst" class="rank-list"></ol>
           </div>
         </div>
+      </div>
+    </div>
+
+    <div id="employee-add-modal" class="modal hidden">
+      <div class="modal-content">
+        <button class="modal-close" id="employee-add-close"><svg><use href="#icon-close"/></svg></button>
+        <h2><svg class="heading-icon"><use href="#icon-add"/></svg>Xodim qo'shish</h2>
+
+        <div class="ruler" id="employee-add-ruler">
+          <div class="ruler-track">
+            <span class="ruler-tick" data-step="1"><i></i><b>1</b></span>
+            <span class="ruler-tick" data-step="2"><i></i><b>2</b></span>
+            <span class="ruler-tick" data-step="3"><i></i><b>3</b></span>
+            <span class="ruler-tick" data-step="4"><i></i><b>4</b></span>
+            <span class="ruler-tick" data-step="5"><i></i><b>5</b></span>
+          </div>
+        </div>
+        <p id="employee-add-error" class="error hidden"></p>
+
+        <form id="employee-add-form">
+          <fieldset class="form-step" data-step="1">
+            <p class="step-caption">Shaxsiy ma'lumot</p>
+            <div class="form-field">
+              <label for="ea-full-name">Ism-familiya</label>
+              <input type="text" id="ea-full-name" placeholder="Ilhomov Ilhom" required />
+            </div>
+            <div class="form-field">
+              <label for="ea-phone">Telefon raqami (ixtiyoriy)</label>
+              <input type="text" id="ea-phone" placeholder="+998901234567" />
+            </div>
+          </fieldset>
+
+          <fieldset class="form-step hidden" data-step="2">
+            <p class="step-caption">Lavozim</p>
+            <div class="form-field">
+              <label for="ea-role">Rol</label>
+              <div class="select-wrap">
+                <select id="ea-role">
+                  <option value="worker">Ishchi</option>
+                  <option value="brigadier">Brigadir</option>
+                  <option value="supervisor">Nazoratchi</option>
+                  <option value="admin">Rahbar/Admin</option>
+                  <option value="observer">Kuzatuvchi</option>
+                  <option value="seller">Sotuvchi</option>
+                </select>
+                <svg class="select-chevron"><use href="#icon-chevron"/></svg>
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset class="form-step hidden" data-step="3">
+            <p class="step-caption">Tashkiliy tuzilma</p>
+            <div class="form-field">
+              <label for="ea-department">Yo'nalish (ixtiyoriy)</label>
+              <div class="select-wrap">
+                <select id="ea-department">
+                  <option value="">—</option>
+                </select>
+                <svg class="select-chevron"><use href="#icon-chevron"/></svg>
+              </div>
+            </div>
+            <div class="form-field">
+              <label for="ea-brigade">Brigada (ixtiyoriy)</label>
+              <div class="select-wrap">
+                <select id="ea-brigade" disabled>
+                  <option value="">—</option>
+                </select>
+                <svg class="select-chevron"><use href="#icon-chevron"/></svg>
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset class="form-step hidden" data-step="4">
+            <p class="step-caption">Bog'lanish</p>
+            <div class="form-field">
+              <label for="ea-trello">Trello nomi yoki Gmail (ixtiyoriy)</label>
+              <input type="text" id="ea-trello" placeholder="ilhom.ustaxona yoki ilhom@gmail.com" />
+              <p class="hint">"@" bo'lsa Gmail sifatida saqlanadi, aks holda Trello username sifatida tekshiriladi.</p>
+            </div>
+          </fieldset>
+
+          <fieldset class="form-step hidden" data-step="5">
+            <p class="step-caption">Tasdiqlash</p>
+            <div class="form-summary" id="employee-add-summary"></div>
+          </fieldset>
+
+          <div class="form-actions">
+            <button type="button" id="employee-add-back" class="hidden">Orqaga</button>
+            <button type="button" id="employee-add-next" class="primary">Keyingisi</button>
+            <button type="submit" id="employee-add-submit" class="primary hidden">Qo'shish</button>
+          </div>
+        </form>
       </div>
     </div>
   </div>

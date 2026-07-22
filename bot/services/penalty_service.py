@@ -56,7 +56,7 @@ class PenaltyRuleNotConfiguredError(Exception):
     """Berilgan kechikish uchun penalty_rules'da mos qoida topilmadi (admin hali qo'shmagan)."""
 
 
-def _month_bounds(reference: date) -> tuple[datetime, datetime]:
+def month_bounds(reference: date) -> tuple[datetime, datetime]:
     """[oy boshi 00:00, keyingi oy boshi 00:00) — yarim ochiq oraliq (UTC)."""
     start = datetime(reference.year, reference.month, 1, tzinfo=timezone.utc)
     if reference.month == 12:
@@ -291,7 +291,7 @@ async def calculate_total_score(
     """Berilgan davr (default: joriy oy, [since, until)) uchun xodimning jami KPI
     balli. Faqat o'qiydi — yozuv yo'q, shuning uchun commit qilinmaydi."""
     if since is None or until is None:
-        month_start, month_end = _month_bounds(datetime.now(timezone.utc).date())
+        month_start, month_end = month_bounds(datetime.now(timezone.utc).date())
         since = since or month_start
         until = until or month_end
 
@@ -311,7 +311,7 @@ async def calculate_monthly_rollup(employee_id: int, *, month: str) -> tuple[int
     (monthly_minus manfiy ballarning yig'indisi ABSOLYUT qiymatda EMAS, balki
     o'z ishorasi bilan, ya'ni <= 0)."""
     year, mon = (int(part) for part in month.split("-"))
-    since, until = _month_bounds(date(year, mon, 1))
+    since, until = month_bounds(date(year, mon, 1))
 
     async with async_session() as session:
         logs = await KpiLogRepository(session).list_by_employee_in_range(employee_id, since, until)
@@ -326,7 +326,7 @@ async def update_payment_date_if_needed(employee_id: int) -> Employee:
     qayta hisoblaydi. Har chaqirilganda joriy oy ma'lumotlaridan NOLDAN qayta
     hisoblanadi (idempotent) — shu sababli alohida "oylik reset" job kerak emas:
     oy almashgach, `_month_bounds` avtomatik ravishda yangi oyni ko'radi."""
-    month_start, month_end = _month_bounds(datetime.now(timezone.utc).date())
+    month_start, month_end = month_bounds(datetime.now(timezone.utc).date())
 
     async with async_session() as session:
         employee_repo = EmployeeRepository(session)

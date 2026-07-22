@@ -18,7 +18,7 @@ function monthBounds(reference = new Date()) {
 }
 
 const STATS_QUERY = `
-  SELECT e.id, e.full_name,
+  SELECT e.id, e.full_name, e.role,
     COALESCE(completed.cnt, 0)::int AS completed_tasks,
     COALESCE(scores.total, 0)::int AS total_score,
     COALESCE(penalties.cnt, 0)::int AS penalty_count

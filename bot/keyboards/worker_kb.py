@@ -2,12 +2,33 @@ from aiogram.filters.callback_data import CallbackData
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from db.models.task import Task
+from keyboards.miniapp_kb import build_miniapp_button
 from utils.enums import TaskStatus
 
 
 class TaskAction(CallbackData, prefix="task"):
     action: str  # "start" | "stop" | "resume" | "finish"
     task_id: int
+
+
+WORKER_MENU_ORDERS = "worker_menu:orders"
+WORKER_MENU_MISC = "worker_menu:misc"
+WORKER_MENU_SCORE = "worker_menu:score"
+
+
+def build_worker_menu_keyboard() -> InlineKeyboardMarkup:
+    """Ishchi `/start`dan keyingi asosiy menyusi — uchta bo'lim: buyurtmalar,
+    maxsus vazifalar, jarima ballari tarixi (mos komandalar: /tasks,
+    /misctasks, /myscore)."""
+    rows = [
+        [InlineKeyboardButton(text="📦 Mening buyurtmalarim", callback_data=WORKER_MENU_ORDERS)],
+        [InlineKeyboardButton(text="📋 Mening vazifalarim", callback_data=WORKER_MENU_MISC)],
+        [InlineKeyboardButton(text="⭐ Mening jarima ballarim", callback_data=WORKER_MENU_SCORE)],
+    ]
+    miniapp_button = build_miniapp_button()
+    if miniapp_button is not None:
+        rows.append([miniapp_button])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def build_task_keyboard(task: Task) -> InlineKeyboardMarkup | None:

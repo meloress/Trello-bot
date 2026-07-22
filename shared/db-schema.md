@@ -55,6 +55,7 @@ migratsiyalar faqat Alembic (`bot/db/migrations/`) orqali amalga oshiriladi.
 | brigade_id | FK -> brigades.id | xodim A'ZOSI bo'lgan brigada (`c54dee342844` migratsiyasi); NULL — hali biriktirilmagan |
 | next_payment_date | DATE | default: joriy oyning 15-sanasi (8.5-band); tizim minus ball to'planganda buni siljitib boradi |
 | is_active | BOOLEAN | default: true; ishdan bo'shatilganda false qilinadi ("O'CHIRISH" tugmasi soft-delete) |
+| language | VARCHAR(2) | default: 'uz' (`a1c9f3e7d502` migratsiyasi); Mini App profil ekranidagi til tanlovi ("uz"/"ru") — `bot/miniapp/api/common.py`ning `POST /me/language`si yozadi |
 | created_at / updated_at | TIMESTAMPTZ | |
 
 **Bog'lanishlar**: `department` (M-1), `brigade` (M-1, a'zolik), `led_brigades`

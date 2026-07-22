@@ -58,6 +58,17 @@ class TrelloClient:
                 return None
             return await response.json(content_type=None)
 
+    async def create_board(self, name: str) -> dict:
+        """Yangi Trello board yaratadi (masalan demo/ko'rgazma ma'lumotlari
+        uchun, real "Fasad seh"/"Test" board'lariga tegmasdan)."""
+        return await self._request("POST", "/boards", params={"name": name})
+
+    async def create_list(self, board_id: str, name: str) -> dict:
+        """Berilgan board'da yangi list (ustun) yaratadi."""
+        return await self._request(
+            "POST", "/lists", params={"name": name, "idBoard": board_id}
+        )
+
     async def create_card(
         self, list_id: str, name: str, desc: str = "", due: datetime | None = None
     ) -> dict:

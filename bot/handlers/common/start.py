@@ -12,8 +12,12 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
+from aiogram.types import InlineKeyboardMarkup
+
 from core.database import async_session
 from db.repositories import EmployeeRepository
+from keyboards.miniapp_kb import build_miniapp_button
+from keyboards.worker_kb import build_worker_menu_keyboard
 from services import registration_service
 from states.registration_states import RegistrationStates
 from utils.enums import Role
@@ -23,15 +27,28 @@ logger = logging.getLogger(__name__)
 router = Router(name="common_start")
 
 _ROLE_MENUS = {
-    Role.WORKER: "👷 Ishchi paneli\n\n/tasks — vazifalaringiz ro'yxati",
+    Role.WORKER: "👷 Ishchi paneli\n\nQuyidagi bo'limlardan birini tanlang "
+    "(yoki /tasks, /misctasks, /myscore komandalaridan foydalaning):",
     Role.ADMIN: "👔 Rahbar paneli\n\n/newtask — yangi vazifa yaratish\n/settings — tizim sozlamalari",
     Role.SUPERVISOR: "👔 Nazoratchi paneli\n\n/newtask — yangi vazifa yaratish\n/settings — tizim sozlamalari",
+    Role.BRIGADIER: "👨‍💼 Brigadir paneli\n\n/brigade — brigadangiz KPI holati",
+    Role.SELLER: "💼 Sotuvchi paneli\n\n/yangilid — yangi lid qo'shish\n/lidlarim — lidlar voronkasi",
 }
 _DEFAULT_MENU = "Ro'yxatdan o'tish muvaffaqiyatli. Sizning rolingiz uchun funksiyalar hali ishlab chiqilmoqda."
 
 
 def _menu_for_role(role: Role) -> str:
     return _ROLE_MENUS.get(role, _DEFAULT_MENU)
+
+
+def _keyboard_for_role(role: Role) -> InlineKeyboardMarkup | None:
+    if role == Role.WORKER:
+        return build_worker_menu_keyboard()
+
+    miniapp_button = build_miniapp_button()
+    if miniapp_button is None:
+        return None
+    return InlineKeyboardMarkup(inline_keyboard=[[miniapp_button]])
 
 
 @router.message(Command("start"))
@@ -41,7 +58,10 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
             employee = await EmployeeRepository(session).get_by_telegram_id(message.from_user.id)
 
         if employee is not None:
-            await message.answer(f"Xush kelibsiz, {employee.full_name}!\n\n{_menu_for_role(employee.role)}")
+            await message.answer(
+                f"Xush kelibsiz, {employee.full_name}!\n\n{_menu_for_role(employee.role)}",
+                reply_markup=_keyboard_for_role(employee.role),
+            )
             return
 
         await state.set_state(RegistrationStates.waiting_for_full_name)
@@ -89,4 +109,7 @@ async def on_full_name_received(message: Message, state: FSMContext) -> None:
 
     await state.clear()
     logger.info("Xodim Telegramga bog'landi: %s (telegram_id=%s)", employee.full_name, employee.telegram_id)
-    await message.answer(f"✅ Muvaffaqiyatli bog'landingiz, {employee.full_name}!\n\n{_menu_for_role(employee.role)}")
+    await message.answer(
+        f"✅ Muvaffaqiyatli bog'landingiz, {employee.full_name}!\n\n{_menu_for_role(employee.role)}",
+        reply_markup=_keyboard_for_role(employee.role),
+    )

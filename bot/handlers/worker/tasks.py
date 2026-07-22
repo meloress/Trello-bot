@@ -14,6 +14,7 @@ ko'chiriladi.
 """
 
 import logging
+from datetime import datetime, timezone
 
 from aiogram import Bot, F, Router
 from aiogram.filters import Command
@@ -23,24 +24,27 @@ from aiogram.types import CallbackQuery, Message
 from core.database import async_session
 from db.models.employee import Employee
 from db.models.task import Task
-from db.repositories import EmployeeRepository, TaskAssignmentRepository, TaskRepository
-from keyboards.worker_kb import TaskAction, build_task_keyboard
+from db.repositories import (
+    EmployeeRepository,
+    KpiLogRepository,
+    TaskAssignmentRepository,
+    TaskRepository,
+)
+from keyboards.worker_kb import (
+    WORKER_MENU_MISC,
+    WORKER_MENU_ORDERS,
+    WORKER_MENU_SCORE,
+    TaskAction,
+    build_task_keyboard,
+)
 from services import notification_service, penalty_service, task_service, timer_service
 from states.task_states import StopTaskStates
 from utils.enums import TaskStatus, TaskType
-from utils.formatters import format_dt
+from utils.formatters import format_dt, format_task_card
 
 logger = logging.getLogger(__name__)
 
 router = Router(name="worker_tasks")
-
-_STATUS_LABELS = {
-    TaskStatus.ACTIVE: "🟢 Faol",
-    TaskStatus.STOPPED: "🛑 To'xtatilgan",
-    TaskStatus.COMPLETED: "✅ Yakunlangan",
-    TaskStatus.OVERDUE: "🔴 Muddati o'tgan",
-    TaskStatus.PENDING_SETUP: "⏳ Navbatda (sozlanmoqda)",
-}
 
 
 async def _get_employee(telegram_id: int) -> Employee | None:
@@ -48,8 +52,8 @@ async def _get_employee(telegram_id: int) -> Employee | None:
         return await EmployeeRepository(session).get_by_telegram_id(telegram_id)
 
 
-async def _list_my_tasks(employee_id: int) -> list[Task]:
-    """Xodimga biriktirilgan, hali yakunlanmagan vazifalar."""
+async def _list_my_tasks(employee_id: int, task_type: TaskType) -> list[Task]:
+    """Xodimga biriktirilgan, hali yakunlanmagan, berilgan turdagi vazifalar."""
     async with async_session() as session:
         assignment_repo = TaskAssignmentRepository(session)
         task_repo = TaskRepository(session)
@@ -58,38 +62,117 @@ async def _list_my_tasks(employee_id: int) -> list[Task]:
         tasks = []
         for assignment in assignments:
             task = await task_repo.get_by_id(assignment.task_id)
-            if task is not None and task.status != TaskStatus.COMPLETED:
+            if task is not None and task.status != TaskStatus.COMPLETED and task.task_type == task_type:
                 tasks.append(task)
         return tasks
 
 
-def _format_task_text(task: Task) -> str:
-    label = _STATUS_LABELS.get(task.status, str(task.status))
-    type_tag = f"[{task.task_type.value.upper()}] "
-    # PENDING_SETUP holatida deadline hali yo'q (6.1/7.4-band: nazoratchi
-    # hali muddat kiritmagan) — format_dt(None) yiqilmasligi uchun himoya.
-    deadline_text = format_dt(task.deadline) if task.deadline is not None else "hali belgilanmagan"
-    return f"{type_tag}{task.title}\nHolat: {label}\nMuddat: {deadline_text}"
+async def _send_my_tasks(answer, telegram_id: int, task_type: TaskType, empty_text: str) -> None:
+    """`/tasks`, `/misctasks` va ishchi menyusi tugmalari uchun umumiy ro'yxat
+    yuborish logikasi — `answer` `message.answer` yoki `callback.message.answer`
+    bo'lishi mumkin, ikkalasi ham bir xil imzoga ega."""
+    employee = await _get_employee(telegram_id)
+    if employee is None:
+        await answer("Siz tizimda ro'yxatdan o'tmagansiz. Administratorga murojaat qiling.")
+        return
+
+    tasks = await _list_my_tasks(employee.id, task_type)
+    if not tasks:
+        await answer(empty_text)
+        return
+
+    for task in tasks:
+        await answer(format_task_card(task), reply_markup=build_task_keyboard(task))
+
+
+async def _send_my_score(answer, telegram_id: int) -> None:
+    employee = await _get_employee(telegram_id)
+    if employee is None:
+        await answer("Siz tizimda ro'yxatdan o'tmagansiz. Administratorga murojaat qiling.")
+        return
+
+    since, until = penalty_service.month_bounds(datetime.now(timezone.utc).date())
+    total = await penalty_service.calculate_total_score(employee.id, since=since, until=until)
+
+    async with async_session() as session:
+        logs = await KpiLogRepository(session).list_by_employee_in_range(employee.id, since, until)
+
+    lines = [f"⭐ Jarima ballaringiz (joriy oy)\n\nJami: {total:+d} ball"]
+    if not logs:
+        lines.append("\nBu oy hali ball yozilmagan.")
+    else:
+        lines.append("")
+        for log in logs:
+            arrow = "⬆️" if log.score > 0 else "⬇️"
+            lines.append(f"{arrow} {log.score:+d} — {log.reason} ({format_dt(log.created_at)})")
+
+    await answer("\n".join(lines))
 
 
 @router.message(Command("tasks", "mytasks"))
 async def cmd_tasks(message: Message) -> None:
     try:
-        employee = await _get_employee(message.from_user.id)
-        if employee is None:
-            await message.answer("Siz tizimda ro'yxatdan o'tmagansiz. Administratorga murojaat qiling.")
-            return
-
-        tasks = await _list_my_tasks(employee.id)
-        if not tasks:
-            await message.answer("Sizga biriktirilgan faol vazifalar yo'q.")
-            return
-
-        for task in tasks:
-            await message.answer(_format_task_text(task), reply_markup=build_task_keyboard(task))
+        await _send_my_tasks(message.answer, message.from_user.id, TaskType.ORDER, "Sizga biriktirilgan faol vazifalar yo'q.")
     except Exception:
         logger.exception("cmd_tasks xatosi (telegram_id=%s)", message.from_user.id)
         await message.answer("Kechirasiz, vazifalarni yuklashda xatolik yuz berdi. Birozdan keyin qayta urinib ko'ring.")
+
+
+@router.message(Command("misctasks", "mymisc"))
+async def cmd_misc_tasks(message: Message) -> None:
+    try:
+        await _send_my_tasks(
+            message.answer, message.from_user.id, TaskType.MISC, "Sizga biriktirilgan faol maxsus vazifalar yo'q."
+        )
+    except Exception:
+        logger.exception("cmd_misc_tasks xatosi (telegram_id=%s)", message.from_user.id)
+        await message.answer("Kechirasiz, vazifalarni yuklashda xatolik yuz berdi. Birozdan keyin qayta urinib ko'ring.")
+
+
+@router.message(Command("myscore", "mypoints"))
+async def cmd_my_score(message: Message) -> None:
+    try:
+        await _send_my_score(message.answer, message.from_user.id)
+    except Exception:
+        logger.exception("cmd_my_score xatosi (telegram_id=%s)", message.from_user.id)
+        await message.answer("Kechirasiz, ball tarixini yuklashda xatolik yuz berdi. Birozdan keyin qayta urinib ko'ring.")
+
+
+@router.callback_query(F.data == WORKER_MENU_ORDERS)
+async def on_menu_orders(callback: CallbackQuery) -> None:
+    try:
+        await _send_my_tasks(
+            callback.message.answer, callback.from_user.id, TaskType.ORDER, "Sizga biriktirilgan faol vazifalar yo'q."
+        )
+        await callback.answer()
+    except Exception:
+        logger.exception("on_menu_orders xatosi (telegram_id=%s)", callback.from_user.id)
+        await callback.answer("Kutilmagan xatolik yuz berdi.", show_alert=True)
+
+
+@router.callback_query(F.data == WORKER_MENU_MISC)
+async def on_menu_misc(callback: CallbackQuery) -> None:
+    try:
+        await _send_my_tasks(
+            callback.message.answer,
+            callback.from_user.id,
+            TaskType.MISC,
+            "Sizga biriktirilgan faol maxsus vazifalar yo'q.",
+        )
+        await callback.answer()
+    except Exception:
+        logger.exception("on_menu_misc xatosi (telegram_id=%s)", callback.from_user.id)
+        await callback.answer("Kutilmagan xatolik yuz berdi.", show_alert=True)
+
+
+@router.callback_query(F.data == WORKER_MENU_SCORE)
+async def on_menu_score(callback: CallbackQuery) -> None:
+    try:
+        await _send_my_score(callback.message.answer, callback.from_user.id)
+        await callback.answer()
+    except Exception:
+        logger.exception("on_menu_score xatosi (telegram_id=%s)", callback.from_user.id)
+        await callback.answer("Kutilmagan xatolik yuz berdi.", show_alert=True)
 
 
 @router.callback_query(TaskAction.filter(F.action == "start"))
@@ -118,7 +201,7 @@ async def on_start_task(callback: CallbackQuery, callback_data: TaskAction, bot:
 
     try:
         if callback.message:
-            await callback.message.edit_text(_format_task_text(task), reply_markup=build_task_keyboard(task))
+            await callback.message.edit_text(format_task_card(task), reply_markup=build_task_keyboard(task))
     except Exception:
         logger.exception("Xabarni yangilashda xatolik (task_id=%s)", task.id)
 
@@ -192,7 +275,7 @@ async def on_stop_reason_received(message: Message, state: FSMContext, bot: Bot)
             task = await TaskRepository(session).get_by_id(task_id)
         if task is not None:
             await message.answer(
-                "Vazifa to'xtatildi. ✅ Sabab qayd etildi.\n\n" + _format_task_text(task),
+                "Vazifa to'xtatildi. ✅ Sabab qayd etildi.\n\n" + format_task_card(task),
                 reply_markup=build_task_keyboard(task),
             )
             return
@@ -219,7 +302,7 @@ async def on_resume_task(callback: CallbackQuery, callback_data: TaskAction) -> 
 
     try:
         if callback.message:
-            await callback.message.edit_text(_format_task_text(task), reply_markup=build_task_keyboard(task))
+            await callback.message.edit_text(format_task_card(task), reply_markup=build_task_keyboard(task))
     except Exception:
         logger.exception("Xabarni yangilashda xatolik (task_id=%s)", task.id)
 
@@ -243,7 +326,7 @@ async def on_finish_task(callback: CallbackQuery, callback_data: TaskAction, bot
 
     try:
         if callback.message:
-            await callback.message.edit_text(_format_task_text(task), reply_markup=build_task_keyboard(task))
+            await callback.message.edit_text(format_task_card(task), reply_markup=build_task_keyboard(task))
     except Exception:
         logger.exception("Xabarni yangilashda xatolik (task_id=%s)", task.id)
 

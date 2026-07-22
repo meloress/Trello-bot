@@ -44,6 +44,8 @@ class Employee(TimestampedBase):
     brigade_id: Mapped[Optional[int]] = mapped_column(ForeignKey("brigades.id"), nullable=True)
     next_payment_date: Mapped[Optional[date]] = mapped_column(Date, default=_default_payment_date, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # Mini App profil ekrani: xodim tanlagan interfeys tili ("uz"/"ru").
+    language: Mapped[str] = mapped_column(String(2), default="uz", server_default="uz", nullable=False)
 
     department: Mapped[Optional["Department"]] = relationship(back_populates="employees")
     # employees<->brigades orasida ikkita mustaqil FK bor (brigades.brigadier_id va

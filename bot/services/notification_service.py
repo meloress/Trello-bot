@@ -29,6 +29,7 @@ from db.repositories import (
     TaskRepository,
 )
 from keyboards.admin_kb import ReassignReview, build_advance_setup_keyboard, build_reassign_review_keyboard
+from keyboards.worker_kb import build_task_keyboard
 from utils.enums import ReminderUrgency, Role
 from utils.formatters import format_dt as _format_dt
 
@@ -71,8 +72,9 @@ async def notify_task_started(bot: Bot, task_id: int) -> None:
     if task.trello_card_id:  # MISC vazifada (9-band) Trello karta umuman yo'q
         text += f"\nKarta: {task.trello_card_id}"
 
+    keyboard = build_task_keyboard(task)
     for employee in employees:
-        await _send(bot, employee.telegram_id, text)
+        await _send(bot, employee.telegram_id, text, reply_markup=keyboard)
 
 
 async def notify_task_stopped(bot: Bot, stop_log_id: int) -> None:

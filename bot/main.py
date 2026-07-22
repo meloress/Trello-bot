@@ -1,6 +1,7 @@
 import asyncio
 
 from aiogram import Bot, Dispatcher
+from aiogram.types import MenuButtonWebApp, WebAppInfo
 
 from config import settings
 from core.logger import setup_logging
@@ -19,6 +20,7 @@ from handlers.common.start import router as common_start_router
 from handlers.sales.leads import router as sales_leads_router
 from handlers.worker.tasks import router as worker_tasks_router
 from jobs import daily_sync_job, lead_follow_up_job, overdue_watch_job, reminder_job, report_job
+from miniapp.server import run as run_miniapp_server
 from services import settings_service
 
 
@@ -42,6 +44,16 @@ async def main() -> None:
     dp.include_router(worker_tasks_router)
     dp.include_router(sales_leads_router)
 
+    # Mini App bo'lim tugmasi: faqat MINIAPP_BASE_URL sozlangan bo'lsa (masalan
+    # Railway'da public domain yoqilgach) — lokal ishlab chiqishda bu qadam
+    # jim o'tkazib yuboriladi, chat funksiyalariga ta'sir qilmaydi.
+    if settings.miniapp_base_url:
+        await bot.set_chat_menu_button(
+            menu_button=MenuButtonWebApp(
+                text="Ilova", web_app=WebAppInfo(url=settings.miniapp_base_url)
+            )
+        )
+
     # app_settings'ni oldindan keshlab olamiz -- reminder_job/report_job
     # schedule_all() shu yerdan mos sozlamani oladi; admin /reminders yoki
     # /settings (report_time) orqali o'zgartirsa, handler o'sha funksiyani
@@ -62,7 +74,10 @@ async def main() -> None:
 
     scheduler.start()
     try:
-        await dp.start_polling(bot)
+        await asyncio.gather(
+            dp.start_polling(bot),
+            run_miniapp_server(bot, settings.port),
+        )
     finally:
         scheduler.shutdown()
 
