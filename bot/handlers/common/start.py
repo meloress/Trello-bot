@@ -9,10 +9,10 @@ emas, Mini App'ga kira olmaydi). Boshqa istalgan xabar shu modul oxiridagi
 
 import logging
 
-from aiogram import Router
+from aiogram import F, Router
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
-from aiogram.types import InlineKeyboardMarkup, Message
+from aiogram.types import InlineKeyboardMarkup, KeyboardButton, Message, ReplyKeyboardMarkup
 
 from core.database import async_session
 from db.repositories import EmployeeRepository
@@ -25,6 +25,12 @@ logger = logging.getLogger(__name__)
 router = Router(name="common_start")
 
 _OPEN_APP_TEXT = "📱 Barcha amallar Mini App ichida — pastdagi tugmani bosing."
+
+_CONTACT_KEYBOARD = ReplyKeyboardMarkup(
+    keyboard=[[KeyboardButton(text="📱 Telefon raqamni yuborish", request_contact=True)]],
+    resize_keyboard=True,
+    one_time_keyboard=True,
+)
 
 
 def _miniapp_keyboard() -> InlineKeyboardMarkup | None:
@@ -47,35 +53,35 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
             )
             return
 
-        await state.set_state(RegistrationStates.waiting_for_full_name)
+        await state.set_state(RegistrationStates.waiting_for_contact)
         await message.answer(
             "Xush kelibsiz! Botdan foydalanish uchun avval ro'yxatdan o'tishingiz kerak.\n"
-            "Iltimos, bazada ro'yxatdan o'tgan TO'LIQ ismingizni kiriting:"
+            "Iltimos, pastdagi tugma orqali telefon raqamingizni yuboring "
+            "(rahbar sizni shu raqam bilan tizimga kiritgan bo'lishi kerak):",
+            reply_markup=_CONTACT_KEYBOARD,
         )
     except Exception:
         logger.exception("cmd_start xatosi (telegram_id=%s)", message.from_user.id)
         await message.answer("Kutilmagan xatolik yuz berdi. Birozdan keyin qayta urinib ko'ring.")
 
 
-@router.message(RegistrationStates.waiting_for_full_name)
-async def on_full_name_received(message: Message, state: FSMContext) -> None:
-    full_name = (message.text or "").strip()
-    if not full_name:
-        await message.answer("Ism bo'sh bo'lishi mumkin emas. Qayta kiriting:")
-        return
-
-    try:
-        employee = await registration_service.link_employee_to_telegram(full_name, message.from_user.id)
-    except registration_service.EmployeeNotFoundError:
+@router.message(RegistrationStates.waiting_for_contact, F.contact)
+async def on_contact_received(message: Message, state: FSMContext) -> None:
+    if message.contact.user_id != message.from_user.id:
         await message.answer(
-            f"'{full_name}' ismli xodim bazada topilmadi. Ismni tekshirib qayta kiriting "
-            "yoki administratorga murojaat qiling."
+            "Iltimos, FAQAT o'zingizning telefon raqamingizni yuboring — pastdagi tugmani bosing:",
+            reply_markup=_CONTACT_KEYBOARD,
         )
         return
-    except registration_service.AmbiguousNameError:
-        await state.clear()
+
+    phone_number = message.contact.phone_number
+
+    try:
+        employee = await registration_service.link_employee_to_telegram(phone_number, message.from_user.id)
+    except registration_service.EmployeeNotFoundError:
         await message.answer(
-            f"'{full_name}' ismli bir nechta xodim topildi. Iltimos, administratorga murojaat qiling."
+            f"'{phone_number}' raqami bilan xodim bazada topilmadi. "
+            "Raqamni tekshiring yoki administratorga murojaat qiling."
         )
         return
     except registration_service.AlreadyLinkedError:
@@ -85,7 +91,7 @@ async def on_full_name_received(message: Message, state: FSMContext) -> None:
         )
         return
     except Exception:
-        logger.exception("on_full_name_received xatosi (full_name=%s)", full_name)
+        logger.exception("on_contact_received xatosi (phone=%s)", phone_number)
         await state.clear()
         await message.answer("Kutilmagan xatolik yuz berdi.")
         return
@@ -95,6 +101,16 @@ async def on_full_name_received(message: Message, state: FSMContext) -> None:
     await message.answer(
         f"✅ Muvaffaqiyatli bog'landingiz, {employee.full_name}!\n\n{_OPEN_APP_TEXT}",
         reply_markup=_miniapp_keyboard(),
+    )
+
+
+@router.message(RegistrationStates.waiting_for_contact)
+async def on_non_contact_message(message: Message) -> None:
+    """Xavfsizlik uchun qo'lda yozilgan ism/raqam endi qabul qilinmaydi —
+    faqat Telegram tomonidan tasdiqlangan kontakt orqali bog'lanish mumkin."""
+    await message.answer(
+        "Iltimos, pastdagi tugmani bosib telefon raqamingizni yuboring — qo'lda yozish qabul qilinmaydi:",
+        reply_markup=_CONTACT_KEYBOARD,
     )
 
 

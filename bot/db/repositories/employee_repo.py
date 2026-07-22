@@ -3,6 +3,7 @@ from sqlalchemy import select
 from db.models.employee import Employee
 from db.repositories.base import BaseRepository
 from utils.enums import Role
+from utils.formatters import normalize_phone
 
 
 class EmployeeRepository(BaseRepository[Employee]):
@@ -49,6 +50,22 @@ class EmployeeRepository(BaseRepository[Employee]):
             select(Employee).where(Employee.phone_number == phone_number)
         )
         return result.scalar_one_or_none()
+
+    async def find_by_normalized_phone(self, phone_number: str) -> Employee | None:
+        """5.2-band: ro'yxatdan o'tishda Telegram kontakti orqali kelgan
+        raqamni moslashtirish — admin turli formatda kiritgan bo'lishi mumkin
+        (+998/998/bo'shliqlar), shuning uchun aniq satr solishtirish o'rniga
+        raqamlar bo'yicha solishtiriladi."""
+        target = normalize_phone(phone_number)
+        if not target:
+            return None
+        result = await self.session.execute(
+            select(Employee).where(Employee.phone_number.is_not(None))
+        )
+        for employee in result.scalars().all():
+            if normalize_phone(employee.phone_number) == target:
+                return employee
+        return None
 
     async def list_by_brigade(self, brigade_id: int, *, active_only: bool = True) -> list[Employee]:
         """8.3-band: brigadaga o'tkazishda yangi brigada A'ZOLARI (`reassign_task_brigade`)."""

@@ -173,7 +173,7 @@ async def resume_task(request: web.Request) -> web.Response:
     if not await _is_assigned(task_id, employee.id):
         return err("not_found", 404)
     try:
-        task = await timer_service.resume_task(task_id)
+        task = await timer_service.resume_task(task_id, employee.id)
     except timer_service.TaskNotFoundError:
         return err("not_found", 404)
     except timer_service.InvalidTaskStateError as exc:
@@ -189,7 +189,7 @@ async def finish_task(request: web.Request) -> web.Response:
     if not await _is_assigned(task_id, employee.id):
         return err("not_found", 404)
     try:
-        task = await timer_service.finish_task(task_id)
+        task = await timer_service.finish_task(task_id, employee.id)
     except timer_service.TaskNotFoundError:
         return err("not_found", 404)
     except timer_service.InvalidTaskStateError as exc:

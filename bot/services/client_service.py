@@ -34,9 +34,13 @@ async def find_or_create_client(*, phone_number: str, full_name: str) -> Client:
 
 
 async def link_client_to_telegram(phone_number: str, telegram_id: int) -> Client:
+    """`phone_number` endi Telegram kontakti orqali keladi (aniq mos kelish
+    o'rniga `find_by_normalized_phone` — admin turli formatda kiritgan
+    bo'lishi mumkin, bu esa taqlid qilib bo'lmaydigan, Telegram tasdiqlagan
+    raqam bilan solishtiradi)."""
     async with async_session() as session:
         repo = ClientRepository(session)
-        client = await repo.get_by_phone_number(phone_number)
+        client = await repo.find_by_normalized_phone(phone_number)
         if client is None:
             raise ClientNotFoundError(f"'{phone_number}' raqami bilan mijoz topilmadi")
 

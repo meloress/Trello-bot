@@ -36,6 +36,18 @@ routes = web.RouteTableDef()
 logger = logging.getLogger(__name__)
 
 
+def _department_scope_ok(request: web.Request, target_department_id: int | None) -> bool:
+    """ADMIN hammasini ko'radi/boshqaradi. SUPERVISOR faqat O'Z bo'limidagi
+    xodim/vazifalarga ruxsat oladi (bo'limi yo'q SUPERVISOR — cheklovsiz,
+    `miniapp/api/brigadier.py`'s `_employee_in_scope`/`_resolve_brigade`dagi
+    bilan bir xil qoida) — 2026-07-22 auditda topilgan, bo'lim bo'yicha
+    cheklanmagan nazoratchi ruxsatini yopadi."""
+    employee = request["employee"]
+    if employee.role != Role.SUPERVISOR or employee.department_id is None:
+        return True
+    return target_department_id == employee.department_id
+
+
 async def _active_brigadier_ids(session, brigades) -> set[int]:
     """`GET /departments/{id}/brigadiers` faqat FAOL brigadirlarni
     ro'yxatga chiqaradi — vazifa tayinlashni tekshiruvchi validatsiya ham
@@ -135,6 +147,9 @@ async def toggle_autoreassign(request: web.Request) -> web.Response:
 @routes.get("/brigades")
 async def list_brigades(request: web.Request) -> web.Response:
     department_id = request.query.get("department_id")
+    caller = request["employee"]
+    if caller.role == Role.SUPERVISOR and caller.department_id is not None:
+        department_id = caller.department_id
     async with async_session() as session:
         repo = BrigadeRepository(session)
         brigades = (
@@ -150,6 +165,8 @@ async def list_department_brigadiers(request: web.Request) -> web.Response:
     — endi vazifa to'g'ridan-to'g'ri xodimga emas, brigadirga beriladi,
     brigadir esa Mini App'da o'z brigadasidagi xodimga topshiradi."""
     department_id = int(request.match_info["department_id"])
+    if not _department_scope_ok(request, department_id):
+        return err("not_found", 404)
     async with async_session() as session:
         brigades = await BrigadeRepository(session).list_by_department(department_id)
         employee_repo = EmployeeRepository(session)
@@ -179,6 +196,8 @@ async def create_task(request: web.Request) -> web.Response:
     brigadier_id = body.get("brigadier_id")
     if not title or not department_id or not brigadier_id:
         return err("title, department_id, brigadier_id majburiy")
+    if not _department_scope_ok(request, int(department_id)):
+        return err("bu bo'lim sizning doirangizda emas", 403)
 
     try:
         deadline = datetime.fromisoformat(body["deadline"])
@@ -222,6 +241,13 @@ async def create_task(request: web.Request) -> web.Response:
 @routes.get("/employees")
 async def list_employees(request: web.Request) -> web.Response:
     department_id = request.query.get("department_id")
+    caller = request["employee"]
+    # SUPERVISOR-bo'limli chaqiruvchi uchun natija doim O'Z bo'limi bilan
+    # cheklanadi — `department_id` so'rov parametri orqali boshqa bo'limni
+    # so'rab bo'lmaydi (ilgari cheklovsiz edi).
+    if caller.role == Role.SUPERVISOR and caller.department_id is not None:
+        department_id = caller.department_id
+
     async with async_session() as session:
         employee_repo = EmployeeRepository(session)
         department_repo = DepartmentRepository(session)
@@ -254,7 +280,7 @@ async def employee_detail(request: web.Request) -> web.Response:
     employee_id = int(request.match_info["employee_id"])
     async with async_session() as session:
         employee = await EmployeeRepository(session).get_by_id(employee_id)
-        if employee is None:
+        if employee is None or not _department_scope_ok(request, employee.department_id):
             return err("not_found", 404)
         department = (
             await DepartmentRepository(session).get_by_id(employee.department_id)
@@ -289,6 +315,11 @@ async def update_employee(request: web.Request) -> web.Response:
     `EMPLOYEE_FIELD_LABELS` maydonlari bilan bir xil to'plam, bitta so'rovda
     bir nechta maydon birga yuborilishi mumkin (forma sifatida)."""
     employee_id = int(request.match_info["employee_id"])
+    async with async_session() as session:
+        target = await EmployeeRepository(session).get_by_id(employee_id)
+    if target is None or not _department_scope_ok(request, target.department_id):
+        return err("not_found", 404)
+
     body = await request.json()
     fields: dict[str, object] = {}
 
@@ -346,7 +377,7 @@ async def toggle_employee_active(request: web.Request) -> web.Response:
     employee_id = int(request.match_info["employee_id"])
     async with async_session() as session:
         employee = await EmployeeRepository(session).get_by_id(employee_id)
-    if employee is None:
+    if employee is None or not _department_scope_ok(request, employee.department_id):
         return err("not_found", 404)
 
     if employee.is_active:
@@ -652,6 +683,8 @@ async def list_pending_setup(request: web.Request) -> web.Response:
                 if task.current_department_id
                 else None
             )
+            if not _department_scope_ok(request, task.current_department_id):
+                continue
             items.append(
                 {
                     "id": task.id,
@@ -684,6 +717,8 @@ async def activate_pending_stage(request: web.Request) -> web.Response:
         task = await TaskRepository(session).get_by_id(task_id)
         if task is None or task.current_department_id is None:
             return err("not_found", 404)
+        if not _department_scope_ok(request, task.current_department_id):
+            return err("not_found", 404)
         brigades = await BrigadeRepository(session).list_by_department(task.current_department_id)
         active_brigadier_ids = await _active_brigadier_ids(session, brigades)
     if int(brigadier_id) not in active_brigadier_ids:
@@ -715,6 +750,8 @@ async def list_reassign_candidates(request: web.Request) -> web.Response:
         department_repo = DepartmentRepository(session)
         items = []
         for task in tasks:
+            if not _department_scope_ok(request, task.current_department_id):
+                continue
             department = (
                 await department_repo.get_by_id(task.current_department_id)
                 if task.current_department_id
@@ -739,6 +776,8 @@ async def reassign_brigade_options(request: web.Request) -> web.Response:
         task = await TaskRepository(session).get_by_id(task_id)
         if task is None or task.current_department_id is None:
             return err("not_found", 404)
+        if not _department_scope_ok(request, task.current_department_id):
+            return err("not_found", 404)
 
         current_brigade_id = None
         for assignment in await TaskAssignmentRepository(session).list_by_task(task_id):
@@ -761,6 +800,11 @@ async def reassign_task(request: web.Request) -> web.Response:
         return err("brigade_id majburiy")
 
     async with async_session() as session:
+        task = await TaskRepository(session).get_by_id(task_id)
+        if task is None:
+            return err("not_found", 404)
+        if not _department_scope_ok(request, task.current_department_id):
+            return err("not_found", 404)
         old_employee_ids = [
             a.employee_id for a in await TaskAssignmentRepository(session).list_by_task(task_id)
         ]

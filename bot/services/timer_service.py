@@ -55,6 +55,7 @@ async def stop_task(task_id: int, employee_id: int, reason: str) -> StopLog:
     async with async_session() as session:
         task_repo = TaskRepository(session)
         stop_repo = StopLogRepository(session)
+        assignment_repo = TaskAssignmentRepository(session)
 
         task = await task_repo.get_by_id(task_id)
         if task is None:
@@ -63,6 +64,9 @@ async def stop_task(task_id: int, employee_id: int, reason: str) -> StopLog:
             raise InvalidTaskStateError(
                 f"Task {task_id} faol emas, to'xtatib bo'lmaydi (joriy holat: {task.status})"
             )
+        assigned_ids = {a.employee_id for a in await assignment_repo.list_by_task(task_id)}
+        if employee_id not in assigned_ids:
+            raise InvalidTaskStateError(f"Xodim {employee_id} bu vazifaga tayinlanmagan")
 
         await task_repo.update(task, status=TaskStatus.STOPPED)
         stop_log = await stop_repo.create(
@@ -76,11 +80,16 @@ async def stop_task(task_id: int, employee_id: int, reason: str) -> StopLog:
         return stop_log
 
 
-async def resume_task(task_id: int) -> Task:
-    """To'xtatilgan vazifani davom ettiradi: oxirgi faol stop_log'ni yopadi."""
+async def resume_task(task_id: int, employee_id: int | None = None) -> Task:
+    """To'xtatilgan vazifani davom ettiradi: oxirgi faol stop_log'ni yopadi.
+    `employee_id` berilsa (Mini App'dan chaqirilganda shunday) — faqat shu
+    vazifaga tayinlangan xodim davom ettira oladi (zaxira tekshiruv, asosiy
+    tekshiruv `miniapp/api/worker.py`'dagi `_is_assigned`). `None` bo'lsa
+    (avtomatik job/skript chaqiruvi) tekshiruv o'tkazib yuboriladi."""
     async with async_session() as session:
         task_repo = TaskRepository(session)
         stop_repo = StopLogRepository(session)
+        assignment_repo = TaskAssignmentRepository(session)
 
         task = await task_repo.get_by_id(task_id)
         if task is None:
@@ -89,6 +98,10 @@ async def resume_task(task_id: int) -> Task:
             raise InvalidTaskStateError(
                 f"Task {task_id} to'xtatilmagan, davom ettirib bo'lmaydi (joriy holat: {task.status})"
             )
+        if employee_id is not None:
+            assigned_ids = {a.employee_id for a in await assignment_repo.list_by_task(task_id)}
+            if employee_id not in assigned_ids:
+                raise InvalidTaskStateError(f"Xodim {employee_id} bu vazifaga tayinlanmagan")
 
         active_stop = await stop_repo.get_active_stop(task_id)
         if active_stop is None:
@@ -101,16 +114,26 @@ async def resume_task(task_id: int) -> Task:
         return task
 
 
-async def finish_task(task_id: int) -> Task:
-    """Vazifani yakunlaydi va finished_at'ni belgilaydi."""
+async def finish_task(task_id: int, employee_id: int | None = None) -> Task:
+    """Vazifani yakunlaydi va finished_at'ni belgilaydi. `employee_id` berilsa
+    (Mini App'dan chaqirilganda shunday) — faqat shu vazifaga tayinlangan
+    xodim yakunlashi mumkin (zaxira tekshiruv). `None` bo'lsa (masalan
+    `jobs/daily_sync_job.py`'ning Trello-arxiv orqali avtomatik yopilishi —
+    bunda aniq bitta "amal qilayotgan xodim" tushunchasi yo'q) tekshiruv
+    o'tkazib yuboriladi."""
     async with async_session() as session:
         task_repo = TaskRepository(session)
+        assignment_repo = TaskAssignmentRepository(session)
 
         task = await task_repo.get_by_id(task_id)
         if task is None:
             raise TaskNotFoundError(f"Task {task_id} topilmadi")
         if task.status == TaskStatus.COMPLETED:
             raise InvalidTaskStateError(f"Task {task_id} allaqachon yakunlangan")
+        if employee_id is not None:
+            assigned_ids = {a.employee_id for a in await assignment_repo.list_by_task(task_id)}
+            if employee_id not in assigned_ids:
+                raise InvalidTaskStateError(f"Xodim {employee_id} bu vazifaga tayinlanmagan")
 
         await task_repo.update(task, status=TaskStatus.COMPLETED, finished_at=datetime.now(timezone.utc))
 
