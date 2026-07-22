@@ -36,6 +36,23 @@ routes = web.RouteTableDef()
 logger = logging.getLogger(__name__)
 
 
+async def _active_brigadier_ids(session, brigades) -> set[int]:
+    """`GET /departments/{id}/brigadiers` faqat FAOL brigadirlarni
+    ro'yxatga chiqaradi — vazifa tayinlashni tekshiruvchi validatsiya ham
+    shu bilan bir xil bo'lishi kerak, aks holda deaktivlashtirilgan
+    brigadirga (masalan eskirgan frontend keshi orqali) baribir vazifa
+    berib qo'yish mumkin bo'lardi."""
+    employee_repo = EmployeeRepository(session)
+    ids: set[int] = set()
+    for brigade in brigades:
+        if brigade.brigadier_id is None:
+            continue
+        brigadier = await employee_repo.get_by_id(brigade.brigadier_id)
+        if brigadier is not None and brigadier.is_active:
+            ids.add(brigadier.id)
+    return ids
+
+
 @routes.get("/dashboard")
 async def dashboard(request: web.Request) -> web.Response:
     stats = await stats_service.get_monthly_stats()
@@ -164,10 +181,13 @@ async def create_task(request: web.Request) -> web.Response:
         deadline = datetime.fromisoformat(body["deadline"])
     except (KeyError, ValueError):
         return err("deadline noto'g'ri formatda (ISO 8601 kerak)")
+    if deadline <= datetime.now(deadline.tzinfo):
+        return err("deadline kelajakda bo'lishi kerak")
 
     async with async_session() as session:
         brigades = await BrigadeRepository(session).list_by_department(int(department_id))
-    if int(brigadier_id) not in {b.brigadier_id for b in brigades}:
+        active_brigadier_ids = await _active_brigadier_ids(session, brigades)
+    if int(brigadier_id) not in active_brigadier_ids:
         return err("brigadir bu bo'limga tegishli emas")
 
     client_id = None
@@ -400,6 +420,8 @@ async def set_financial_amount(request: web.Request) -> web.Response:
         amount = float(body["amount"])
     except (KeyError, TypeError, ValueError):
         return err("amount noto'g'ri")
+    if amount < 0:
+        return err("amount manfiy bo'lishi mumkin emas")
 
     try:
         suggestion = await financial_service.set_wage_deduction_amount(suggestion_id, amount)
@@ -455,6 +477,8 @@ async def create_misc_task(request: web.Request) -> web.Response:
         deadline = datetime.fromisoformat(body["deadline"])
     except (KeyError, ValueError):
         return err("deadline noto'g'ri formatda (ISO 8601 kerak)")
+    if deadline <= datetime.now(deadline.tzinfo):
+        return err("deadline kelajakda bo'lishi kerak")
 
     try:
         task = await task_service.create_misc_task(
@@ -643,13 +667,16 @@ async def activate_pending_stage(request: web.Request) -> web.Response:
         deadline = datetime.fromisoformat(body["deadline"])
     except (KeyError, ValueError):
         return err("deadline noto'g'ri formatda (ISO 8601 kerak)")
+    if deadline <= datetime.now(deadline.tzinfo):
+        return err("deadline kelajakda bo'lishi kerak")
 
     async with async_session() as session:
         task = await TaskRepository(session).get_by_id(task_id)
         if task is None or task.current_department_id is None:
             return err("not_found", 404)
         brigades = await BrigadeRepository(session).list_by_department(task.current_department_id)
-    if int(brigadier_id) not in {b.brigadier_id for b in brigades}:
+        active_brigadier_ids = await _active_brigadier_ids(session, brigades)
+    if int(brigadier_id) not in active_brigadier_ids:
         return err("brigadir bu bo'limga tegishli emas")
 
     try:

@@ -27,6 +27,17 @@ routes = web.RouteTableDef()
 logger = logging.getLogger(__name__)
 
 
+async def _is_assigned(task_id: int, employee_id: int) -> bool:
+    """`common`/`worker` sub-app rolga qarab cheklanmagan (istalgan faol
+    xodim uchun ochiq) — shu sabab vazifaga oid har bir amal shu yerda
+    xodim haqiqatan HAM o'sha vazifaga (`task_assignments`) biriktirilganini
+    tekshirishi SHART, aks holda istalgan xodim istalgan vazifani ko'rishi/
+    boshlashi/yakunlashi mumkin bo'lib qolardi."""
+    async with async_session() as session:
+        assignments = await TaskAssignmentRepository(session).list_by_task(task_id)
+    return any(a.employee_id == employee_id for a in assignments)
+
+
 async def _list_my_tasks(employee_id: int, task_type: TaskType) -> list[dict]:
     async with async_session() as session:
         assignment_repo = TaskAssignmentRepository(session)
@@ -71,7 +82,10 @@ async def list_misctasks(request: web.Request) -> web.Response:
 
 @routes.get("/tasks/{task_id}")
 async def task_detail(request: web.Request) -> web.Response:
+    employee = request["employee"]
     task_id = int(request.match_info["task_id"])
+    if not await _is_assigned(task_id, employee.id):
+        return err("not_found", 404)
     async with async_session() as session:
         task = await TaskRepository(session).get_by_id(task_id)
         if task is None:
@@ -104,6 +118,8 @@ async def task_detail(request: web.Request) -> web.Response:
 async def start_task(request: web.Request) -> web.Response:
     employee = request["employee"]
     task_id = int(request.match_info["task_id"])
+    if not await _is_assigned(task_id, employee.id):
+        return err("not_found", 404)
     try:
         task = await timer_service.start_task(task_id, [employee.id])
     except timer_service.TaskNotFoundError:
@@ -123,6 +139,8 @@ async def start_task(request: web.Request) -> web.Response:
 async def stop_task(request: web.Request) -> web.Response:
     employee = request["employee"]
     task_id = int(request.match_info["task_id"])
+    if not await _is_assigned(task_id, employee.id):
+        return err("not_found", 404)
     body = await request.json()
     reason = (body.get("reason") or "").strip()
 
@@ -150,7 +168,10 @@ async def stop_task(request: web.Request) -> web.Response:
 
 @routes.post("/tasks/{task_id}/resume")
 async def resume_task(request: web.Request) -> web.Response:
+    employee = request["employee"]
     task_id = int(request.match_info["task_id"])
+    if not await _is_assigned(task_id, employee.id):
+        return err("not_found", 404)
     try:
         task = await timer_service.resume_task(task_id)
     except timer_service.TaskNotFoundError:
@@ -163,7 +184,10 @@ async def resume_task(request: web.Request) -> web.Response:
 
 @routes.post("/tasks/{task_id}/finish")
 async def finish_task(request: web.Request) -> web.Response:
+    employee = request["employee"]
     task_id = int(request.match_info["task_id"])
+    if not await _is_assigned(task_id, employee.id):
+        return err("not_found", 404)
     try:
         task = await timer_service.finish_task(task_id)
     except timer_service.TaskNotFoundError:

@@ -12,6 +12,18 @@ from utils.enums import LeadBrand
 routes = web.RouteTableDef()
 
 
+async def _own_lead(request: web.Request, lead_id: int):
+    """Sotuvchi faqat O'ZIGA biriktirilgan (`assigned_seller_id`) lidni
+    ko'rishi/o'zgartirishi mumkin — boshqa sotuvchining lidini `lead_id`ni
+    almashtirib ko'rish/boshqarish oldini oladi."""
+    employee = request["employee"]
+    async with async_session() as session:
+        lead = await LeadRepository(session).get_by_id(lead_id)
+    if lead is None or lead.assigned_seller_id != employee.id:
+        return None
+    return lead
+
+
 @routes.get("/leads")
 async def list_leads(request: web.Request) -> web.Response:
     employee = request["employee"]
@@ -42,10 +54,10 @@ async def list_leads(request: web.Request) -> web.Response:
 @routes.get("/leads/{lead_id}")
 async def lead_detail(request: web.Request) -> web.Response:
     lead_id = int(request.match_info["lead_id"])
+    lead = await _own_lead(request, lead_id)
+    if lead is None:
+        return err("not_found", 404)
     async with async_session() as session:
-        lead = await LeadRepository(session).get_by_id(lead_id)
-        if lead is None:
-            return err("not_found", 404)
         client = await ClientRepository(session).get_by_id(lead.client_id)
 
     return web.json_response(
@@ -63,6 +75,8 @@ async def lead_detail(request: web.Request) -> web.Response:
 @routes.post("/leads/{lead_id}/advance")
 async def advance_lead(request: web.Request) -> web.Response:
     lead_id = int(request.match_info["lead_id"])
+    if await _own_lead(request, lead_id) is None:
+        return err("not_found", 404)
     try:
         lead = await sales_service.advance_lead_stage(lead_id)
     except sales_service.LeadNotFoundError:
@@ -77,6 +91,8 @@ async def advance_lead(request: web.Request) -> web.Response:
 @routes.post("/leads/{lead_id}/close")
 async def close_lead(request: web.Request) -> web.Response:
     lead_id = int(request.match_info["lead_id"])
+    if await _own_lead(request, lead_id) is None:
+        return err("not_found", 404)
     body = await request.json()
     won = bool(body.get("won"))
     try:
@@ -94,6 +110,8 @@ async def close_lead(request: web.Request) -> web.Response:
 async def add_call(request: web.Request) -> web.Response:
     employee = request["employee"]
     lead_id = int(request.match_info["lead_id"])
+    if await _own_lead(request, lead_id) is None:
+        return err("not_found", 404)
     body = await request.json()
     content = (body.get("content") or "").strip() or None
 

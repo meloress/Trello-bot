@@ -184,6 +184,16 @@ async function resetTo(renderFn, ...args) {
   await renderCurrent();
 }
 
+/* Joriy ekranni (stackning eng ustidagi yozuvini) YANGI ma'lumot bilan
+   qayta chizadi — orqaga qaytishni yo'qotmaydi (resetTo kabi butun stackni
+   o'chirmaydi) va stackni o'smaydi (show kabi ustiga qo'shib bormaydi).
+   "Shu ekranni o'zini yangilash" holatlari uchun (masalan bir amaldan keyin
+   yoki forma turini almashtirganda) mo'ljallangan. */
+async function replaceTop(renderFn, ...args) {
+  nav.stack[nav.stack.length - 1] = [renderFn, args];
+  await renderCurrent();
+}
+
 async function renderCurrent() {
   const app = tg();
   if (app) {
@@ -295,7 +305,7 @@ async function screenTaskDetail(taskId) {
       app.MainButton.showProgress();
       try {
         await api(`/tasks/${taskId}/finish`, { method: "POST" });
-        await show(screenTaskDetail, taskId);
+        await replaceTop(screenTaskDetail, taskId);
       } catch (e) {
         showError(e.message);
       } finally {
@@ -308,7 +318,7 @@ async function screenTaskDetail(taskId) {
       app.MainButton.showProgress();
       try {
         await api(`/tasks/${taskId}/resume`, { method: "POST" });
-        await show(screenTaskDetail, taskId);
+        await replaceTop(screenTaskDetail, taskId);
       } catch (e) {
         showError(e.message);
       } finally {
@@ -337,7 +347,6 @@ async function screenStopTask(taskId) {
     try {
       await api(`/tasks/${taskId}/stop`, { method: "POST", body: JSON.stringify({ reason }) });
       await goBack();
-      await show(screenTaskDetail, taskId);
     } catch (e) {
       showError(e.message);
     } finally {
@@ -464,7 +473,7 @@ async function screenNewTaskForm(kind) {
   `);
 
   root.querySelectorAll("#type-toggle button").forEach((btn) => {
-    btn.onclick = () => resetTo(screenNewTaskForm, btn.dataset.kind);
+    btn.onclick = () => replaceTop(screenNewTaskForm, btn.dataset.kind);
   });
 
   if (kind === "order") {
@@ -588,7 +597,7 @@ async function screenEmployeeDetail(employeeId) {
   root.querySelector("#btn-toggle").onclick = async () => {
     try {
       await api(`/admin/employees/${employeeId}/toggle-active`, { method: "POST" });
-      await show(screenEmployeeDetail, employeeId);
+      await replaceTop(screenEmployeeDetail, employeeId);
     } catch (e) {
       showError(e.message);
     }
@@ -613,7 +622,6 @@ async function screenEmployeeDetail(employeeId) {
       });
       app.HapticFeedback && app.HapticFeedback.notificationOccurred("success");
       await goBack();
-      await show(screenEmployees);
     } catch (e) {
       showError(e.message);
     } finally {
@@ -660,7 +668,6 @@ async function screenAddEmployee() {
       });
       app.HapticFeedback && app.HapticFeedback.notificationOccurred("success");
       await goBack();
-      await show(screenEmployees);
     } catch (e) {
       showError(e.message);
     } finally {
@@ -694,7 +701,7 @@ async function screenFinancial() {
       if (!value) return;
       try {
         await api(`/admin/financial/${item.id}/amount`, { method: "POST", body: JSON.stringify({ amount: Number(value) }) });
-        await show(screenFinancial);
+        await replaceTop(screenFinancial);
       } catch (e) {
         showError(e.message);
       }
@@ -745,7 +752,6 @@ async function screenAdvanceWaiverForm() {
         ? app.showPopup({ message: result.applicable ? t("waiverApplicableYes", result.waived_amount) : t("waiverApplicableNo") })
         : window.alert(result.applicable ? t("waiverApplicableYes", result.waived_amount) : t("waiverApplicableNo"));
       await goBack();
-      await show(screenFinancial);
     } catch (e) {
       showError(e.message);
     } finally {
@@ -817,7 +823,6 @@ async function screenEditSetting(field, currentValue) {
       await api("/admin/settings", { method: "POST", body: JSON.stringify({ [field]: root.querySelector("#f-value").value.trim() }) });
       app.HapticFeedback && app.HapticFeedback.notificationOccurred("success");
       await goBack();
-      await show(screenSettings);
     } catch (e) {
       showError(e.message);
     } finally {
@@ -863,7 +868,6 @@ async function screenDepartmentChainEdit(department, departments) {
           body: JSON.stringify({ next_department_id: el.dataset.id ? Number(el.dataset.id) : null }),
         });
         await goBack();
-        await show(screenDepartmentChain);
       } catch (e) {
         showError(e.message);
       }
@@ -888,7 +892,7 @@ async function screenAutoreassign() {
     el.onclick = async () => {
       try {
         await api(`/admin/departments/${dept.id}/autoreassign`, { method: "POST" });
-        await show(screenAutoreassign);
+        await replaceTop(screenAutoreassign);
       } catch (e) {
         showError(e.message);
       }
@@ -918,7 +922,7 @@ async function screenReminders() {
     card.querySelector(".f-delete").onclick = async () => {
       try {
         await api(`/admin/reminders/${idx}`, { method: "DELETE" });
-        await show(screenReminders);
+        await replaceTop(screenReminders);
       } catch (e) {
         showError(e.message);
       }
@@ -961,7 +965,6 @@ async function screenReminderForm(mode, index, entry) {
       }
       app.HapticFeedback && app.HapticFeedback.notificationOccurred("success");
       await goBack();
-      await show(screenReminders);
     } catch (e) {
       showError(e.message);
     } finally {
@@ -1025,7 +1028,6 @@ async function screenActivateStage(task) {
       });
       app.HapticFeedback && app.HapticFeedback.notificationOccurred("success");
       await goBack();
-      await show(screenPendingSetup);
     } catch (e) {
       showError(e.message);
     } finally {
@@ -1073,7 +1075,6 @@ async function screenReassignForm(task) {
       try {
         await api(`/admin/tasks/${task.id}/reassign`, { method: "POST", body: JSON.stringify({ brigade_id: brigade.id }) });
         await goBack();
-        await show(screenReassignList);
       } catch (e) {
         showError(e.message);
       }
@@ -1096,12 +1097,12 @@ async function screenBrigadierHome() {
   setScreen(`
     <p class="page-title">${esc(t("brigade_title"))}: ${esc(brigade.name)}</p>
     ${pendingWork.length ? `<button class="alert-card" id="nav-new-work"><span class="ic">🆕</span><span class="grow">${esc(t("newWorkAlert", pendingWork.length))}</span><span class="chev">›</span></button>` : ""}
-    ${brigade.members.map((m, i) => `
+    ${brigade.members.length ? brigade.members.map((m, i) => `
       <div class="member-card ${m.total_score < 0 ? "low" : m.total_score > 0 ? "high" : ""}" data-i="${i}">
         <div class="member-top"><span class="nm">${esc(m.full_name)}</span><span class="score ${m.total_score > 0 ? "pos" : m.total_score < 0 ? "neg" : "zero"}">${m.total_score > 0 ? "+" : ""}${m.total_score} ${state.lang === "ru" ? "б." : "ball"}</span></div>
         <div class="member-actions"><button class="btn-report">📅 ${esc(t("weeklyReport"))}</button><button class="btn-tasks">📋 ${esc(t("currentTasks"))}</button></div>
       </div>
-    `).join("")}
+    `).join("") : `<p class="empty-state">${esc(t("noBrigadeMembers"))}</p>`}
   `);
   root.querySelectorAll(".member-card").forEach((card) => {
     const member = brigade.members[Number(card.dataset.i)];
@@ -1170,7 +1171,6 @@ async function screenDelegateTask(task) {
       });
       app.HapticFeedback && app.HapticFeedback.notificationOccurred("success");
       await goBack();
-      await show(screenNewWork);
     } catch (e) {
       showError(e.message);
     } finally {
@@ -1213,7 +1213,7 @@ async function screenSellerHome(brand) {
     `).join("<hr class=\"thin-rule\" />") : `<p class="empty-state">${esc(t("noLeads"))}</p>`}
   `);
   root.querySelectorAll(".brand-pill").forEach((btn) => {
-    btn.onclick = () => resetTo(screenSellerHome, btn.dataset.brand);
+    btn.onclick = () => replaceTop(screenSellerHome, btn.dataset.brand);
   });
   root.querySelectorAll(".lead-card").forEach((btn) => {
     btn.onclick = () => show(screenLeadDetail, Number(btn.dataset.id));
@@ -1248,7 +1248,7 @@ async function screenLeadDetail(leadId) {
       app.MainButton.showProgress();
       try {
         await api(`/seller/leads/${leadId}/advance`, { method: "POST" });
-        await show(screenLeadDetail, leadId);
+        await replaceTop(screenLeadDetail, leadId);
       } catch (e) {
         showError(e.message);
       } finally {
@@ -1261,7 +1261,7 @@ async function screenLeadDetail(leadId) {
 async function closeLead(leadId, won) {
   try {
     await api(`/seller/leads/${leadId}/close`, { method: "POST", body: JSON.stringify({ won }) });
-    await show(screenLeadDetail, leadId);
+    await replaceTop(screenLeadDetail, leadId);
   } catch (e) {
     showError(e.message);
   }
@@ -1283,7 +1283,6 @@ async function screenAddCall(leadId) {
     try {
       await api(`/seller/leads/${leadId}/calls`, { method: "POST", body: JSON.stringify({ content }) });
       await goBack();
-      await show(screenLeadDetail, leadId);
     } catch (e) {
       showError(e.message);
     } finally {
@@ -1330,7 +1329,7 @@ async function screenProfile() {
       } catch (e) {
         /* jim: interfeys baribir yangi tilda ko'rsatiladi, keyingi safar qayta so'raladi */
       }
-      await show(screenProfile);
+      await replaceTop(screenProfile);
     };
   });
 }

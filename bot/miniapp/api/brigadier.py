@@ -21,20 +21,43 @@ logger = logging.getLogger(__name__)
 
 
 async def _resolve_brigade(request: web.Request):
+    """BRIGADIER uchun faqat o'zi boshqargan brigada. SUPERVISOR uchun
+    `brigade_id` so'rov parametri ham berilsa, faqat O'Z BO'LIMIdagi
+    brigadalar orasidan tanlanadi — boshqa bo'lim brigadasini `brigade_id`
+    orqali ko'rish oldini olish uchun (ilgari cheklovsiz edi)."""
     employee = request["employee"]
     async with async_session() as session:
         brigade_repo = BrigadeRepository(session)
         if employee.role == Role.BRIGADIER:
             return await brigade_repo.get_by_brigadier_id(employee.id)
 
-        brigade_id = request.query.get("brigade_id")
-        if brigade_id:
-            return await brigade_repo.get_by_id(int(brigade_id))
         if employee.department_id is not None:
             brigades = await brigade_repo.list_by_department(employee.department_id)
         else:
             brigades = await brigade_repo.list_all()
+
+        brigade_id = request.query.get("brigade_id")
+        if brigade_id:
+            return next((b for b in brigades if b.id == int(brigade_id)), None)
         return brigades[0] if brigades else None
+
+
+async def _employee_in_scope(request: web.Request, employee_id: int) -> bool:
+    """`/members/{employee_id}/...` — so'ralgan xodim so'rovchining ko'rish
+    doirasiga tegishli ekanini tekshiradi: BRIGADIER uchun o'z brigadasi,
+    SUPERVISOR uchun o'z bo'limi (bo'limi yo'q SUPERVISOR — barcha xodimlar,
+    `_resolve_brigade`dagi bilan bir xil qoida)."""
+    employee = request["employee"]
+    async with async_session() as session:
+        target = await EmployeeRepository(session).get_by_id(employee_id)
+        if target is None:
+            return False
+        if employee.role == Role.BRIGADIER:
+            brigade = await BrigadeRepository(session).get_by_brigadier_id(employee.id)
+            return brigade is not None and target.brigade_id == brigade.id
+        if employee.department_id is not None:
+            return target.department_id == employee.department_id
+        return True
 
 
 @routes.get("/brigades")
@@ -78,6 +101,8 @@ async def brigade_overview(request: web.Request) -> web.Response:
 @routes.get("/members/{employee_id}/report")
 async def member_weekly_report(request: web.Request) -> web.Response:
     employee_id = int(request.match_info["employee_id"])
+    if not await _employee_in_scope(request, employee_id):
+        return err("xodim topilmadi", 404)
     stats = await stats_service.get_employee_weekly_stats(employee_id)
     if stats is None:
         return err("xodim topilmadi", 404)
@@ -166,6 +191,8 @@ async def delegate_task(request: web.Request) -> web.Response:
 @routes.get("/members/{employee_id}/tasks")
 async def member_tasks(request: web.Request) -> web.Response:
     employee_id = int(request.match_info["employee_id"])
+    if not await _employee_in_scope(request, employee_id):
+        return err("xodim topilmadi", 404)
     async with async_session() as session:
         assignment_repo = TaskAssignmentRepository(session)
         task_repo = TaskRepository(session)
