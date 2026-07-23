@@ -102,9 +102,13 @@ ularni taxmin qilmaydi.
   `02-label-holatlari.md`ga tegilmadi. Minor: `seller_ids` ichida dublikat
   id kelsa `IntegrityError` (ValueError emas) chiqadi — hozircha real
   xavf yo'q (frontend yo'q).
-- [ ] **Phase 6 — Kunlik norma (5 punkt/ishchi) — faqat statistika.** Yangi
+- [x] **Phase 6 — Kunlik norma (5 punkt/ishchi) — faqat statistika.**
+  BAJARILDI (`33cbeb5`, review: Approved). Yangi
   `app_settings.daily_quota_points_per_worker: INT NOT NULL DEFAULT 5`.
-  `stats_service.get_capacity_vs_actual()`. Jarima QOIDASI EMAS.
+  `stats_service.get_capacity_vs_actual()` — `actual_points` yakunlangan-
+  vazifa-soni proksi ekani 4 joyda (docstring x2, db-schema.md, frontend
+  caption) aniq yozilgan. `penalty_service.py`ga tegilmadi (jarima QOIDASI
+  EMAS talabi saqlandi).
 - [ ] **Phase 7 — Tezlikka qarab to'lov taklifi (speed-tier).** Yangi
   `app_settings.speed_tier_schedule: JSON NOT NULL DEFAULT '[]'` (bo'sh —
   aniq foizlar kelmaguncha inert). `financial_suggestions`ga `speed_tier`,
