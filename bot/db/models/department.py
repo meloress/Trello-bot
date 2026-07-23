@@ -35,6 +35,10 @@ class Department(TimestampedBase):
     # majburiy emas, shu sabab bo'lim darajasida yoqiladi/o'chiriladi
     # (admin panel, /autoreassign).
     auto_reassign_after_48h: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Fasad sex TZ: ba'zi bo'limlarda buyurtma darhol ACTIVE emas, STOPPED
+    # holatda ochiladi (joy tayyor bo'lishini kutish) — task_service.create_task()
+    # shu bayroqqa qarab boshlang'ich holatni tanlaydi.
+    starts_stopped: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     brigades: Mapped[list["Brigade"]] = relationship(back_populates="department")
     employees: Mapped[list["Employee"]] = relationship(back_populates="department")

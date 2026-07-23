@@ -101,9 +101,81 @@ async def list_departments(request: web.Request) -> web.Response:
                 "name": d.name,
                 "next_department_id": d.next_department_id,
                 "auto_reassign_after_48h": d.auto_reassign_after_48h,
+                "starts_stopped": d.starts_stopped,
             }
             for d in departments
         ]
+    )
+
+
+@routes.post("/departments")
+async def create_department(request: web.Request) -> web.Response:
+    """Fasad sex TZ: bo'lim CRUD'ining birinchi qismi — hozirgacha
+    `departments` qatori faqat bir martalik seed skript orqali yaratilar edi."""
+    body = await request.json()
+    name = (body.get("name") or "").strip()
+    if not name:
+        return err("name majburiy")
+
+    async with async_session() as session:
+        repo = DepartmentRepository(session)
+        department = await repo.create(
+            name=name,
+            trello_list_id=body.get("trello_list_id"),
+            auto_reassign_after_48h=bool(body.get("auto_reassign_after_48h", False)),
+            starts_stopped=bool(body.get("starts_stopped", False)),
+        )
+        await session.commit()
+
+    return web.json_response(
+        {
+            "id": department.id,
+            "name": department.name,
+            "next_department_id": department.next_department_id,
+            "auto_reassign_after_48h": department.auto_reassign_after_48h,
+            "starts_stopped": department.starts_stopped,
+        },
+        status=201,
+    )
+
+
+# Qisman yangilash uchun ruxsat etilgan maydonlar — keyingi fazalar (fork/
+# join, factory) shu ro'yxatga qo'shimcha qiladi, shuning uchun oddiy
+# ro'yxat/tsikl sifatida saqlanadi (hardcoded pozitsion tuzilma emas).
+DEPARTMENT_UPDATABLE_FIELDS = ("name", "trello_list_id", "auto_reassign_after_48h", "starts_stopped")
+
+
+@routes.post("/departments/{department_id}")
+async def update_department(request: web.Request) -> web.Response:
+    """Qisman yangilash: so'rov tanasida FAQAT kelgan maydonlar yoziladi
+    (`toggle_autoreassign` bilan bir xil session/commit naqshi)."""
+    department_id = int(request.match_info["department_id"])
+    body = await request.json()
+
+    updates = {}
+    for field in DEPARTMENT_UPDATABLE_FIELDS:
+        if field in body:
+            updates[field] = body[field]
+    if "name" in updates and not (updates["name"] or "").strip():
+        return err("name bo'sh bo'lishi mumkin emas")
+
+    async with async_session() as session:
+        repo = DepartmentRepository(session)
+        department = await repo.get_by_id(department_id)
+        if department is None:
+            return err("not_found", 404)
+        if updates:
+            await repo.update(department, **updates)
+            await session.commit()
+
+    return web.json_response(
+        {
+            "id": department.id,
+            "name": department.name,
+            "next_department_id": department.next_department_id,
+            "auto_reassign_after_48h": department.auto_reassign_after_48h,
+            "starts_stopped": department.starts_stopped,
+        }
     )
 
 
@@ -229,6 +301,7 @@ async def create_task(request: web.Request) -> web.Response:
             department_id=int(department_id),
             employee_ids=[int(brigadier_id)],
             client_id=client_id,
+            created_by_employee_id=request["employee"].id,
         )
     except task_service.DepartmentNotFoundError:
         return err("bo'lim topilmadi", 404)

@@ -22,6 +22,7 @@ from db.models.task import Task
 from db.repositories import (
     DepartmentRepository,
     EmployeeRepository,
+    StopLogRepository,
     TaskAssignmentRepository,
     TaskRepository,
 )
@@ -134,6 +135,7 @@ async def create_task(
     department_id: int,
     employee_ids: list[int],
     client_id: int | None = None,
+    created_by_employee_id: int | None = None,
 ) -> Task:
     async with async_session() as session:
         department = await DepartmentRepository(session).get_by_id(department_id)
@@ -144,6 +146,10 @@ async def create_task(
                 f"'{department.name}' yo'nalishi uchun Trello ro'yxati (list) sozlanmagan"
             )
         list_id = department.trello_list_id
+        starts_stopped = department.starts_stopped
+
+    if starts_stopped and created_by_employee_id is None:
+        raise ValueError("starts_stopped bo'limlar uchun created_by_employee_id majburiy")
 
     async with TrelloClient(settings.trello_api_key, settings.trello_token) as trello:
         card = await trello.create_card(list_id=list_id, name=title, desc=description or "", due=deadline)
@@ -158,7 +164,7 @@ async def create_task(
             title=title,
             description=description,
             deadline=deadline,
-            status=TaskStatus.ACTIVE,
+            status=TaskStatus.STOPPED if starts_stopped else TaskStatus.ACTIVE,
             current_department_id=department_id,
             started_at=datetime.now(timezone.utc),
             client_id=client_id,
@@ -166,6 +172,18 @@ async def create_task(
 
         for employee_id in employee_ids:
             await assignment_repo.create(task_id=task.id, employee_id=employee_id)
+
+        if starts_stopped:
+            # Fasad sex TZ: "joy tayyor bo'lishini kutish" — STOPPED holatda
+            # ochilgan vazifa ham resume_task() orqali davom ettirilishi
+            # kerak, u esa faol stop_log talab qiladi (get_active_stop()).
+            await StopLogRepository(session).create(
+                task_id=task.id,
+                employee_id=created_by_employee_id,
+                reason="Buyurtma qabul qilindi — joy tayyor bo'lishini kutmoqda",
+                stopped_at=datetime.now(timezone.utc),
+                resumed_at=None,
+            )
 
         await session.commit()
 

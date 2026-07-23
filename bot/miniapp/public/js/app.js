@@ -868,6 +868,7 @@ async function screenSettings() {
     <button class="nav-card" id="nav-chain"><span class="ic">🔗</span><span class="grow">${esc(t("departmentChainNav"))}</span><span class="chev">›</span></button>
     <button class="nav-card" id="nav-autoreassign"><span class="ic">🔁</span><span class="grow">${esc(t("autoreassignNav"))}</span><span class="chev">›</span></button>
     <button class="nav-card" id="nav-reminders"><span class="ic">🕗</span><span class="grow">${esc(t("remindersNav"))}</span><span class="chev">›</span></button>
+    <button class="nav-card" id="nav-departments"><span class="ic">🏭</span><span class="grow">${esc(t("departmentsNav"))}</span><span class="chev">›</span></button>
   `);
   root.querySelectorAll(".settings-row").forEach((el) => {
     el.onclick = () => show(screenEditSetting, el.dataset.field, snapshot[el.dataset.field]);
@@ -875,6 +876,7 @@ async function screenSettings() {
   root.querySelector("#nav-chain").onclick = () => show(screenDepartmentChain);
   root.querySelector("#nav-autoreassign").onclick = () => show(screenAutoreassign);
   root.querySelector("#nav-reminders").onclick = () => show(screenReminders);
+  root.querySelector("#nav-departments").onclick = () => show(screenDepartments);
 }
 
 async function screenEditSetting(field, currentValue) {
@@ -964,6 +966,62 @@ async function screenAutoreassign() {
       }
     };
   });
+}
+
+/* ---------- Fasad sex TZ: Bo'limlar CRUD (Phase 2 infratuzilma) ---------- */
+
+async function screenDepartments() {
+  setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
+  const departments = await api("/admin/departments");
+  setScreen(`
+    <p class="page-title">${esc(t("departmentsNav"))}</p>
+    ${departments.length ? departments.map((d) => `
+      <div class="fin-card">
+        <div class="top"><span class="task">${esc(d.name)}</span></div>
+        <div class="amount-row">
+          <span class="status-pill ${d.auto_reassign_after_48h ? "positive" : "neutral"}">${esc(t("autoreassignNav"))}: ${d.auto_reassign_after_48h ? "ON" : "OFF"}</span>
+          <span class="status-pill ${d.starts_stopped ? "positive" : "neutral"}">${esc(t("startsStoppedField"))}: ${d.starts_stopped ? "ON" : "OFF"}</span>
+        </div>
+      </div>
+    `).join("") : `<p class="empty-state">${esc(t("noDepartments"))}</p>`}
+  `);
+  setMainButton(`➕ ${t("addDepartmentBtn")}`, () => show(screenAddDepartment), "#2f6f62");
+}
+
+async function screenAddDepartment() {
+  setScreen(`
+    <p class="page-title">${esc(t("addDepartmentBtn"))}</p>
+    <div class="field"><label>${esc(t("departmentNameField"))}</label><input id="f-name" type="text" /></div>
+    <div class="field"><label>${esc(t("trelloListIdField"))}</label><input id="f-trello-list" type="text" /></div>
+    <label class="check-row"><input type="checkbox" id="f-autoreassign" />${esc(t("autoreassignNav"))}</label>
+    <label class="check-row"><input type="checkbox" id="f-starts-stopped" />${esc(t("startsStoppedField"))}</label>
+  `);
+  setMainButton(`💾 ${t("create")}`, async () => {
+    const name = root.querySelector("#f-name").value.trim();
+    if (!name) {
+      showError(t("departmentNameField"));
+      return;
+    }
+    const app = tg();
+    app.MainButton.showProgress();
+    try {
+      await api("/admin/departments", {
+        method: "POST",
+        body: JSON.stringify({
+          name,
+          trello_list_id: root.querySelector("#f-trello-list").value.trim() || null,
+          auto_reassign_after_48h: root.querySelector("#f-autoreassign").checked,
+          starts_stopped: root.querySelector("#f-starts-stopped").checked,
+        }),
+      });
+      app.HapticFeedback && app.HapticFeedback.notificationOccurred("success");
+      await goBack();
+    } catch (e) {
+      showError(e.message);
+    } finally {
+      app.MainButton.hideProgress();
+    }
+  }, "#2f6f62");
 }
 
 async function screenReminders() {
