@@ -220,6 +220,22 @@ async def notify_daily_reminder(
     return await _send(bot, employee.telegram_id, "\n".join(lines))
 
 
+async def notify_daily_report_request(bot: Bot, employee_id: int) -> bool:
+    """Fasad sex TZ, Phase 8: kunlik rasm/video hisobot SO'ROVI — oddiy
+    matnli xabar (state o'rnatilmaydi, tugma biriktirilmaydi; xodim
+    javoban rasm/video yuborsa `handlers/common/daily_report.py`ning
+    state'siz filteri uni ushlaydi — sabab shu faylning docstring'ida)."""
+    async with async_session() as session:
+        employee = await EmployeeRepository(session).get_by_id(employee_id)
+    if employee is None:
+        logger.warning("notify_daily_report_request: employee %s topilmadi", employee_id)
+        return False
+
+    return await _send(
+        bot, employee.telegram_id, "📸 Bugungi ish jarayoni bo'yicha rasm yoki video yuboring."
+    )
+
+
 async def _collect_assignees(session, task_id: int) -> dict[int, int | None]:
     """task_id'ga biriktirilgan barcha xodimlar -> telegram_id xaritasi."""
     recipients: dict[int, int | None] = {}

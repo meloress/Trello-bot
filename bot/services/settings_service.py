@@ -35,6 +35,7 @@ class AppSettingsSnapshot:
     sales_board_lists: dict
     daily_quota_points_per_worker: int
     speed_tier_schedule: list[dict]
+    daily_report_time: str
 
 
 _cache: AppSettingsSnapshot | None = None
@@ -113,6 +114,7 @@ async def _load_from_db() -> AppSettingsSnapshot:
         sales_board_lists=row.sales_board_lists,
         daily_quota_points_per_worker=row.daily_quota_points_per_worker,
         speed_tier_schedule=row.speed_tier_schedule,
+        daily_report_time=row.daily_report_time,
     )
 
 
@@ -140,6 +142,8 @@ async def update_setting(**fields: object) -> AppSettingsSnapshot:
         validate_speed_tier_schedule(fields["speed_tier_schedule"])
     if "report_time" in fields:
         validate_time_str(fields["report_time"])
+    if "daily_report_time" in fields:
+        validate_time_str(fields["daily_report_time"])
 
     async with async_session() as session:
         repo = AppSettingRepository(session)

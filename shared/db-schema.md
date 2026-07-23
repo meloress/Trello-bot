@@ -72,6 +72,7 @@ Fork/join zanjiri uchun (`b7c1e4f9a83d` migratsiyasi). `next_department_id` bitt
 | next_payment_date | DATE | default: joriy oyning 15-sanasi (8.5-band); tizim minus ball to'planganda buni siljitib boradi |
 | is_active | BOOLEAN | default: true; ishdan bo'shatilganda false qilinadi ("O'CHIRISH" tugmasi soft-delete) |
 | language | VARCHAR(2) | default: 'uz' (`a1c9f3e7d502` migratsiyasi); Mini App profil ekranidagi til tanlovi ("uz"/"ru") — `bot/miniapp/api/common.py`ning `POST /me/language`si yozadi |
+| daily_report_required | BOOLEAN | Fasad sex TZ, Phase 8 (`83d73ef87edc`): shu xodim kunlik rasm/video hisobot ro'yxatida (default: false). FAQAT kuzatuv — `penalty_service.py`ga tegishli emas. `POST /admin/employees/{id}` orqali tahrirlanadi |
 | created_at / updated_at | TIMESTAMPTZ | |
 
 **Bog'lanishlar**: `department` (M-1), `brigade` (M-1, a'zolik), `led_brigades`
@@ -282,6 +283,8 @@ formulasidan tabiiy kelib chiqadi: dayIndex=0 -> jarima yo'q.
 | lead_follow_up_threshold_days | INTEGER | 13.3-band (`ff165aafd9b1`, 5-bosqich): necha kun lidga aloqa bo'lmasa mas'ul sotuvchiga eslatma boradi (default: 7, foydalanuvchi bilan tasdiqlangan) |
 | sales_board_lists | JSON | 6.1-band (`ff165aafd9b1`, 5-bosqich): `{"ezza": {"new_lead": list_id, "contacted": ..., "offer_sent": ..., "agreed": ..., "closed": ...}, "melores": {...}}` — har (brand, bosqich) juftligi uchun Trello list ID. `departments.trello_list_id` bilan bir xil naqsh: bot UI orqali EMAS, to'g'ridan-to'g'ri bazada sozlanadi. Default: hamma qiymat `NULL` (haqiqiy Ezza/Melores boardlari hali yaratilmagan) |
 | daily_quota_points_per_worker | INTEGER | Fasad sex TZ, Phase 6 (`7b3d4bf8afe4`): kunlik norma — har ISHCHI kuniga shuncha "punkt" ishlab chiqarishi kutiladi ("5 punkt ≈ 100 kv.m", default: 5). FAQAT stats/dashboard uchun (`stats_service.get_capacity_vs_actual()`) — timer/jarima sifatida MAJBURIY QILINMAYDI, `penalty_service.py`ga tegishli emas |
+| speed_tier_schedule | JSON | Fasad sex TZ, Phase 7 (`a3f7c9d02b41`): tezlik-darajali to'lov taklifi jadvali — `[{"max_days": N, "tier": "<nom>", "pay_multiplier": X}, ...]`. Default: bo'sh ro'yxat (admin to'ldirmaguncha xususiyat harakatsiz) |
+| daily_report_time | VARCHAR(5) | Fasad sex TZ, Phase 8 (`83d73ef87edc`): kunlik rasm/video hisobot SO'ROVI shu vaqtda (HH:MM, Toshkent) `daily_report_required=true` xodimlarga yuboriladi (`jobs/daily_report_job.py`, default: `09:00`) — `report_time` bilan bir xil naqsh |
 | created_at / updated_at | TIMESTAMPTZ | |
 
 `f490887dee10` migratsiyasi orqali yaratilgan va bitta seed qator bilan
@@ -303,6 +306,29 @@ Melores Trello boardlari yaratilgach).
 `BASE_PAYMENT_DAY` (8.5-banddagi bazaviy to'lov kuni, 15) bu ro'yxatda YO'Q —
 `penalty_service.py`da hali konstanta bo'lib qolmoqda, chunki so'ralgan 4 ta
 sozlama ro'yxatiga kirmagan edi.
+
+### daily_report_submissions — Kunlik rasm/video hisobot muvofiqligi (Fasad sex TZ, Phase 8)
+| Ustun | Tur | Izoh |
+|---|---|---|
+| id | PK | |
+| employee_id | FK -> employees.id | |
+| report_date | DATE | hisobot QAYSI kalendar kun UCHUN (Toshkent vaqti) — jo'natilgan payt emas |
+| file_id | VARCHAR(200) | Telegram'ning `photo`/`video` fayl identifikatori — tizimda fayl saqlash qatlami yo'q, faqat shu satr saqlanadi |
+| submitted_at | TIMESTAMPTZ | oxirgi yuborilgan payt |
+| created_at / updated_at | TIMESTAMPTZ | |
+
+`UNIQUE(employee_id, report_date)` (`uq_daily_report_submissions_employee_date`,
+`83d73ef87edc` migratsiyasi) — bitta xodim uchun bitta kunga bitta yozuv,
+qayta yuborilsa `services/daily_report_service.submit_daily_report()` mavjud
+qatorni YANGILAYDI (upsert), yangi qator yaratmaydi. **FAQAT kuzatuv** — bu
+jadval hech qanday jarima/ball hisobiga ta'sir qilmaydi (`penalty_service.py`ga
+ATAYLAB tegilmagan; TZning o'zi ham bu masalada ochiq savol qoldirgan).
+Yig'ish/so'rov oqimi to'liq chat-based (`handlers/common/daily_report.py`,
+`/mijoz`dan keyingi ikkinchi ataylab chat-only istisno — Telegram'ning tabiiy
+kamera/galereya tugmasi Mini App WebView fayl-inputidan qulayroq), Mini App
+faqat `GET /admin/daily-reports` orqali muvofiqlik holatini KO'RSATADI.
+
+**Bog'lanishlar**: `employee` (M-1).
 
 ### financial_suggestions — Moliyaviy javobgarlik TAKLIFLARI (8.6-band, 3-bosqich)
 | Ustun | Tur | Izoh |

@@ -81,3 +81,7 @@ class AppSetting(TimestampedBase):
     # Fasad sex TZ, Phase 7: tezlik-darajali to'lov taklifi jadvali (yuqoridagi
     # DEFAULT_SPEED_TIER_SCHEDULE izohiga q.) — standart bo'sh ro'yxat.
     speed_tier_schedule: Mapped[list] = mapped_column(JSON, nullable=False)
+    # Fasad sex TZ, Phase 8: kunlik rasm/video hisobot SO'ROVI shu vaqtda
+    # (HH:MM, Toshkent) `daily_report_required=True` xodimlarga yuboriladi
+    # (`jobs/daily_report_job.py`) — `report_time` bilan bir xil naqsh.
+    daily_report_time: Mapped[str] = mapped_column(String(5), nullable=False)

@@ -3,13 +3,14 @@ takliflar. Ruxsat: faqat Role.ADMIN/Role.SUPERVISOR (`server.py`da
 route bo'yicha `require_roles` orqali ulanadi)."""
 
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from aiohttp import web
 
 from core.database import async_session
 from db.repositories import (
     BrigadeRepository,
+    DailyReportSubmissionRepository,
     DepartmentForkTargetRepository,
     DepartmentRepository,
     EmployeeRepository,
@@ -18,10 +19,11 @@ from db.repositories import (
     TaskRepository,
 )
 from config import settings
-from jobs import reminder_job, report_job
+from jobs import daily_report_job, reminder_job, report_job
 from miniapp.util import err
 from services import (
     client_service,
+    daily_report_service,
     employee_service,
     financial_service,
     notification_service,
@@ -452,6 +454,7 @@ async def employee_detail(request: web.Request) -> web.Response:
             "brigade": brigade.name if brigade else None,
             "is_active": employee.is_active,
             "telegram_linked": employee.telegram_id is not None,
+            "daily_report_required": employee.daily_report_required,
         }
     )
 
@@ -503,6 +506,8 @@ async def update_employee(request: web.Request) -> web.Response:
     elif "department_id" in body:
         # bo'lim o'zgarganda eski brigada mos kelmasligi mumkin (chat bilan bir xil qoida)
         fields["brigade_id"] = None
+    if "daily_report_required" in body:
+        fields["daily_report_required"] = bool(body["daily_report_required"])
 
     if not fields:
         return err("hech qanday maydon berilmadi")
@@ -802,7 +807,7 @@ def _parse_setting_value(field: str, value: object) -> object:
         value = int(value)
         if not (0 <= value <= 100):
             raise ValueError
-    elif field == "report_time":
+    elif field in ("report_time", "daily_report_time"):
         settings_service.validate_time_str(value)
     else:
         raise ValueError(f"noma'lum sozlama: {field}")
@@ -831,6 +836,8 @@ async def update_settings(request: web.Request) -> web.Response:
     updated = await settings_service.update_setting(**fields)
     if "report_time" in fields:
         report_job.schedule_all(request.config_dict["bot"], updated.report_time)
+    if "daily_report_time" in fields:
+        daily_report_job.schedule_all(request.config_dict["bot"], updated.daily_report_time)
 
     return web.json_response({field: getattr(updated, field) for field in _SETTING_FIELDS})
 
@@ -1047,6 +1054,36 @@ async def list_reassign_candidates(request: web.Request) -> web.Response:
                 }
             )
     return web.json_response(items)
+
+
+@routes.get("/daily-reports")
+async def daily_reports_compliance(request: web.Request) -> web.Response:
+    """Fasad sex TZ, Phase 8: kunlik rasm/video hisobot muvofiqligi —
+    `daily_report_required=True` FAOL xodimlar ikki guruhga bo'linadi
+    (yuborgan/yubormagan). `date` so'rov parametri bo'lmasa — bugun
+    (Toshkent vaqti)."""
+    date_param = request.query.get("date")
+    try:
+        report_date = date.fromisoformat(date_param) if date_param else daily_report_service.today_tashkent()
+    except ValueError:
+        return err("date noto'g'ri formatda (YYYY-MM-DD kerak)")
+
+    async with async_session() as session:
+        required = await EmployeeRepository(session).list_daily_report_required()
+        submissions = await DailyReportSubmissionRepository(session).list_by_date(report_date)
+    submitted_ids = {s.employee_id for s in submissions}
+    required = [e for e in required if _department_scope_ok(request, e.department_id)]
+
+    def _brief(e) -> dict:
+        return {"id": e.id, "full_name": e.full_name, "department_id": e.department_id}
+
+    return web.json_response(
+        {
+            "date": report_date.isoformat(),
+            "submitted": [_brief(e) for e in required if e.id in submitted_ids],
+            "missing": [_brief(e) for e in required if e.id not in submitted_ids],
+        }
+    )
 
 
 @routes.get("/tasks/{task_id}/reassign-brigades")

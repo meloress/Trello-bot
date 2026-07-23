@@ -153,6 +153,14 @@ const I18N = {
     deactivate: "🚫 Faolsizlantirish",
     saveChanges: "Saqlash",
     savedOk: "Saqlandi ✅",
+    dailyReportRequiredField: "Kunlik rasm/video hisobot ro'yxatida",
+
+    // Kunlik rasm/video hisobot muvofiqligi (Fasad sex TZ, Phase 8)
+    dailyReportsNav: "📸 Kunlik hisobot",
+    dailyReportsTitle: "Kunlik rasm/video hisobot",
+    submittedLabel: "Yuborgan",
+    missingLabel: "Yubormagan",
+    noDailyReportEmployees: "Kunlik hisobot ro'yxatida xodim yo'q.",
 
     // Sozlamalar (16-band)
     settingsNav: "Sozlamalar",
@@ -168,6 +176,7 @@ const I18N = {
     setting_report_time: "Hisobot vaqti (HH:MM)",
     setting_lead_follow_up_threshold_days: "Lid follow-up chegarasi (kun)",
     setting_daily_quota_points_per_worker: "Kunlik norma (punkt/ishchi)",
+    setting_daily_report_time: "Kunlik hisobot so'rov vaqti (HH:MM)",
     departmentChainNav: "Bo'lim ketma-ketligi",
     autoreassignNav: "Avto-o'tkazish (48s)",
     remindersNav: "Eslatmalar",
@@ -387,6 +396,13 @@ const I18N = {
     deactivate: "🚫 Деактивировать",
     saveChanges: "Сохранить",
     savedOk: "Сохранено ✅",
+    dailyReportRequiredField: "В списке дневного фото/видео отчёта",
+
+    dailyReportsNav: "📸 Дневной отчёт",
+    dailyReportsTitle: "Дневной фото/видео отчёт",
+    submittedLabel: "Отправили",
+    missingLabel: "Не отправили",
+    noDailyReportEmployees: "В списке дневного отчёта нет сотрудников.",
 
     settingsNav: "Настройки",
     settingsTitle: "Настройки",
@@ -401,6 +417,7 @@ const I18N = {
     setting_report_time: "Время отчёта (ЧЧ:ММ)",
     setting_lead_follow_up_threshold_days: "Порог напоминания по лиду (дни)",
     setting_daily_quota_points_per_worker: "Дневная норма (пункт/рабочий)",
+    setting_daily_report_time: "Время запроса дневного отчёта (ЧЧ:ММ)",
     departmentChainNav: "Цепочка отделов",
     autoreassignNav: "Авто-передача (48ч)",
     remindersNav: "Напоминания",

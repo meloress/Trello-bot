@@ -427,12 +427,33 @@ async function screenAdminHome() {
     <button class="nav-card accent" id="nav-newtask"><span class="ic">➕</span><span class="grow">${esc(t("newTaskCta"))}</span><span class="chev">›</span></button>
     ${pendingSetup.length ? `<button class="alert-card" id="nav-pending-setup"><span class="ic">⏳</span><span class="grow">${esc(t("pendingSetupAlert", pendingSetup.length))}</span><span class="chev">›</span></button>` : ""}
     ${reassignCandidates.length ? `<button class="alert-card" id="nav-reassign"><span class="ic">🔁</span><span class="grow">${esc(t("reassignAlert", reassignCandidates.length))}</span><span class="chev">›</span></button>` : ""}
+    <button class="nav-card" id="nav-daily-reports"><span class="ic">📸</span><span class="grow">${esc(t("dailyReportsNav"))}</span><span class="chev">›</span></button>
   `);
   root.querySelector("#nav-newtask").onclick = () => show(screenNewTaskForm);
   const pendingBtn = root.querySelector("#nav-pending-setup");
   if (pendingBtn) pendingBtn.onclick = () => show(screenPendingSetup);
   const reassignBtn = root.querySelector("#nav-reassign");
   if (reassignBtn) reassignBtn.onclick = () => show(screenReassignList);
+  root.querySelector("#nav-daily-reports").onclick = () => show(screenDailyReports);
+}
+
+async function screenDailyReports() {
+  setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
+  const data = await api("/admin/daily-reports");
+  setScreen(`
+    <p class="page-title">${esc(t("dailyReportsTitle"))}</p>
+    <p class="page-sub">${esc(data.date)}</p>
+    ${!data.submitted.length && !data.missing.length ? `<p class="empty-state">${esc(t("noDailyReportEmployees"))}</p>` : `
+      <p class="section-lbl">${esc(t("submittedLabel"))} (${data.submitted.length})</p>
+      ${data.submitted.map((e) => `
+        <div class="stat-row"><span class="rank">✅</span><span class="nm">${esc(e.full_name)}</span><span class="score"></span></div>
+      `).join("")}
+      <p class="section-lbl">${esc(t("missingLabel"))} (${data.missing.length})</p>
+      ${data.missing.map((e) => `
+        <div class="stat-row"><span class="rank">❌</span><span class="nm">${esc(e.full_name)}</span><span class="score"></span></div>
+      `).join("")}
+    `}
+  `);
 }
 
 async function screenNewTaskForm(kind) {
@@ -637,6 +658,7 @@ async function screenEmployeeDetail(employeeId) {
       <select id="f-dept"><option value="">—</option>${departments.map((d) => `<option value="${d.id}" ${d.id === employee.department_id ? "selected" : ""}>${esc(d.name)}</option>`).join("")}</select>
     </div>
     <div class="field"><label>${esc(t("brigade"))}</label><select id="f-brigade">${brigadeOptions}</select></div>
+    <label class="check-row"><input type="checkbox" id="f-daily-report" ${employee.daily_report_required ? "checked" : ""} />${esc(t("dailyReportRequiredField"))}</label>
     <button class="btn ${employee.is_active ? "danger" : "primary"}" id="btn-toggle">${employee.is_active ? esc(t("deactivate")) : esc(t("activate"))}</button>
   `);
 
@@ -669,6 +691,7 @@ async function screenEmployeeDetail(employeeId) {
           role: root.querySelector("#f-role").value,
           department_id: deptVal ? Number(deptVal) : null,
           brigade_id: brigadeVal ? Number(brigadeVal) : null,
+          daily_report_required: root.querySelector("#f-daily-report").checked,
         }),
       });
       app.HapticFeedback && app.HapticFeedback.notificationOccurred("success");
@@ -920,7 +943,7 @@ const SETTING_FIELDS = [
   "default_penalty_multiplier", "brigade_share_ratio", "balls_per_day_shift",
   "plus_ball_per_day", "plus_ball_max_days", "financial_flag_threshold_days",
   "advance_threshold_percent", "advance_waiver_percent", "report_time",
-  "lead_follow_up_threshold_days", "daily_quota_points_per_worker",
+  "lead_follow_up_threshold_days", "daily_quota_points_per_worker", "daily_report_time",
 ];
 
 async function screenSettings() {
