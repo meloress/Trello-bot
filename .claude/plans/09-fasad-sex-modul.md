@@ -69,7 +69,16 @@ ularni taxmin qilmaydi.
   `created_by_employee_id` — STOPPED holatda ochilganda darhol `stop_logs`
   qatori yoziladi (aks holda `resume_task()` ishlamay qoladi —
   `stop_repo.get_active_stop()` talab qiladi).
-- [ ] **Phase 3 — Fork/join zanjir arxitekturasi.** Yangi jadval
+- [x] **Phase 3 — Fork/join zanjir arxitekturasi.** BAJARILDI (`6096e3a`,
+  review: Approved — chiziqli zanjir uchun "byte-identical" talab qatorma-
+  qator tekshirildi). Minor topilmalar (kelajakda diqqat qilish kerak):
+  (1) join-fire idempotent EMAS — 2 ishchi bir vaqtda oxirgi 2 filialni
+  tugatsa, ikkalasi ham join task yaratishi mumkin (race condition,
+  hozircha real foydalanuvchi yo'q); (2) `POST /fork-targets`da input
+  validatsiya yo'q (mavjud bo'lmagan department_id → 500, o'z-o'ziga fork
+  bloklanmagan); (3) filial tugaganda ham `notify_client_stage_advanced`
+  chiqadi (mijozga "bosqich o'tdi" degan xabar, aslida hali kutilmoqda).
+  Frontend fork-target UI YO'Q (ataylab keyinga qoldirilgan). Yangi jadval
   `department_fork_targets` (`department_id`, `target_department_id FK`).
   Yangi `departments.requires_join: BOOLEAN NOT NULL DEFAULT false`.
   `task_service.advance_task_stage()` qayta yoziladi — qaytish turi
