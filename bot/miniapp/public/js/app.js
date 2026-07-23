@@ -844,12 +844,14 @@ async function screenFullStats() {
         </button>
       `;
     }).join("") : ""}
+    <button class="nav-card" id="nav-capacity"><span class="ic">📐</span><span class="grow">${esc(t("capacityStatsNav"))}</span><span class="chev">›</span></button>
     <p class="section-lbl">${esc(t("overallRanking"))}</p>
     ${statRowsHtml(stats)}
   `);
-  root.querySelectorAll(".nav-card").forEach((el) => {
+  root.querySelectorAll(".nav-card[data-role]").forEach((el) => {
     el.onclick = () => show(screenStatsByRole, el.dataset.role);
   });
+  root.querySelector("#nav-capacity").onclick = () => show(screenCapacityDepartmentPicker);
 }
 
 async function screenStatsByRole(role) {
@@ -861,13 +863,45 @@ async function screenStatsByRole(role) {
   `);
 }
 
+async function screenCapacityDepartmentPicker() {
+  setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
+  const departments = await api("/admin/departments");
+  setScreen(`
+    <p class="page-title">${esc(t("capacityStatsTitle"))}</p>
+    <p class="page-sub">${esc(t("capacityPickDepartment"))}</p>
+    ${departments.map((d, i) => `
+      <button class="nav-card" data-i="${i}"><span class="ic">🏭</span><span class="grow">${esc(d.name)}</span><span class="chev">›</span></button>
+    `).join("")}
+  `);
+  root.querySelectorAll(".nav-card").forEach((el) => {
+    const dept = departments[Number(el.dataset.i)];
+    el.onclick = () => show(screenCapacityStats, dept.id, dept.name);
+  });
+}
+
+async function screenCapacityStats(departmentId, departmentName) {
+  setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
+  const cap = await api(`/admin/stats/capacity?department_id=${departmentId}`);
+  setScreen(`
+    <p class="page-title">${esc(departmentName)}</p>
+    <div class="hero-row">
+      <div class="hero-tile"><span class="num">${cap.worker_count}</span><span class="lbl">${esc(t("workerCountLabel"))}</span></div>
+      <div class="hero-tile"><span class="num">${cap.planned_points}</span><span class="lbl">${esc(t("plannedPointsLabel"))}</span></div>
+    </div>
+    <div class="hero-row">
+      <div class="hero-tile"><span class="num">${cap.actual_points}</span><span class="lbl">${esc(t("actualPointsLabel"))}</span></div>
+    </div>
+    <p class="page-sub">${esc(t("capacityActualCaption"))}</p>
+  `);
+}
+
 /* ---------- Sozlamalar (16-band) ---------- */
 
 const SETTING_FIELDS = [
   "default_penalty_multiplier", "brigade_share_ratio", "balls_per_day_shift",
   "plus_ball_per_day", "plus_ball_max_days", "financial_flag_threshold_days",
   "advance_threshold_percent", "advance_waiver_percent", "report_time",
-  "lead_follow_up_threshold_days",
+  "lead_follow_up_threshold_days", "daily_quota_points_per_worker",
 ];
 
 async function screenSettings() {

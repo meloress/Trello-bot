@@ -281,6 +281,7 @@ formulasidan tabiiy kelib chiqadi: dayIndex=0 -> jarima yo'q.
 | report_time | VARCHAR(5) | 10.2-band (`b3f7a1c9d204`, 4-bosqich): kunlik/haftalik/oylik Telegram hisobotlari shu vaqtda (HH:MM, Toshkent) yuboriladi (default: `20:00`). Haftalik — yakshanba, oylik — har oyning 1-sanasi (kun tanlovi sozlanuvchan emas, TZda so'ralmagan) |
 | lead_follow_up_threshold_days | INTEGER | 13.3-band (`ff165aafd9b1`, 5-bosqich): necha kun lidga aloqa bo'lmasa mas'ul sotuvchiga eslatma boradi (default: 7, foydalanuvchi bilan tasdiqlangan) |
 | sales_board_lists | JSON | 6.1-band (`ff165aafd9b1`, 5-bosqich): `{"ezza": {"new_lead": list_id, "contacted": ..., "offer_sent": ..., "agreed": ..., "closed": ...}, "melores": {...}}` — har (brand, bosqich) juftligi uchun Trello list ID. `departments.trello_list_id` bilan bir xil naqsh: bot UI orqali EMAS, to'g'ridan-to'g'ri bazada sozlanadi. Default: hamma qiymat `NULL` (haqiqiy Ezza/Melores boardlari hali yaratilmagan) |
+| daily_quota_points_per_worker | INTEGER | Fasad sex TZ, Phase 6 (`7b3d4bf8afe4`): kunlik norma — har ISHCHI kuniga shuncha "punkt" ishlab chiqarishi kutiladi ("5 punkt ≈ 100 kv.m", default: 5). FAQAT stats/dashboard uchun (`stats_service.get_capacity_vs_actual()`) — timer/jarima sifatida MAJBURIY QILINMAYDI, `penalty_service.py`ga tegishli emas |
 | created_at / updated_at | TIMESTAMPTZ | |
 
 `f490887dee10` migratsiyasi orqali yaratilgan va bitta seed qator bilan
@@ -293,9 +294,9 @@ barcha mos APScheduler job'larini (`main.py`da ro'yxatdan o'tkazilgan) olib
 tashlab, qayta yaratadi (`handlers/admin/settings.py`ning `/reminders` va
 `/settings` oqimlari har o'zgarishdan keyin shu funksiyalarni chaqiradi).
 Faqat `Role.ADMIN`/`Role.SUPERVISOR` o'zgartira oladi (`middlewares/auth.py:
-RoleAccessMiddleware`). 10 ta skalyar qiymat (yuqoridagi jadval, `lead_follow_up_
-threshold_days` shu jumladan) `/settings` orqali xuddi shu yo'l bilan
-tahrirlanadi. `sales_board_lists` bundan mustasno — `departments.trello_list_id`
+RoleAccessMiddleware`). 11 ta skalyar qiymat (yuqoridagi jadval, `lead_follow_up_
+threshold_days` va `daily_quota_points_per_worker` shu jumladan) `/settings`
+orqali xuddi shu yo'l bilan tahrirlanadi. `sales_board_lists` bundan mustasno — `departments.trello_list_id`
 kabi bot UI orqali EMAS, to'g'ridan-to'g'ri bazada sozlanadi (haqiqiy Ezza/
 Melores Trello boardlari yaratilgach).
 

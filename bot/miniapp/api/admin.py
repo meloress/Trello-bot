@@ -3,7 +3,7 @@ takliflar. Ruxsat: faqat Role.ADMIN/Role.SUPERVISOR (`server.py`da
 route bo'yicha `require_roles` orqali ulanadi)."""
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from aiohttp import web
 
@@ -25,6 +25,7 @@ from services import (
     employee_service,
     financial_service,
     notification_service,
+    penalty_service,
     settings_service,
     stats_service,
     task_service,
@@ -709,6 +710,42 @@ async def full_stats(request: web.Request) -> web.Response:
     )
 
 
+@routes.get("/stats/capacity")
+async def capacity_stats(request: web.Request) -> web.Response:
+    """Fasad sex TZ, Phase 6: kunlik norma (5 punkt/ishchi) — bo'lim uchun
+    reja (`planned_points`) va bajarilgan vazifa soni (`actual_points`,
+    PROKSI, haqiqiy kv.m emas) yonma-yon. `?department_id=` majburiy;
+    `?since=`/`?until=` ixtiyoriy ISO 8601 — berilmasa, joriy oy
+    (`stats_service._month_bounds` bilan bir xil qoida)."""
+    department_id = request.query.get("department_id")
+    if not department_id:
+        return err("department_id majburiy")
+    try:
+        department_id = int(department_id)
+    except ValueError:
+        return err("department_id noto'g'ri")
+
+    since_raw = request.query.get("since")
+    until_raw = request.query.get("until")
+    if since_raw and until_raw:
+        try:
+            since = datetime.fromisoformat(since_raw)
+            until = datetime.fromisoformat(until_raw)
+        except ValueError:
+            return err("since/until ISO 8601 formatida bo'lishi kerak")
+    else:
+        since, until = penalty_service.month_bounds(datetime.now(timezone.utc))
+
+    capacity = await stats_service.get_capacity_vs_actual(department_id, since, until)
+    return web.json_response(
+        {
+            "worker_count": capacity.worker_count,
+            "planned_points": capacity.planned_points,
+            "actual_points": capacity.actual_points,
+        }
+    )
+
+
 _SETTING_FIELDS = list(settings_service.AppSettingsSnapshot.__dataclass_fields__)
 _SETTING_FIELDS = [f for f in _SETTING_FIELDS if f not in ("reminder_schedule", "sales_board_lists")]
 
@@ -730,7 +767,7 @@ def _parse_setting_value(field: str, value: object) -> object:
             raise ValueError
     elif field in (
         "plus_ball_per_day", "plus_ball_max_days", "financial_flag_threshold_days",
-        "lead_follow_up_threshold_days",
+        "lead_follow_up_threshold_days", "daily_quota_points_per_worker",
     ):
         value = int(value)
         if value <= 0:

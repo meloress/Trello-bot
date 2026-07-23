@@ -33,6 +33,7 @@ class AppSettingsSnapshot:
     report_time: str
     lead_follow_up_threshold_days: int
     sales_board_lists: dict
+    daily_quota_points_per_worker: int
 
 
 _cache: AppSettingsSnapshot | None = None
@@ -88,6 +89,7 @@ async def _load_from_db() -> AppSettingsSnapshot:
         report_time=row.report_time,
         lead_follow_up_threshold_days=row.lead_follow_up_threshold_days,
         sales_board_lists=row.sales_board_lists,
+        daily_quota_points_per_worker=row.daily_quota_points_per_worker,
     )
 
 

@@ -25,6 +25,7 @@ from db.models.employee import Employee
 from db.models.kpi_log import KpiLog
 from db.models.task import Task
 from db.models.task_assignment import TaskAssignment
+from services import settings_service
 from utils.enums import Role, TaskStatus
 
 # KPI/jarima faqat shu ikki operatsion rolga tegishli (penalty_service faqat
@@ -44,6 +45,21 @@ class EmployeeStats:
     completed_tasks: int
     total_score: int
     penalty_count: int
+
+
+@dataclass(frozen=True)
+class CapacityStats:
+    """Fasad sex TZ, Phase 6: kunlik norma (5 punkt/ishchi) ko'rsatkichi —
+    FAQAT stats/dashboard uchun, jarima/timer emas (`penalty_service.py`ga
+    umuman tegilmaydi). `actual_points` — bajarilgan vazifalar SONI, HAQIQIY
+    kv.m/punkt o'lchovi EMAS (bunday ustun `tasks` jadvalida yo'q — ochiq
+    savol #12, `.claude/plans/09z-fasad-sex-ochiq-savollar.md`). Ikkala
+    maydon boshqa-boshqa birlikda — birini ikkinchisiga aylantirib, foiz/
+    nisbat hisoblanmaydi (soxta aniqlik bo'lardi)."""
+
+    worker_count: int
+    planned_points: int
+    actual_points: int
 
 
 def _month_bounds(reference: datetime) -> tuple[datetime, datetime]:
@@ -230,6 +246,56 @@ async def get_employee_weekly_stats(employee_id: int) -> EmployeeStats | None:
 
     results = await _compute_stats([tuple(row)], since, until)
     return results[0] if results else None
+
+
+async def get_capacity_vs_actual(department_id: int, since: datetime, until: datetime) -> CapacityStats:
+    """Fasad sex TZ, Phase 6: kunlik norma (5 punkt/ishchi, xodim soniga
+    proportsional) — VIZUAL ko'rsatkich, timer/jarima sifatida MAJBURIY
+    QILINMAYDI (hozirgi shtat yetarli emasligini ko'rsatish uchun, jazolash
+    uchun EMAS). `penalty_service.py`ga yoki muddat/timer logikasiga
+    umuman tegilmaydi.
+
+    `planned_points` = faol ISHCHI soni * `daily_quota_points_per_worker`
+    * [since, until) oralig'idagi kunlar soni.
+
+    `actual_points` — [since, until) oralig'ida shu bo'limda YAKUNLANGAN
+    (`status=COMPLETED`, `current_department_id=department_id`) vazifalar
+    SONI — bu HAQIQIY kv.m/punkt o'lchovi EMAS, faqat proksi (`tasks`
+    jadvalida bunday ustun yo'q — ochiq savol #12,
+    `.claude/plans/09z-fasad-sex-ochiq-savollar.md`). `planned_points` bilan
+    BIR XIL BIRLIKDA EMAS — chaqiruvchi ikkalasini alohida raqam sifatida
+    ko'rsatishi kerak, nisbat/foiz hisoblab soxta aniqlik yaratmasligi kerak.
+    """
+    quota = (await settings_service.get_settings()).daily_quota_points_per_worker
+    days = max((until - since).days, 0)
+
+    async with async_session() as session:
+        worker_count = (
+            await session.execute(
+                select(func.count(Employee.id)).where(
+                    Employee.department_id == department_id,
+                    Employee.role == Role.WORKER,
+                    Employee.is_active.is_(True),
+                )
+            )
+        ).scalar_one()
+
+        actual_points = (
+            await session.execute(
+                select(func.count(Task.id)).where(
+                    Task.current_department_id == department_id,
+                    Task.status == TaskStatus.COMPLETED,
+                    Task.finished_at >= since,
+                    Task.finished_at < until,
+                )
+            )
+        ).scalar_one()
+
+    return CapacityStats(
+        worker_count=worker_count,
+        planned_points=worker_count * quota * days,
+        actual_points=actual_points,
+    )
 
 
 def format_stats_table(stats: list[EmployeeStats], title: str) -> str:

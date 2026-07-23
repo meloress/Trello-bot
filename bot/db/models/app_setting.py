@@ -66,3 +66,8 @@ class AppSetting(TimestampedBase):
     # bilan bir xil naqsh: bot UI orqali EMAS, to'g'ridan-to'g'ri bazada
     # sozlanadi (5-bosqich hujjatiga qarang).
     sales_board_lists: Mapped[dict] = mapped_column(JSON, nullable=False)
+    # Fasad sex TZ, Phase 6: kunlik norma — har ishchi kuniga shuncha "punkt"
+    # ishlab chiqarishi kutiladi ("5 punkt ≈ 100 kv.m"). Bu qiymat FAQAT
+    # stats/dashboard'da ko'rsatish uchun — timer/jarima sifatida MAJBURIY
+    # QILINMAYDI (stats_service.get_capacity_vs_actual()).
+    daily_quota_points_per_worker: Mapped[int] = mapped_column(Integer, nullable=False)

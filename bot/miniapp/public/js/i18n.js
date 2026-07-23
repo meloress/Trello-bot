@@ -133,6 +133,15 @@ const I18N = {
     overallRanking: "Umumiy reyting",
     noStats: "Bu oy uchun ma'lumot yo'q.",
 
+    // Kunlik norma / sig'im statistikasi (Fasad sex TZ, Phase 6)
+    capacityStatsNav: "Kunlik norma (sig'im)",
+    capacityStatsTitle: "Kunlik norma (sig'im)",
+    capacityPickDepartment: "Bo'limni tanlang",
+    workerCountLabel: "Ishchilar soni",
+    plannedPointsLabel: "Reja (punkt)",
+    actualPointsLabel: "Bajarilgan (vazifa)",
+    capacityActualCaption: "\"Bajarilgan\" — shu davrda yakunlangan vazifalar SONI, haqiqiy kv.m/punkt o'lchovi emas (taxminiy ko'rsatkich).",
+
     // Xodim tafsiloti/tahrirlash
     editEmployee: "Xodimni tahrirlash",
     activeStatus: "Faol",
@@ -155,6 +164,7 @@ const I18N = {
     setting_advance_waiver_percent: "Kechiriladigan foiz (%)",
     setting_report_time: "Hisobot vaqti (HH:MM)",
     setting_lead_follow_up_threshold_days: "Lid follow-up chegarasi (kun)",
+    setting_daily_quota_points_per_worker: "Kunlik norma (punkt/ishchi)",
     departmentChainNav: "Bo'lim ketma-ketligi",
     autoreassignNav: "Avto-o'tkazish (48s)",
     remindersNav: "Eslatmalar",
@@ -347,6 +357,14 @@ const I18N = {
     overallRanking: "Общий рейтинг",
     noStats: "За этот месяц данных нет.",
 
+    capacityStatsNav: "Дневная норма (мощность)",
+    capacityStatsTitle: "Дневная норма (мощность)",
+    capacityPickDepartment: "Выберите отдел",
+    workerCountLabel: "Количество рабочих",
+    plannedPointsLabel: "План (пункты)",
+    actualPointsLabel: "Выполнено (задач)",
+    capacityActualCaption: "\"Выполнено\" — КОЛИЧЕСТВО завершённых задач за период, а не реальный замер кв.м/пунктов (приблизительный показатель).",
+
     editEmployee: "Редактировать сотрудника",
     activeStatus: "Активен",
     inactiveStatus: "Неактивен",
@@ -367,6 +385,7 @@ const I18N = {
     setting_advance_waiver_percent: "Прощаемый процент (%)",
     setting_report_time: "Время отчёта (ЧЧ:ММ)",
     setting_lead_follow_up_threshold_days: "Порог напоминания по лиду (дни)",
+    setting_daily_quota_points_per_worker: "Дневная норма (пункт/рабочий)",
     departmentChainNav: "Цепочка отделов",
     autoreassignNav: "Авто-передача (48ч)",
     remindersNav: "Напоминания",
