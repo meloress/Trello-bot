@@ -216,18 +216,30 @@ async def finish_task(request: web.Request) -> web.Response:
             logger.exception("notify_penalty_applied xatosi (kpi_log_id=%s)", kpi_log.id)
 
     if task.task_type == TaskType.ORDER:
+        # Phase 3 (fork/join): advance_task_stage endi Task | list[Task] | None
+        # qaytaradi — fork nuqtasida bir nechta yangi bosqich yaratiladi.
+        # `None` ikki ma'no: buyurtma tugadi YOKI join bo'limi qardosh
+        # tarmoqlarni kutmoqda — ikkalasida ham yangi bosqich bildirishnomasi
+        # yubormaymiz.
         try:
-            next_task = await task_service.advance_task_stage(task.id)
+            result = await task_service.advance_task_stage(task.id)
         except Exception:
             logger.exception("advance_task_stage xatosi (task_id=%s)", task.id)
-            next_task = None
+            result = None
+
+        if result is None:
+            new_tasks = []
+        elif isinstance(result, list):
+            new_tasks = result
+        else:
+            new_tasks = [result]
 
         try:
             await notification_service.notify_client_stage_advanced(bot, task.id)
         except Exception:
             logger.exception("notify_client_stage_advanced xatosi (task_id=%s)", task.id)
 
-        if next_task is not None:
+        for next_task in new_tasks:
             try:
                 await notification_service.notify_stage_pending_setup(bot, next_task.id)
             except Exception:

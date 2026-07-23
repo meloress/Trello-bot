@@ -3,6 +3,7 @@ from db.models.brigade import Brigade
 from db.models.call_log import CallLog
 from db.models.client import Client
 from db.models.department import Department
+from db.models.department_fork_target import DepartmentForkTarget
 from db.models.employee import Employee
 from db.models.financial_suggestion import FinancialSuggestion
 from db.models.kpi_log import KpiLog
@@ -18,6 +19,7 @@ __all__ = [
     "CallLog",
     "Client",
     "Department",
+    "DepartmentForkTarget",
     "Employee",
     "FinancialSuggestion",
     "KpiLog",

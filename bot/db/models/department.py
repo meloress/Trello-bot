@@ -39,6 +39,12 @@ class Department(TimestampedBase):
     # holatda ochiladi (joy tayyor bo'lishini kutish) — task_service.create_task()
     # shu bayroqqa qarab boshlang'ich holatni tanlaydi.
     starts_stopped: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Fasad sex TZ (Phase 3): konvergensiya (join) bo'limi — bir nechta parallel
+    # tarmoq shu bo'limga qaytib qo'shiladi. True bo'lsa,
+    # task_service.advance_task_stage() bu bo'limga o'tishdan oldin BARCHA
+    # qardosh tarmoqlar tugashini kutadi (fork nuqtasi esa
+    # department_fork_targets jadvalida belgilanadi).
+    requires_join: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     # Fasad sex TZ (Phase 0): shu bo'lim qaysi ishlab chiqarish moduliga
     # tegishli — "mebel" (asosiy, standart) yoki "fasad_sex" (yangi, parallel
     # zanjir). Oddiy VARCHAR, CHECK/enum emas (CLAUDE.md konvensiyasi) — 3-modul

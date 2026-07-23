@@ -10,6 +10,7 @@ from aiohttp import web
 from core.database import async_session
 from db.repositories import (
     BrigadeRepository,
+    DepartmentForkTargetRepository,
     DepartmentRepository,
     EmployeeRepository,
     FinancialSuggestionRepository,
@@ -102,6 +103,7 @@ async def list_departments(request: web.Request) -> web.Response:
                 "next_department_id": d.next_department_id,
                 "auto_reassign_after_48h": d.auto_reassign_after_48h,
                 "starts_stopped": d.starts_stopped,
+                "requires_join": d.requires_join,
                 "factory_name": d.factory_name,
             }
             for d in departments
@@ -136,6 +138,7 @@ async def create_department(request: web.Request) -> web.Response:
             "next_department_id": department.next_department_id,
             "auto_reassign_after_48h": department.auto_reassign_after_48h,
             "starts_stopped": department.starts_stopped,
+            "requires_join": department.requires_join,
             "factory_name": department.factory_name,
         },
         status=201,
@@ -151,6 +154,7 @@ DEPARTMENT_UPDATABLE_FIELDS = (
     "auto_reassign_after_48h",
     "starts_stopped",
     "factory_name",
+    "requires_join",
 )
 
 
@@ -184,6 +188,7 @@ async def update_department(request: web.Request) -> web.Response:
             "next_department_id": department.next_department_id,
             "auto_reassign_after_48h": department.auto_reassign_after_48h,
             "starts_stopped": department.starts_stopped,
+            "requires_join": department.requires_join,
             "factory_name": department.factory_name,
         }
     )
@@ -207,6 +212,56 @@ async def set_department_chain(request: web.Request) -> web.Response:
         await session.commit()
 
     return web.json_response({"id": department_id, "next_department_id": next_department_id})
+
+
+@routes.get("/departments/{department_id}/fork-targets")
+async def list_fork_targets(request: web.Request) -> web.Response:
+    """Fasad sex Phase 3: shu fork nuqtasidan chiqadigan parallel tarmoq
+    bo'limlari ro'yxati (ism bilan)."""
+    department_id = int(request.match_info["department_id"])
+    if not _department_scope_ok(request, department_id):
+        return err("not_found", 404)
+    async with async_session() as session:
+        fork_repo = DepartmentForkTargetRepository(session)
+        dept_repo = DepartmentRepository(session)
+        rows = await fork_repo.list_by_department(department_id)
+        items = []
+        for row in rows:
+            target = await dept_repo.get_by_id(row.target_department_id)
+            items.append(
+                {
+                    "target_department_id": row.target_department_id,
+                    "target_department_name": target.name if target else None,
+                }
+            )
+    return web.json_response(items)
+
+
+@routes.post("/departments/{department_id}/fork-targets")
+async def set_fork_targets(request: web.Request) -> web.Response:
+    """Fasad sex Phase 3: fork nuqtasi tarmoqlarini TO'LIQ ALMASHTIRISH
+    (delegate_task/reassign_task_brigade'dagi "hammasini o'chir, yangisini
+    qo'sh" naqshi bilan bir xil)."""
+    department_id = int(request.match_info["department_id"])
+    if not _department_scope_ok(request, department_id):
+        return err("bu bo'lim sizning doirangizda emas", 403)
+    body = await request.json()
+    target_ids = body.get("target_department_ids") or []
+
+    async with async_session() as session:
+        dept_repo = DepartmentRepository(session)
+        fork_repo = DepartmentForkTargetRepository(session)
+        if await dept_repo.get_by_id(department_id) is None:
+            return err("not_found", 404)
+        for row in await fork_repo.list_by_department(department_id):
+            await fork_repo.delete(row)
+        for tid in target_ids:
+            await fork_repo.create(department_id=department_id, target_department_id=int(tid))
+        await session.commit()
+
+    return web.json_response(
+        {"department_id": department_id, "target_department_ids": [int(t) for t in target_ids]}
+    )
 
 
 @routes.post("/departments/{department_id}/autoreassign")

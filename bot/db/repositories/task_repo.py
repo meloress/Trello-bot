@@ -28,6 +28,15 @@ class TaskRepository(BaseRepository[Task]):
         )
         return result.scalars().first()
 
+    async def list_by_previous_task_id(self, previous_task_id: int) -> list[Task]:
+        """Fasad sex TZ (Phase 3, fork/join): bitta fork nuqtasidan chiqqan
+        qardosh tarmoq-qatorlarini topish — hammasi bir xil
+        `previous_task_id`ni (fork nuqtasining task id'si) ulashadi."""
+        result = await self.session.execute(
+            select(Task).where(Task.previous_task_id == previous_task_id)
+        )
+        return list(result.scalars().all())
+
     async def list_by_status(self, status: TaskStatus) -> list[Task]:
         """Kunlik label sinxronizatsiyasi va taymer job'lari uchun (6.3, 7.4-band)."""
         result = await self.session.execute(select(Task).where(Task.status == status))

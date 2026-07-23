@@ -26,11 +26,23 @@ migratsiyalar faqat Alembic (`bot/db/migrations/`) orqali amalga oshiriladi.
 | next_department_id | FK -> departments.id | NULL bo'lishi mumkin; standart ishlab chiqarish ketma-ketligidagi KEYINGI bo'lim (masalan Stolyar.next = Shkurka.id, 6.1/7.4-band, `576f19bf5629` migratsiyasi). NULL = zanjirning so'nggi bosqichi. `task_service.advance_task_stage()` shu ustunga qarab buyurtmani avtomatik keyingi bosqichga o'tkazadi. `/deptchain` buyrug'i orqali (`handlers/admin/settings.py`) sozlanadi |
 | auto_reassign_after_48h | BOOLEAN | default: false (8.3-band, `470b837c8dae` migratsiyasi). `True` bo'lsa, shu bo'limdagi OVERDUE buyurtma muddatidan 48 soatdan ortiq kechiksa `overdue_watch_job` AVTOMATIK signal beradi (brigada tanlovi va yakuniy tasdiq qo'lda, `handlers/admin/reassign_task.py`). `/autoreassign` buyrug'i orqali sozlanadi |
 | starts_stopped | BOOLEAN | default: false (Fasad sex TZ: buyurtma STOPPED holatda ochilishi, `2ec88464a4f8` migratsiyasi). `True` bo'lsa, `task_service.create_task()` yangi vazifani `ACTIVE` o'rniga `STOPPED` holatda yaratadi va bir vaqtda `StopLog` qatorini ham yozadi ("joy tayyor bo'lishini kutmoqda") — shu qator bo'lmasa `timer_service.resume_task()` ishlamas edi. Mini App'ning `POST /admin/departments` / `POST /admin/departments/{id}` orqali sozlanadi |
+| requires_join | BOOLEAN | default: false (Fasad sex TZ, Phase 3 fork/join, `b7c1e4f9a83d` migratsiyasi). `True` = konvergensiya (join) bo'limi — bir nechta parallel tarmoq shu bo'limga qaytib qo'shiladi. `task_service.advance_task_stage()` bu bo'limga o'tishdan oldin BARCHA qardosh tarmoqlar (bir xil `tasks.previous_task_id`ni ulashadigan qatorlar) COMPLETED bo'lishini kutadi — oxirgi tarmoq tugaganda yagona join bosqichi yaratiladi; undan oldingi tarmoqlar `None` qaytaradi (bosqich hali yaratilmaydi). Mini App'ning `POST /admin/departments/{id}` orqali sozlanadi |
 | module | VARCHAR(20) | default: `'mebel'` (Fasad sex TZ, Phase 0 — Mini App modul almashtirgichi, `d33c76d946db` migratsiyasi). Shu bo'lim qaysi ishlab chiqarish moduliga tegishli — `"mebel"` (asosiy, standart) yoki `"fasad_sex"` (yangi, parallel zanjir); enum/CHECK emas, oddiy VARCHAR (repo konvensiyasi — 3-modul kelajakda qo'shilsa, cheklovsiz kengayadi). `miniapp/api/common.py`'ning `GET /me`'si `available_modules`'ni shu ustunga qarab hisoblaydi (rol + `employee.department_id` bo'yicha) — frontend shu ro'yxatga qarab modul tanlash ekranini ko'rsatadi/o'tkazib yuboradi |
 | factory_name | VARCHAR(100), NULL | Fasad sex TZ §9 "ikkinchi zavod" (`3137620903a2` migratsiyasi). `module`dan MUSTAQIL — `module` qaysi ishlab chiqarish TIZIMIga (mebel/fasad_sex), `factory_name` esa qaysi jismoniy ZAVOD/FILIALga tegishli ekanini belgilaydi (2+ jismoniy joylashuv statistikasi aralashmasligi uchun, hech biri ikkinchisidan hisoblanmaydi). NULL = hali belgilanmagan. `stats_service.get_monthly_stats(factory_name=...)` ixtiyoriy filtr parametri sifatida ishlatadi (`Employee.department_id -> Department.factory_name` join, `None` — filtrsiz, avvalgidek). Mini App'ning `POST /admin/departments` / `POST /admin/departments/{id}` orqali sozlanadi (`GET /admin/stats?factory_name=` orqali o'qiladi) — hozircha alohida UI/zavod-tanlash ekrani yo'q |
 | created_at / updated_at | TIMESTAMPTZ | |
 
-**Bog'lanishlar**: `brigades` (1-M), `employees` (1-M), `tasks` (1-M, `current_department_id` orqali), `next_department` (M-1, o'z-o'ziga, ixtiyoriy).
+**Bog'lanishlar**: `brigades` (1-M), `employees` (1-M), `tasks` (1-M, `current_department_id` orqali), `next_department` (M-1, o'z-o'ziga, ixtiyoriy), `department_fork_targets` (1-M, fork nuqtasi sifatida).
+
+### department_fork_targets — Fork zanjiri (Fasad sex TZ, Phase 3)
+Fork/join zanjiri uchun (`b7c1e4f9a83d` migratsiyasi). `next_department_id` bitta bola (chiziqli zanjir) beradi — bu jadval esa BITTA bo'limni N parallel tarmoqqa BO'LADI (fork). Fork/join FAQAT shu jadvalga qatori bor bo'limlar uchun ishlaydi; qolgan hamma bo'lim `next_department_id` bo'yicha o'zgarishsiz ishlaydi. `advance_task_stage()` joriy bo'lim uchun bu jadvalni BIRINCHI tekshiradi: qator bor bo'lsa — har bir target uchun bitta `PENDING_SETUP` bosqich yaratiladi (hammasi bir xil `previous_task_id`ni ulashadi, Trello karta KO'CHMAYDI — fork nuqtasi list'ida qoladi), `list[Task]` qaytaradi.
+| Ustun | Tur | Izoh |
+|---|---|---|
+| id | PK | |
+| department_id | FK -> departments.id (`fk_department_fork_targets_department_id`) | NOT NULL; fork NUQTASI (masalan "Fayl yig'ish") |
+| target_department_id | FK -> departments.id (`fk_department_fork_targets_target_department_id`) | NOT NULL; undan chiqadigan parallel tarmoqdan biri (masalan "Korpus qismi") |
+| created_at / updated_at | TIMESTAMPTZ | |
+
+`UNIQUE(department_id, target_department_id)` (`uq_department_fork_target`). Mini App'ning `GET/POST /admin/departments/{id}/fork-targets` orqali boshqariladi (POST = to'liq almashtirish: hammasini o'chir, yangisini qo'sh). Frontend UI hali yo'q (real Fasad Sex zanjiri hali yaratilmagan).
 
 ### brigades — Brigadalar
 | Ustun | Tur | Izoh |
@@ -120,6 +132,25 @@ chaqirmaydi (karta arxivlanishi = butun buyurtmaning TERMINAL yopilishi, keyingi
 bosqichga o'tish emas — ikkovi ziddiyatli bo'lardi). `daily_sync_job._list_open_tasks()`
 `pending_setup` qatorlarni chetlab o'tadi (`deadline=NULL` bilan `determine_status()`
 chaqirilsa yiqiladi, va muddat hali yo'qligi sabab label tekshiruvi ma'nosiz).
+
+**Fork/join (Fasad sex TZ, Phase 3)**: yuqoridagi chiziqli oqim `advance_task_stage()`da
+fork/join qo'shimchasi bilan kengaytirildi (qaytish turi endi `Task | list[Task] | None`),
+lekin fork/join'ga KIRMAGAN har qanday bo'lim uchun xatti-harakat AYNAN eskicha
+qoladi. Joriy bo'lim `department_fork_targets` jadvalida qatorga ega bo'lsa (fork
+NUQTASI) — har target uchun bitta `pending_setup` qator yaratiladi (hammasi bir xil
+`previous_task_id` = fork nuqtasi task id'si, bir xil `trello_card_id`), Trello karta
+KO'CHMAYDI (bitta karta N list'da tura olmaydi — u fork nuqtasi list'ida qoladi,
+parallel jarayon checklist orqali ko'rinadi), `list[Task]` qaytadi. Keyingi bo'lim
+`requires_join=True` bo'lsa (konvergensiya) — o'sha fork nuqtasidan chiqqan qardosh
+tarmoqlar (`task_repo.list_by_previous_task_id()`) hammasi COMPLETED bo'lgunча har
+tarmoq `None` qaytaradi; OXIRGI tarmoq tugaganda esa oddiy chiziqli yo'l ishlaydi
+(karta join bo'limi list'iga ko'chadi, yagona join qatori yaratiladi). Qardosh
+qidiruv har fork tarmog'i join'gача AYNAN bitta bo'lim chuqurlikda deb faraz qiladi
+(`ponytail:` izohi — ko'p bosqichli sub-zanjir kerak bo'lsa `fork_root_task_id`ni
+oldinга ko'chirish kerak). Checklist "Bosqichlar" ham chiziqli emas, BFS + `visited`
+to'plami bilan quriladi (`_collect_department_chain_names()`) — fork fan-out'ni,
+join fan-in'ni (bir marta) to'g'ri ochadi; fork YO'Q zanjir uchun eski chiziqli
+natija bilan bayt-mos.
 
 **6.2-band (karta a'zo + checklist)**: `create_task()` kartaga har bir
 biriktirilgan xodimni (agar `trello_member_id` bo'lsa) a'zo qilib qo'shadi va
