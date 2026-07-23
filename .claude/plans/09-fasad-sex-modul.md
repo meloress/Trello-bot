@@ -118,7 +118,11 @@ ularni taxmin qilmaydi.
   qachon ijro etmaydi" pattern (idempotent, tekshirilgan). `kind` ustuni
   yangi qiymat sig'ishi uchun kengaytirildi (mavjud precedent bo'yicha).
 - [x] **Phase 8 — Kunlik rasm/video hisobot (compliance).** BAJARILDI
-  (`7aed2f4`, review: Approved). Chat-based, `/mijoz` bilan bir xil sabab —
+  (`7aed2f4` + tuzatish `db00aa9`, mustaqil review: Approved — birinchi
+  round "Needs fixes" chiqargan edi, sabab: bir vaqtda 2+ rasm kelsa
+  (Telegram albom) upsert'da race condition, `IntegrityError` foydalanuvchiga
+  chiqib ketardi; tuzatildi va qayta tekshirildi). Chat-based, `/mijoz`
+  bilan bir xil sabab —
   lekin FSM emas: `daily_report_job` (`Bot`dan boshqa hech narsaga, jumladan
   `Dispatcher`/`storage`ga kirish huquqi yo'q, `reminder_job`/`report_job`
   bilan bir xil) oddiy matnli so'rov yuboradi, `handlers/common/
