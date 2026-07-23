@@ -3,6 +3,8 @@ from db.repositories.base import BaseRepository
 from db.repositories.brigade_repo import BrigadeRepository
 from db.repositories.call_log_repo import CallLogRepository
 from db.repositories.client_repo import ClientRepository
+from db.repositories.daily_report_submission_repo import DailyReportSubmissionRepository
+from db.repositories.department_fork_target_repo import DepartmentForkTargetRepository
 from db.repositories.department_repo import DepartmentRepository
 from db.repositories.employee_repo import EmployeeRepository
 from db.repositories.financial_suggestion_repo import FinancialSuggestionRepository
@@ -12,6 +14,7 @@ from db.repositories.penalty_rule_repo import PenaltyRuleRepository
 from db.repositories.stop_log_repo import StopLogRepository
 from db.repositories.task_assignment_repo import TaskAssignmentRepository
 from db.repositories.task_repo import TaskRepository
+from db.repositories.task_seller_repo import TaskSellerRepository
 
 __all__ = [
     "AppSettingRepository",
@@ -19,6 +22,8 @@ __all__ = [
     "BrigadeRepository",
     "CallLogRepository",
     "ClientRepository",
+    "DailyReportSubmissionRepository",
+    "DepartmentForkTargetRepository",
     "DepartmentRepository",
     "EmployeeRepository",
     "FinancialSuggestionRepository",
@@ -28,4 +33,5 @@ __all__ = [
     "StopLogRepository",
     "TaskAssignmentRepository",
     "TaskRepository",
+    "TaskSellerRepository",
 ]

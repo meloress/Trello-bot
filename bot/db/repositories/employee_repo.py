@@ -81,3 +81,14 @@ class EmployeeRepository(BaseRepository[Employee]):
         bo'limdan odamga berilishi mumkin)."""
         result = await self.session.execute(select(Employee).where(Employee.is_active.is_(True)))
         return list(result.scalars().all())
+
+    async def list_daily_report_required(self) -> list[Employee]:
+        """Fasad sex TZ, Phase 8: kunlik rasm/video hisobot ro'yxatidagi
+        FAOL xodimlar (`daily_report_job`/`daily_report_service` shundan
+        foydalanadi)."""
+        result = await self.session.execute(
+            select(Employee).where(
+                Employee.daily_report_required.is_(True), Employee.is_active.is_(True)
+            )
+        )
+        return list(result.scalars().all())

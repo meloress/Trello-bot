@@ -28,6 +28,7 @@ from db.repositories import (
     StopLogRepository,
     TaskAssignmentRepository,
     TaskRepository,
+    TaskSellerRepository,
 )
 from utils.enums import ReminderUrgency, Role
 from utils.formatters import format_dt as _format_dt
@@ -75,8 +76,9 @@ async def notify_task_started(bot: Bot, task_id: int) -> None:
 
 
 async def notify_task_stopped(bot: Bot, stop_log_id: int) -> None:
-    """7.5-band: "Stop" bosilganda to'xtatgan xodimga, uning brigadiriga va shu
-    yo'nalishdagi nazoratchi/adminlarga xabar (`timer_service.stop_task()`
+    """7.5-band: "Stop" bosilganda to'xtatgan xodimga, uning brigadiriga, shu
+    yo'nalishdagi nazoratchi/adminlarga VA buyurtmaga biriktirilgan barcha
+    sotuvchilarga (Fasad sex TZ Phase 5) xabar (`timer_service.stop_task()`
     qaytargan `StopLog.id` asosida)."""
     async with async_session() as session:
         stop_repo = StopLogRepository(session)
@@ -110,6 +112,15 @@ async def notify_task_stopped(bot: Bot, stop_log_id: int) -> None:
         for employee in await employee_repo.list_by_department(task.current_department_id):
             if employee.role in (Role.SUPERVISOR, Role.ADMIN):
                 recipients[employee.id] = employee.telegram_id
+
+        # Fasad sex TZ Phase 5: buyurtmaga biriktirilgan sotuvchi(lar) ham
+        # Stop haqida xabar olishi kerak. `recipients` employee_id bo'yicha
+        # kalitlangani uchun bir kishi ham supervisor/admin, ham sotuvchi
+        # bo'lsa avtomatik deduplikatsiya qilinadi (ikki marta yubormaydi).
+        for task_seller in await TaskSellerRepository(session).list_by_task(task.id):
+            seller = await employee_repo.get_by_id(task_seller.employee_id)
+            if seller is not None:
+                recipients[seller.id] = seller.telegram_id
 
     text = (
         f"🛑 Vazifa to'xtatildi: {task.title}\n"
@@ -207,6 +218,22 @@ async def notify_daily_reminder(
         lines.append(f"• {task.title} — {_format_dt(task.deadline)}")
 
     return await _send(bot, employee.telegram_id, "\n".join(lines))
+
+
+async def notify_daily_report_request(bot: Bot, employee_id: int) -> bool:
+    """Fasad sex TZ, Phase 8: kunlik rasm/video hisobot SO'ROVI — oddiy
+    matnli xabar (state o'rnatilmaydi, tugma biriktirilmaydi; xodim
+    javoban rasm/video yuborsa `handlers/common/daily_report.py`ning
+    state'siz filteri uni ushlaydi — sabab shu faylning docstring'ida)."""
+    async with async_session() as session:
+        employee = await EmployeeRepository(session).get_by_id(employee_id)
+    if employee is None:
+        logger.warning("notify_daily_report_request: employee %s topilmadi", employee_id)
+        return False
+
+    return await _send(
+        bot, employee.telegram_id, "📸 Bugungi ish jarayoni bo'yicha rasm yoki video yuboring."
+    )
 
 
 async def _collect_assignees(session, task_id: int) -> dict[int, int | None]:
@@ -335,6 +362,38 @@ async def notify_financial_flag(bot: Bot, suggestion_id: int) -> None:
     text = (
         f"💰 \"{task.title}\" bosqichi {suggestion.stage_duration_days} kundan ortiq davom etmoqda "
         "(8.6-band). Mijoz to'lovi ushlanib qolgan bo'lsa, moliyaviy taklifni ko'rib chiqing."
+    )
+    for telegram_id in recipients.values():
+        await _send(bot, telegram_id, text)
+
+
+async def notify_speed_tier_suggested(bot: Bot, suggestion_id: int) -> None:
+    """Fasad sex TZ, Phase 7: bosqich tugatilgandan so'ng tezlik darajasi
+    aniqlanganda — bo'lim NAZORATCHI(lari) + barcha ADMIN'larga signal,
+    `notify_financial_flag` bilan bir xil qabul qiluvchilar/shakl."""
+    async with async_session() as session:
+        suggestion = await FinancialSuggestionRepository(session).get_by_id(suggestion_id)
+        if suggestion is None:
+            logger.warning("notify_speed_tier_suggested: suggestion %s topilmadi", suggestion_id)
+            return
+
+        task = await TaskRepository(session).get_by_id(suggestion.task_id)
+        if task is None:
+            logger.warning("notify_speed_tier_suggested: task %s topilmadi", suggestion.task_id)
+            return
+
+        employee_repo = EmployeeRepository(session)
+        recipients: dict[int, int | None] = {}
+        if task.current_department_id is not None:
+            for employee in await employee_repo.list_by_department(task.current_department_id):
+                if employee.role == Role.SUPERVISOR:
+                    recipients[employee.id] = employee.telegram_id
+        for admin in await employee_repo.list_by_role(Role.ADMIN):
+            recipients[admin.id] = admin.telegram_id
+
+    text = (
+        f"⚡ \"{task.title}\" bosqichi \"{suggestion.speed_tier}\" tezlik darajasiga mos keldi. "
+        "To'lov taklifini Mini App'ning Moliyaviy bo'limida ko'rib chiqing."
     )
     for telegram_id in recipients.values():
         await _send(bot, telegram_id, text)

@@ -14,20 +14,24 @@ bo'lgani uchun foydalanuvchiga soxta xatolik ko'rsatilmaydi.
 """
 
 import logging
+from collections import deque
 from datetime import datetime, timezone
 
 from config import settings
 from core.database import async_session
 from db.models.task import Task
 from db.repositories import (
+    DepartmentForkTargetRepository,
     DepartmentRepository,
     EmployeeRepository,
+    StopLogRepository,
     TaskAssignmentRepository,
     TaskRepository,
+    TaskSellerRepository,
 )
 from services import penalty_service
 from trello.client import TrelloClient
-from utils.enums import TaskStatus, TaskType
+from utils.enums import MiscCategory, TaskStatus, TaskType
 
 logger = logging.getLogger(__name__)
 
@@ -48,17 +52,37 @@ class InvalidTaskStateError(Exception):
     """So'ralgan amal vazifaning joriy holatiga mos kelmaydi."""
 
 
-async def _collect_department_chain_names(department_repo: DepartmentRepository, start_department_id: int) -> list[str]:
-    """6.2-band: checklist punktlari uchun — `start_department_id`dan
-    boshlab `next_department_id` zanjiri bo'ylab bo'lim nomlari ro'yxati."""
+async def _collect_department_chain_names(
+    department_repo: DepartmentRepository,
+    fork_repo: DepartmentForkTargetRepository,
+    start_department_id: int,
+) -> list[str]:
+    """6.2-band + Fasad sex Phase 3: checklist punktlari uchun bo'lim nomlari.
+
+    Zanjir endi chiziqli emas, DAG bo'lishi mumkin (fork = fan-out, join =
+    fan-in), shu sabab kenglik bo'yicha (BFS) + `visited` to'plami bilan
+    yuriladi: fork nuqtasi barcha target'larni navbatga qo'yadi, join bo'limi
+    esa bir nechta tarmoqdan yetib kelsa ham FAQAT BIR MARTA qo'shiladi.
+    Fork YO'Q chiziqli zanjir uchun bu eski `while` sikli bilan AYNAN bir xil
+    tartibdagi natijani beradi (regressiya kafolati)."""
     names: list[str] = []
-    current_id: int | None = start_department_id
-    while current_id is not None:
+    visited: set[int] = set()
+    queue: deque[int | None] = deque([start_department_id])
+    while queue:
+        current_id = queue.popleft()
+        if current_id is None or current_id in visited:
+            continue
         department = await department_repo.get_by_id(current_id)
         if department is None:
-            break
+            continue
+        visited.add(current_id)
         names.append(department.name)
-        current_id = department.next_department_id
+        fork_targets = await fork_repo.list_by_department(current_id)
+        if fork_targets:
+            for ft in fork_targets:
+                queue.append(ft.target_department_id)
+        elif department.next_department_id is not None:
+            queue.append(department.next_department_id)
     return names
 
 
@@ -108,7 +132,9 @@ async def _create_stage_checklist(task_id: int, card_id: str, department_id: int
     """6.2-band: bo'lim zanjiri bo'yicha checklist — har bosqich (departament)
     uchun bitta punkt. `task.trello_checklist_id`ga yoziladi."""
     async with async_session() as session:
-        chain_names = await _collect_department_chain_names(DepartmentRepository(session), department_id)
+        chain_names = await _collect_department_chain_names(
+            DepartmentRepository(session), DepartmentForkTargetRepository(session), department_id
+        )
 
     try:
         async with TrelloClient(settings.trello_api_key, settings.trello_token) as trello:
@@ -134,7 +160,13 @@ async def create_task(
     department_id: int,
     employee_ids: list[int],
     client_id: int | None = None,
+    created_by_employee_id: int | None = None,
+    seller_ids: list[int] | None = None,
 ) -> Task:
+    seller_ids = seller_ids or []
+    if len(seller_ids) > 3:
+        raise ValueError("Bitta buyurtmaga ko'pi bilan 3 ta sotuvchi biriktirish mumkin")
+
     async with async_session() as session:
         department = await DepartmentRepository(session).get_by_id(department_id)
         if department is None:
@@ -144,6 +176,14 @@ async def create_task(
                 f"'{department.name}' yo'nalishi uchun Trello ro'yxati (list) sozlanmagan"
             )
         list_id = department.trello_list_id
+        # ponytail note: starts_stopped is only honored here (task creation) —
+        # a stage spawned mid-chain by advance_task_stage()/_spawn_pending_stage()
+        # never checks it, so this only fires when the department is an order's
+        # very first stage, not when placed later in the chain.
+        starts_stopped = department.starts_stopped
+
+    if starts_stopped and created_by_employee_id is None:
+        raise ValueError("starts_stopped bo'limlar uchun created_by_employee_id majburiy")
 
     async with TrelloClient(settings.trello_api_key, settings.trello_token) as trello:
         card = await trello.create_card(list_id=list_id, name=title, desc=description or "", due=deadline)
@@ -158,7 +198,7 @@ async def create_task(
             title=title,
             description=description,
             deadline=deadline,
-            status=TaskStatus.ACTIVE,
+            status=TaskStatus.STOPPED if starts_stopped else TaskStatus.ACTIVE,
             current_department_id=department_id,
             started_at=datetime.now(timezone.utc),
             client_id=client_id,
@@ -166,6 +206,23 @@ async def create_task(
 
         for employee_id in employee_ids:
             await assignment_repo.create(task_id=task.id, employee_id=employee_id)
+
+        if seller_ids:
+            seller_repo = TaskSellerRepository(session)
+            for seller_id in seller_ids:
+                await seller_repo.create(task_id=task.id, employee_id=seller_id)
+
+        if starts_stopped:
+            # Fasad sex TZ: "joy tayyor bo'lishini kutish" — STOPPED holatda
+            # ochilgan vazifa ham resume_task() orqali davom ettirilishi
+            # kerak, u esa faol stop_log talab qiladi (get_active_stop()).
+            await StopLogRepository(session).create(
+                task_id=task.id,
+                employee_id=created_by_employee_id,
+                reason="Buyurtma qabul qilindi — joy tayyor bo'lishini kutmoqda",
+                stopped_at=datetime.now(timezone.utc),
+                resumed_at=None,
+            )
 
         await session.commit()
 
@@ -179,31 +236,66 @@ async def create_task(
     return task
 
 
-async def advance_task_stage(completed_task_id: int) -> Task | None:
-    """6.1/7.4-band: ko'p bosqichli buyurtma progressiyasi. Bosqich
-    yakunlanganda (ishchining "Yakunlash" tugmasi orqali) chaqiriladi.
+async def _spawn_pending_stage(
+    session,
+    *,
+    department_id: int,
+    previous_task_id: int,
+    card_id: str | None,
+    checklist_id: str | None,
+    title: str,
+    description: str | None,
+    client_id: int | None,
+) -> Task:
+    """Yangi `PENDING_SETUP` bosqich-qatorini yaratadi (muddat/xodim hali YO'Q).
+    Chiziqli (bitta bola) va fork (N bola) yo'llari BIR XIL qatorni yaratadi,
+    faqat `department_id`da farq qiladi — shu sabab bitta joyda."""
+    return await TaskRepository(session).create(
+        trello_card_id=card_id,
+        task_type=TaskType.ORDER,
+        title=title,
+        description=description,
+        deadline=None,
+        status=TaskStatus.PENDING_SETUP,
+        current_department_id=department_id,
+        started_at=datetime.now(timezone.utc),
+        previous_task_id=previous_task_id,
+        trello_checklist_id=checklist_id,
+        client_id=client_id,
+    )
 
-    Joriy bo'limning `next_department_id`si sozlanmagan bo'lsa (yoki bo'lim
-    umuman yo'q) — buyurtma to'liq tugagan deb hisoblanadi, `None` qaytadi va
-    hech narsa yaratilmaydi. Aks holda: Trello karta DARHOL keyingi bo'lim
-    list'iga ko'chiriladi, so'ng yangi bosqich-qatori `PENDING_SETUP` holatida
-    yaratiladi (`previous_task_id` orqali eskisiga zanjirlangan, muddat/xodim
-    hali YO'Q — buni nazoratchi/admin `activate_pending_stage()` orqali
-    kiritadi, C.2-band qarori: bosqich muddatini tizim o'zi to'qimaydi).
 
-    6.2-band: eski bosqich checklist punkti "complete" deb belgilanadi, eski
-    bosqich xodimlari kartadan a'zolikdan chiqariladi (yangi bosqich xodimlari
-    hali tayinlanmagan — ular `activate_pending_stage()`da qo'shiladi).
+async def advance_task_stage(completed_task_id: int) -> Task | list[Task] | None:
+    """6.1/7.4-band + Fasad sex Phase 3 (fork/join): ko'p bosqichli buyurtma
+    progressiyasi. Bosqich yakunlanganda (ishchining "Yakunlash" tugmasi
+    orqali) chaqiriladi.
+
+    Qaytish qiymati uch xil:
+    - `list[Task]` — joriy bo'lim FORK NUQTASI (`department_fork_targets`da
+      qatori bor): har bir target uchun bitta `PENDING_SETUP` bosqich-qatori
+      yaratiladi, hammasi bir xil `previous_task_id`ni ulashadi. Trello karta
+      KO'CHIRILMAYDI (bitta karta 3 list'da tura olmaydi — u fork nuqtasi
+      list'ida qoladi, parallel jarayon checklist orqali ko'rinadi).
+    - `Task` — oddiy chiziqli o'tish (yoki join bo'limiga o'tishning OXIRGI
+      tarmog'i): karta keyingi bo'lim list'iga ko'chiriladi, bitta yangi
+      bosqich yaratiladi (eskicha xatti-harakat, o'zgarishsiz).
+    - `None` — IKKI ma'no: (a) buyurtma to'liq tugadi (`next_department_id`
+      yo'q), YOKI (b) join bo'limiga o'tish, lekin bu tarmoq faqat bittasi
+      tugadi — qardosh tarmoqlar hali tugamagan, shu sabab yangi bosqich
+      HALI yaratilmaydi (bu tarmoqning checklist punkti belgilanadi va
+      xodimlari kartadan olinadi, ammo karta ko'chmaydi).
+
+    Yangi bosqich `PENDING_SETUP` holatida (muddat/xodim hali YO'Q — buni
+    nazoratchi/admin `activate_pending_stage()` orqali kiritadi, C.2-band).
 
     MUHIM: bu funksiya `timer_service.finish_task()` ICHIDAN chaqirilMAYDI —
     faqat ishchining "Yakunlash" handler'i orqali. `daily_sync_job`ning Trello
-    karta arxivlanganda avtomatik yopish yo'li buni chaqirmaydi: karta
-    arxivlanishi butun buyurtmaning TERMINAL yopilishini bildiradi, keyingi
-    bosqichga o'tish emas — ikkovi ziddiyatli bo'lardi."""
+    karta arxivlanganda avtomatik yopish yo'li buni chaqirmaydi."""
     async with async_session() as session:
         task_repo = TaskRepository(session)
         department_repo = DepartmentRepository(session)
         assignment_repo = TaskAssignmentRepository(session)
+        fork_repo = DepartmentForkTargetRepository(session)
 
         completed_task = await task_repo.get_by_id(completed_task_id)
         if completed_task is None:
@@ -212,30 +304,65 @@ async def advance_task_stage(completed_task_id: int) -> Task | None:
             return None
 
         current_department = await department_repo.get_by_id(completed_task.current_department_id)
-        if current_department is None or current_department.next_department_id is None:
+        if current_department is None:
             return None
 
-        next_department = await department_repo.get_by_id(current_department.next_department_id)
-        if next_department is None:
-            return None
-        if not next_department.trello_list_id:
-            raise DepartmentNotConfiguredError(
-                f"'{next_department.name}' yo'nalishi uchun Trello ro'yxati (list) sozlanmagan"
-            )
-
+        # Umumiy (har uch yo'l uchun kerak) — detach bo'lgan obyektlarga
+        # keyin murojaat qilmaslik uchun shu yerda snapshot olinadi.
         card_id = completed_task.trello_card_id
         checklist_id = completed_task.trello_checklist_id
-        next_department_id = next_department.id
-        next_list_id = next_department.trello_list_id
         current_department_name = current_department.name
         title = completed_task.title
         description = completed_task.description
         client_id = completed_task.client_id
         old_employee_ids = [a.employee_id for a in await assignment_repo.list_by_task(completed_task_id)]
 
+        fork_targets = await fork_repo.list_by_department(current_department.id)
+
+        # Yo'nalishni aniqlash: "fork" | "advance" | "wait" | "terminal".
+        target_department_ids: list[int] = []
+        next_department_id: int | None = None
+        next_list_id: str | None = None
+        if fork_targets:
+            mode = "fork"
+            target_department_ids = [ft.target_department_id for ft in fork_targets]
+        elif current_department.next_department_id is None:
+            mode = "terminal"
+        else:
+            next_department = await department_repo.get_by_id(current_department.next_department_id)
+            if next_department is None:
+                return None
+            if not next_department.trello_list_id:
+                raise DepartmentNotConfiguredError(
+                    f"'{next_department.name}' yo'nalishi uchun Trello ro'yxati (list) sozlanmagan"
+                )
+            next_department_id = next_department.id
+            next_list_id = next_department.trello_list_id
+            if next_department.requires_join and completed_task.previous_task_id is not None:
+                # ponytail: sibling lookup assumes a fork branch is exactly one
+                # department deep; if a future branch needs its own multi-stage
+                # sub-chain before rejoining, propagate a fork_root_task_id
+                # forward through each branch's own advance_task_stage() calls
+                # (same way client_id/trello_checklist_id are already copied
+                # forward today) and query that instead of previous_task_id.
+                siblings = await task_repo.list_by_previous_task_id(completed_task.previous_task_id)
+                if all(s.status == TaskStatus.COMPLETED for s in siblings):
+                    mode = "advance"  # oxirgi tarmoq — join bosqichini yaratamiz
+                else:
+                    mode = "wait"  # boshqa tarmoqlar hali tugamagan
+            else:
+                mode = "advance"
+
+    if mode == "terminal":
+        return None
+
+    # Trello ikkinchi-darajali effektlari: fork/advance/wait — hammasi joriy
+    # bosqich checklist punktini belgilaydi va xodimlarini kartadan oladi;
+    # FAQAT "advance" kartani keyingi list'ga ko'chiradi.
     if card_id:
         async with TrelloClient(settings.trello_api_key, settings.trello_token) as trello:
-            await trello.move_card_to_list(card_id, next_list_id)
+            if mode == "advance":
+                await trello.move_card_to_list(card_id, next_list_id)
 
             if checklist_id:
                 try:
@@ -251,19 +378,42 @@ async def advance_task_stage(completed_task_id: int) -> Task | None:
             except Exception:
                 logger.exception("Task %s: eski bosqich xodimlari kartadan olib tashlanmadi", completed_task_id)
 
+    if mode == "wait":
+        return None
+
     async with async_session() as session:
-        task_repo = TaskRepository(session)
-        next_task = await task_repo.create(
-            trello_card_id=card_id,
-            task_type=TaskType.ORDER,
+        if mode == "fork":
+            # Note: a fork-branch department stays at the fork-point's Trello
+            # list until join fires (card never moves on fork). If that branch's
+            # department also has stop_target_list_id set (Phase 5), stopping
+            # and resuming it will move the shared card to the branch's own
+            # list instead — cosmetic Trello-position confusion only, the join
+            # itself is DB-status-based and unaffected. Worth knowing before
+            # enabling both features on the same chain.
+            new_tasks = [
+                await _spawn_pending_stage(
+                    session,
+                    department_id=dept_id,
+                    previous_task_id=completed_task_id,
+                    card_id=card_id,
+                    checklist_id=checklist_id,
+                    title=title,
+                    description=description,
+                    client_id=client_id,
+                )
+                for dept_id in target_department_ids
+            ]
+            await session.commit()
+            return new_tasks
+
+        next_task = await _spawn_pending_stage(
+            session,
+            department_id=next_department_id,
+            previous_task_id=completed_task_id,
+            card_id=card_id,
+            checklist_id=checklist_id,
             title=title,
             description=description,
-            deadline=None,
-            status=TaskStatus.PENDING_SETUP,
-            current_department_id=next_department_id,
-            started_at=datetime.now(timezone.utc),
-            previous_task_id=completed_task_id,
-            trello_checklist_id=checklist_id,
             client_id=client_id,
         )
         await session.commit()
@@ -427,13 +577,18 @@ async def reassign_task_brigade(task_id: int, new_brigade_id: int) -> Task:
     return task
 
 
-async def create_misc_task(*, text: str, deadline: datetime, employee_ids: list[int]) -> Task:
+async def create_misc_task(
+    *, text: str, deadline: datetime, employee_ids: list[int], category: MiscCategory | None = None
+) -> Task:
     """9-band: "Vazifalar" moduli — Trello'siz, faqat tizim ichida
     boshqariladigan alohida topshiriq (masalan "Ofisni tozalash"). Trello'ga
     HECH QANDAY murojaat qilinmaydi — faqat bazaga yoziladi. Bildirishnoma
     bu funksiya ichida YUBORILMAYDI (chaqiruvchi handler
     `notification_service.notify_task_started()` orqali o'zi yuboradi —
     `create_task()` bilan bir xil naqsh).
+
+    `category`: Fasad sex TZ, Phase 9 — ixtiyoriy MISC kategoriya belgisi
+    (`None` bo'lsa avvalgidek, kategoriyasiz vazifa).
 
     TZ 9-band: "Bitta vazifaga 3 tagacha odam belgilanishi mumkin" — bu
     cheklov shu yerda tekshiriladi (UI validatsiyasiga tayanmaydi)."""
@@ -463,6 +618,7 @@ async def create_misc_task(*, text: str, deadline: datetime, employee_ids: list[
             status=TaskStatus.ACTIVE,
             current_department_id=department_id,
             started_at=datetime.now(timezone.utc),
+            misc_category=category,
         )
 
         for employee_id in employee_ids:

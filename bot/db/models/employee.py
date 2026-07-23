@@ -46,6 +46,12 @@ class Employee(TimestampedBase):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     # Mini App profil ekrani: xodim tanlagan interfeys tili ("uz"/"ru").
     language: Mapped[str] = mapped_column(String(2), default="uz", server_default="uz", nullable=False)
+    # Fasad sex TZ, Phase 8: shu xodim kunlik ish-jarayoni rasm/video
+    # hisoboti ro'yxatida (jadval bo'sh emas — server_default majburiy).
+    # FAQAT kuzatuv uchun — hech qanday jarima/ball hisoblanmaydi.
+    daily_report_required: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
 
     department: Mapped[Optional["Department"]] = relationship(back_populates="employees")
     # employees<->brigades orasida ikkita mustaqil FK bor (brigades.brigadier_id va

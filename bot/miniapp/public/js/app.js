@@ -7,12 +7,22 @@ const API_BASE = "/api/miniapp";
 const root = document.getElementById("app");
 const tabbarRoot = document.getElementById("tabbar");
 const state = { employee: null, lang: "uz" };
-const nav = { stack: [], section: null };
+const nav = { stack: [], section: null, module: null };
 let mainButtonHandler = null;
+const MODULE_STORAGE_KEY = "miniapp_module";
 
 /* Rol bo'yicha pastki tab-bar ta'rifi — har biri {key, icon, label, screen}.
-   Birinchi element doim shu rolning "uy" ekrani (routeHome() shundan foydalanadi). */
-function tabDefsForRole(role) {
+   Birinchi element doim shu rolning "uy" ekrani (routeHome()/screenModuleChooser()
+   shundan foydalanadi). `module`: "fasad_sex" bo'lsa alohida (hozircha
+   placeholder) tab to'plami qaytadi — Fasad sex'ning haqiqiy ekranlari keyingi
+   vazifalarda qo'shiladi. `module` bo'sh/"mebel" bo'lsa — o'zgarishsiz eski xulq. */
+function tabDefsForRole(role, module) {
+  if (module === "fasad_sex") {
+    return [
+      { key: "home", icon: "🏗️", label: "fasadHomeTab", screen: screenAdminHome },
+      { key: "profile", icon: "👤", label: "tab_profile", screen: screenProfile },
+    ];
+  }
   if (role === "worker") {
     return [
       { key: "orders", icon: "📦", label: "tab_orders", screen: screenWorkerOrders },
@@ -52,7 +62,13 @@ function switchTab(tabKey, screenFn) {
 
 function renderTabBar() {
   if (!tabbarRoot) return;
-  const defs = tabDefsForRole(state.employee ? state.employee.role : null);
+  if (!nav.module) {
+    // Modul hali tanlanmagan (screenModuleChooser ekranida) — tab-bar modulga
+    // tegishli, shu sabab modul tanlanmaguncha ko'rsatilmaydi.
+    tabbarRoot.innerHTML = "";
+    return;
+  }
+  const defs = tabDefsForRole(state.employee ? state.employee.role : null, nav.module);
   if (defs.length < 2) {
     tabbarRoot.innerHTML = "";
     return;
@@ -252,27 +268,45 @@ async function screenWorkerOrders() {
   });
 }
 
-async function screenTaskList(kind) {
+/* Fasad sex TZ, Phase 9: MISC vazifa kategoriyalari — barqaror ichki
+   identifikator, i18n.js'dagi mos "miscCategoryX" kaliti bilan chiqariladi. */
+const MISC_CATEGORIES = ["office", "fasad_sex", "installer", "welder"];
+function miscCategoryKey(v) {
+  return "miscCategory" + v.split("_").map((w) => w[0].toUpperCase() + w.slice(1)).join("");
+}
+
+async function screenTaskList(kind, category) {
   setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
-  const tasks = await api(kind === "order" ? "/tasks" : "/misctasks");
+  const url = kind === "order" ? "/tasks" : `/misctasks${category ? `?category=${encodeURIComponent(category)}` : ""}`;
+  const tasks = await api(url);
+  const filterHtml = kind === "misc" ? `
+    <div class="field"><label>${esc(t("miscCategoryLabel"))}</label>
+      <select id="f-category-filter">
+        <option value="">${esc(t("miscCategoryAll"))}</option>
+        ${MISC_CATEGORIES.map((c) => `<option value="${c}" ${category === c ? "selected" : ""}>${esc(t(miscCategoryKey(c)))}</option>`).join("")}
+      </select>
+    </div>` : "";
   if (!tasks.length) {
-    setScreen(`<p class="page-title">${esc(kind === "order" ? t("myOrders") : t("myTasks"))}</p><p class="empty-state">${esc(kind === "order" ? t("noOrders") : t("noTasks"))}</p>`);
-    return;
+    setScreen(`<p class="page-title">${esc(kind === "order" ? t("myOrders") : t("myTasks"))}</p>${filterHtml}<p class="empty-state">${esc(kind === "order" ? t("noOrders") : t("noTasks"))}</p>`);
+  } else {
+    setScreen(`
+      <p class="page-title">${esc(kind === "order" ? t("myOrders") : t("myTasks"))}</p>
+      ${filterHtml}
+      ${tasks.map((tsk, i) => `
+        <button class="task-card ${statusClass(tsk.status)}" data-i="${i}">
+          <p class="t-title">${esc(tsk.title)}</p>
+          <p class="t-sub">${esc(tsk.department || "")}</p>
+          <span class="t-status">${taskStatusLine(tsk)}</span>
+        </button>
+      `).join("")}
+    `);
+    root.querySelectorAll(".task-card").forEach((el) => {
+      const tsk = tasks[Number(el.dataset.i)];
+      el.onclick = () => show(screenTaskDetail, tsk.id);
+    });
   }
-  setScreen(`
-    <p class="page-title">${esc(kind === "order" ? t("myOrders") : t("myTasks"))}</p>
-    ${tasks.map((tsk, i) => `
-      <button class="task-card ${statusClass(tsk.status)}" data-i="${i}">
-        <p class="t-title">${esc(tsk.title)}</p>
-        <p class="t-sub">${esc(tsk.department || "")}</p>
-        <span class="t-status">${taskStatusLine(tsk)}</span>
-      </button>
-    `).join("")}
-  `);
-  root.querySelectorAll(".task-card").forEach((el) => {
-    const tsk = tasks[Number(el.dataset.i)];
-    el.onclick = () => show(screenTaskDetail, tsk.id);
-  });
+  const filterSel = root.querySelector("#f-category-filter");
+  if (filterSel) filterSel.onchange = () => replaceTop(screenTaskList, kind, filterSel.value || undefined);
 }
 
 function taskStatusLine(tsk) {
@@ -411,12 +445,68 @@ async function screenAdminHome() {
     <button class="nav-card accent" id="nav-newtask"><span class="ic">➕</span><span class="grow">${esc(t("newTaskCta"))}</span><span class="chev">›</span></button>
     ${pendingSetup.length ? `<button class="alert-card" id="nav-pending-setup"><span class="ic">⏳</span><span class="grow">${esc(t("pendingSetupAlert", pendingSetup.length))}</span><span class="chev">›</span></button>` : ""}
     ${reassignCandidates.length ? `<button class="alert-card" id="nav-reassign"><span class="ic">🔁</span><span class="grow">${esc(t("reassignAlert", reassignCandidates.length))}</span><span class="chev">›</span></button>` : ""}
+    <button class="nav-card" id="nav-daily-reports"><span class="ic">📸</span><span class="grow">${esc(t("dailyReportsNav"))}</span><span class="chev">›</span></button>
+    <button class="nav-card" id="nav-misctasks"><span class="ic">🗂️</span><span class="grow">${esc(t("miscTasksNav"))}</span><span class="chev">›</span></button>
   `);
   root.querySelector("#nav-newtask").onclick = () => show(screenNewTaskForm);
   const pendingBtn = root.querySelector("#nav-pending-setup");
   if (pendingBtn) pendingBtn.onclick = () => show(screenPendingSetup);
   const reassignBtn = root.querySelector("#nav-reassign");
   if (reassignBtn) reassignBtn.onclick = () => show(screenReassignList);
+  root.querySelector("#nav-daily-reports").onclick = () => show(screenDailyReports);
+  root.querySelector("#nav-misctasks").onclick = () => show(screenAdminMiscTasks);
+}
+
+async function screenAdminMiscTasks(category) {
+  /* Fasad sex TZ, Phase 9 tuzatish: admin/nazoratchi uchun HAMMA MISC
+     vazifalar ro'yxati (worker-scoped `/misctasks`dan farqli, faqat o'ziga
+     biriktirilganlar bilan cheklanmagan) — `screenTaskList`dagi bitta
+     kategoriya-filtri naqshi bilan bir xil. */
+  setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
+  const url = `/admin/misctasks${category ? `?category=${encodeURIComponent(category)}` : ""}`;
+  const tasks = await api(url);
+  const filterHtml = `
+    <div class="field"><label>${esc(t("miscCategoryLabel"))}</label>
+      <select id="f-category-filter">
+        <option value="">${esc(t("miscCategoryAll"))}</option>
+        ${MISC_CATEGORIES.map((c) => `<option value="${c}" ${category === c ? "selected" : ""}>${esc(t(miscCategoryKey(c)))}</option>`).join("")}
+      </select>
+    </div>`;
+  setScreen(`
+    <p class="page-title">${esc(t("miscTasksNav"))}</p>
+    ${filterHtml}
+    ${tasks.length ? tasks.map((tsk) => `
+      <div class="fin-card">
+        <div class="top"><span class="task">${esc(tsk.title)}</span></div>
+        <div class="amount-row">
+          ${tsk.misc_category ? `<span class="status-pill neutral">${esc(t(miscCategoryKey(tsk.misc_category)))}</span>` : ""}
+          <span class="status-pill ${tsk.status === "active" ? "positive" : tsk.status === "overdue" ? "critical" : "neutral"}">${esc(statusLabel(tsk.status))}</span>
+        </div>
+        <p class="hint">${esc(tsk.assigned_employee_names.length ? tsk.assigned_employee_names.join(", ") : "—")}</p>
+      </div>
+    `).join("") : `<p class="empty-state">${esc(t("noMiscTasksAdmin"))}</p>`}
+  `);
+  const filterSel = root.querySelector("#f-category-filter");
+  if (filterSel) filterSel.onchange = () => replaceTop(screenAdminMiscTasks, filterSel.value || undefined);
+}
+
+async function screenDailyReports() {
+  setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
+  const data = await api("/admin/daily-reports");
+  setScreen(`
+    <p class="page-title">${esc(t("dailyReportsTitle"))}</p>
+    <p class="page-sub">${esc(data.date)}</p>
+    ${!data.submitted.length && !data.missing.length ? `<p class="empty-state">${esc(t("noDailyReportEmployees"))}</p>` : `
+      <p class="section-lbl">${esc(t("submittedLabel"))} (${data.submitted.length})</p>
+      ${data.submitted.map((e) => `
+        <div class="stat-row"><span class="rank">✅</span><span class="nm">${esc(e.full_name)}</span><span class="score"></span></div>
+      `).join("")}
+      <p class="section-lbl">${esc(t("missingLabel"))} (${data.missing.length})</p>
+      ${data.missing.map((e) => `
+        <div class="stat-row"><span class="rank">❌</span><span class="nm">${esc(e.full_name)}</span><span class="score"></span></div>
+      `).join("")}
+    `}
+  `);
 }
 
 async function screenNewTaskForm(kind) {
@@ -474,6 +564,12 @@ async function screenNewTaskForm(kind) {
     ` : `
       <div class="field"><label>${esc(t("miscTaskText"))}</label><input id="f-text" type="text" placeholder="${esc(t("miscTaskTextPh"))}" /></div>
       <div class="field"><label>${esc(t("deadline"))}</label><input id="f-deadline" type="datetime-local" /></div>
+      <div class="field"><label>${esc(t("miscCategoryLabel"))}</label>
+        <select id="f-category">
+          <option value="">—</option>
+          ${MISC_CATEGORIES.map((c) => `<option value="${c}">${esc(t(miscCategoryKey(c)))}</option>`).join("")}
+        </select>
+      </div>
       <p class="section-lbl">${esc(t("employeesField"))} (≤3)</p>
       ${activeEmployees.map((e) => `
         <label class="check-row"><input type="checkbox" value="${e.id}" class="f-emp" />${esc(e.full_name)} — ${esc(e.role_label)}</label>
@@ -531,9 +627,10 @@ async function screenNewTaskForm(kind) {
       const app = tg();
       app.MainButton.showProgress();
       try {
+        const category = root.querySelector("#f-category").value || null;
         await api("/admin/misctasks", {
           method: "POST",
-          body: JSON.stringify({ text, deadline: new Date(deadlineRaw).toISOString(), employee_ids: empIds }),
+          body: JSON.stringify({ text, deadline: new Date(deadlineRaw).toISOString(), employee_ids: empIds, category }),
         });
         app.HapticFeedback && app.HapticFeedback.notificationOccurred("success");
         await goBack();
@@ -621,6 +718,7 @@ async function screenEmployeeDetail(employeeId) {
       <select id="f-dept"><option value="">—</option>${departments.map((d) => `<option value="${d.id}" ${d.id === employee.department_id ? "selected" : ""}>${esc(d.name)}</option>`).join("")}</select>
     </div>
     <div class="field"><label>${esc(t("brigade"))}</label><select id="f-brigade">${brigadeOptions}</select></div>
+    <label class="check-row"><input type="checkbox" id="f-daily-report" ${employee.daily_report_required ? "checked" : ""} />${esc(t("dailyReportRequiredField"))}</label>
     <button class="btn ${employee.is_active ? "danger" : "primary"}" id="btn-toggle">${employee.is_active ? esc(t("deactivate")) : esc(t("activate"))}</button>
   `);
 
@@ -653,6 +751,7 @@ async function screenEmployeeDetail(employeeId) {
           role: root.querySelector("#f-role").value,
           department_id: deptVal ? Number(deptVal) : null,
           brigade_id: brigadeVal ? Number(brigadeVal) : null,
+          daily_report_required: root.querySelector("#f-daily-report").checked,
         }),
       });
       app.HapticFeedback && app.HapticFeedback.notificationOccurred("success");
@@ -722,25 +821,44 @@ async function screenFinancial() {
         <div class="top"><span class="task">${esc(t("taskLabel"))} #${s.task_id}${s.task_title ? " — " + esc(s.task_title) : ""}</span><span class="status-pill warn">${esc(t(s.kind))}</span></div>
         ${s.kind === "wage_deduction" && s.suggested_deduction_amount === null ? `
           <div class="amount-row"><input type="number" class="f-amount" placeholder="${esc(t("enterAmount"))}" /><button class="btn primary f-amount-save">${esc(t("save"))}</button></div>
+        ` : s.kind === "speed_tier_bonus" ? `
+          <p class="desc">${esc(t("speedTierLabel"))}: ${esc(s.speed_tier)}</p>
+          ${s.suggested_pay_amount === null ? `
+            <div class="amount-row"><input type="number" class="f-pay-amount" placeholder="${esc(t("suggestedPayAmountLabel"))}" /><button class="btn primary f-pay-amount-save">${esc(t("save"))}</button></div>
+          ` : `<p class="desc">${esc(t("suggestedPayAmountLabel"))}: ${s.suggested_pay_amount}</p>`}
         ` : `<p class="desc">${s.suggested_deduction_amount !== null ? s.suggested_deduction_amount : s.waived_amount}</p>`}
       </div>
     `).join("") : `<p class="empty-state">${esc(t("noPendingFinancial"))}</p>`}
   `);
   root.querySelector("#nav-advance-waiver").onclick = () => show(screenAdvanceWaiverForm);
   root.querySelectorAll(".fin-card").forEach((card) => {
-    const btn = card.querySelector(".f-amount-save");
-    if (!btn) return;
     const item = items[Number(card.dataset.i)];
-    btn.onclick = async () => {
-      const value = card.querySelector(".f-amount").value;
-      if (!value) return;
-      try {
-        await api(`/admin/financial/${item.id}/amount`, { method: "POST", body: JSON.stringify({ amount: Number(value) }) });
-        await replaceTop(screenFinancial);
-      } catch (e) {
-        showError(e.message);
-      }
-    };
+    const amountBtn = card.querySelector(".f-amount-save");
+    if (amountBtn) {
+      amountBtn.onclick = async () => {
+        const value = card.querySelector(".f-amount").value;
+        if (!value) return;
+        try {
+          await api(`/admin/financial/${item.id}/amount`, { method: "POST", body: JSON.stringify({ amount: Number(value) }) });
+          await replaceTop(screenFinancial);
+        } catch (e) {
+          showError(e.message);
+        }
+      };
+    }
+    const payBtn = card.querySelector(".f-pay-amount-save");
+    if (payBtn) {
+      payBtn.onclick = async () => {
+        const value = card.querySelector(".f-pay-amount").value;
+        if (!value) return;
+        try {
+          await api(`/admin/financial/${item.id}/pay-amount`, { method: "POST", body: JSON.stringify({ amount: Number(value) }) });
+          await replaceTop(screenFinancial);
+        } catch (e) {
+          showError(e.message);
+        }
+      };
+    }
   });
 }
 
@@ -828,12 +946,14 @@ async function screenFullStats() {
         </button>
       `;
     }).join("") : ""}
+    <button class="nav-card" id="nav-capacity"><span class="ic">📐</span><span class="grow">${esc(t("capacityStatsNav"))}</span><span class="chev">›</span></button>
     <p class="section-lbl">${esc(t("overallRanking"))}</p>
     ${statRowsHtml(stats)}
   `);
-  root.querySelectorAll(".nav-card").forEach((el) => {
+  root.querySelectorAll(".nav-card[data-role]").forEach((el) => {
     el.onclick = () => show(screenStatsByRole, el.dataset.role);
   });
+  root.querySelector("#nav-capacity").onclick = () => show(screenCapacityDepartmentPicker);
 }
 
 async function screenStatsByRole(role) {
@@ -845,13 +965,45 @@ async function screenStatsByRole(role) {
   `);
 }
 
+async function screenCapacityDepartmentPicker() {
+  setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
+  const departments = await api("/admin/departments");
+  setScreen(`
+    <p class="page-title">${esc(t("capacityStatsTitle"))}</p>
+    <p class="page-sub">${esc(t("capacityPickDepartment"))}</p>
+    ${departments.map((d, i) => `
+      <button class="nav-card" data-i="${i}"><span class="ic">🏭</span><span class="grow">${esc(d.name)}</span><span class="chev">›</span></button>
+    `).join("")}
+  `);
+  root.querySelectorAll(".nav-card").forEach((el) => {
+    const dept = departments[Number(el.dataset.i)];
+    el.onclick = () => show(screenCapacityStats, dept.id, dept.name);
+  });
+}
+
+async function screenCapacityStats(departmentId, departmentName) {
+  setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
+  const cap = await api(`/admin/stats/capacity?department_id=${departmentId}`);
+  setScreen(`
+    <p class="page-title">${esc(departmentName)}</p>
+    <div class="hero-row">
+      <div class="hero-tile"><span class="num">${cap.worker_count}</span><span class="lbl">${esc(t("workerCountLabel"))}</span></div>
+      <div class="hero-tile"><span class="num">${cap.planned_points}</span><span class="lbl">${esc(t("plannedPointsLabel"))}</span></div>
+    </div>
+    <div class="hero-row">
+      <div class="hero-tile"><span class="num">${cap.actual_points}</span><span class="lbl">${esc(t("actualPointsLabel"))}</span></div>
+    </div>
+    <p class="page-sub">${esc(t("capacityActualCaption"))}</p>
+  `);
+}
+
 /* ---------- Sozlamalar (16-band) ---------- */
 
 const SETTING_FIELDS = [
   "default_penalty_multiplier", "brigade_share_ratio", "balls_per_day_shift",
   "plus_ball_per_day", "plus_ball_max_days", "financial_flag_threshold_days",
   "advance_threshold_percent", "advance_waiver_percent", "report_time",
-  "lead_follow_up_threshold_days",
+  "lead_follow_up_threshold_days", "daily_quota_points_per_worker", "daily_report_time",
 ];
 
 async function screenSettings() {
@@ -868,6 +1020,8 @@ async function screenSettings() {
     <button class="nav-card" id="nav-chain"><span class="ic">🔗</span><span class="grow">${esc(t("departmentChainNav"))}</span><span class="chev">›</span></button>
     <button class="nav-card" id="nav-autoreassign"><span class="ic">🔁</span><span class="grow">${esc(t("autoreassignNav"))}</span><span class="chev">›</span></button>
     <button class="nav-card" id="nav-reminders"><span class="ic">🕗</span><span class="grow">${esc(t("remindersNav"))}</span><span class="chev">›</span></button>
+    <button class="nav-card" id="nav-speed-tiers"><span class="ic">⚡</span><span class="grow">${esc(t("speedTiersNav"))}</span><span class="chev">›</span></button>
+    <button class="nav-card" id="nav-departments"><span class="ic">🏭</span><span class="grow">${esc(t("departmentsNav"))}</span><span class="chev">›</span></button>
   `);
   root.querySelectorAll(".settings-row").forEach((el) => {
     el.onclick = () => show(screenEditSetting, el.dataset.field, snapshot[el.dataset.field]);
@@ -875,6 +1029,8 @@ async function screenSettings() {
   root.querySelector("#nav-chain").onclick = () => show(screenDepartmentChain);
   root.querySelector("#nav-autoreassign").onclick = () => show(screenAutoreassign);
   root.querySelector("#nav-reminders").onclick = () => show(screenReminders);
+  root.querySelector("#nav-speed-tiers").onclick = () => show(screenSpeedTiers);
+  root.querySelector("#nav-departments").onclick = () => show(screenDepartments);
 }
 
 async function screenEditSetting(field, currentValue) {
@@ -966,6 +1122,107 @@ async function screenAutoreassign() {
   });
 }
 
+/* ---------- Fasad sex TZ: Bo'limlar CRUD (Phase 2 infratuzilma) ---------- */
+
+async function screenDepartments() {
+  setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
+  const departments = await api("/admin/departments");
+  setScreen(`
+    <p class="page-title">${esc(t("departmentsNav"))}</p>
+    <button class="nav-card accent" id="nav-material-template"><span class="ic">🧵</span><span class="grow">${esc(t("addMaterialTemplateNav"))}</span><span class="chev">›</span></button>
+    ${departments.length ? departments.map((d) => `
+      <div class="fin-card">
+        <div class="top"><span class="task">${esc(d.name)}</span></div>
+        <div class="amount-row">
+          <span class="status-pill ${d.auto_reassign_after_48h ? "positive" : "neutral"}">${esc(t("autoreassignNav"))}: ${d.auto_reassign_after_48h ? "ON" : "OFF"}</span>
+          <span class="status-pill ${d.starts_stopped ? "positive" : "neutral"}">${esc(t("startsStoppedField"))}: ${d.starts_stopped ? "ON" : "OFF"}</span>
+        </div>
+      </div>
+    `).join("") : `<p class="empty-state">${esc(t("noDepartments"))}</p>`}
+  `);
+  root.querySelector("#nav-material-template").onclick = () => show(screenAddMaterialTemplate);
+  setMainButton(`➕ ${t("addDepartmentBtn")}`, () => show(screenAddDepartment), "#2f6f62");
+}
+
+async function screenAddDepartment() {
+  setScreen(`
+    <p class="page-title">${esc(t("addDepartmentBtn"))}</p>
+    <div class="field"><label>${esc(t("departmentNameField"))}</label><input id="f-name" type="text" /></div>
+    <div class="field"><label>${esc(t("trelloListIdField"))}</label><input id="f-trello-list" type="text" /></div>
+    <label class="check-row"><input type="checkbox" id="f-autoreassign" />${esc(t("autoreassignNav"))}</label>
+    <label class="check-row"><input type="checkbox" id="f-starts-stopped" />${esc(t("startsStoppedField"))}</label>
+  `);
+  setMainButton(`💾 ${t("create")}`, async () => {
+    const name = root.querySelector("#f-name").value.trim();
+    if (!name) {
+      showError(t("departmentNameField"));
+      return;
+    }
+    const app = tg();
+    app.MainButton.showProgress();
+    try {
+      await api("/admin/departments", {
+        method: "POST",
+        body: JSON.stringify({
+          name,
+          trello_list_id: root.querySelector("#f-trello-list").value.trim() || null,
+          auto_reassign_after_48h: root.querySelector("#f-autoreassign").checked,
+          starts_stopped: root.querySelector("#f-starts-stopped").checked,
+        }),
+      });
+      app.HapticFeedback && app.HapticFeedback.notificationOccurred("success");
+      await goBack();
+    } catch (e) {
+      showError(e.message);
+    } finally {
+      app.MainButton.hideProgress();
+    }
+  }, "#2f6f62");
+}
+
+async function screenAddMaterialTemplate() {
+  setScreen(`
+    <p class="page-title">${esc(t("materialTemplateTitle"))}</p>
+    <div class="field"><label>${esc(t("materialNameLabel"))}</label><input id="f-material" type="text" /></div>
+    <p class="hint">${esc(t("materialTemplateHint"))}</p>
+  `);
+  setMainButton(`💾 ${t("create")}`, async () => {
+    const material = root.querySelector("#f-material").value.trim();
+    if (!material) {
+      showError(t("materialNameLabel"));
+      return;
+    }
+    const stageNames = [
+      `${material} fayl tashaldi`,
+      `${material} ishlab chiqarishda tasdiqlandi`,
+      `${material} 100% tayyor`,
+    ];
+    const app = tg();
+    app.MainButton.showProgress();
+    let done = 0;
+    try {
+      const created = [];
+      for (const name of stageNames) {
+        created.push(await api("/admin/departments", { method: "POST", body: JSON.stringify({ name }) }));
+        done++;
+      }
+      for (let i = 0; i < created.length - 1; i++) {
+        await api(`/admin/departments/${created[i].id}/chain`, {
+          method: "POST",
+          body: JSON.stringify({ next_department_id: created[i + 1].id }),
+        });
+        done++;
+      }
+      app.HapticFeedback && app.HapticFeedback.notificationOccurred("success");
+      await goBack();
+    } catch (e) {
+      showError(t("materialTemplateFailed", done, stageNames.length + 2, e.message));
+    } finally {
+      app.MainButton.hideProgress();
+    }
+  }, "#2f6f62");
+}
+
 async function screenReminders() {
   setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
   const schedule = await api("/admin/reminders");
@@ -1028,6 +1285,75 @@ async function screenReminderForm(mode, index, entry) {
         await api("/admin/reminders", { method: "POST", body: JSON.stringify({ time, urgency }) });
       } else {
         await api(`/admin/reminders/${index}`, { method: "PUT", body: JSON.stringify({ time, urgency }) });
+      }
+      app.HapticFeedback && app.HapticFeedback.notificationOccurred("success");
+      await goBack();
+    } catch (e) {
+      showError(e.message);
+    } finally {
+      app.MainButton.hideProgress();
+    }
+  }, "#2f6f62");
+}
+
+/* ---------- Fasad sex TZ, Phase 7: tezlik-darajali to'lov jadvali ---------- */
+
+async function screenSpeedTiers() {
+  setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
+  const schedule = await api("/admin/speed-tiers");
+  setScreen(`
+    <p class="page-title">${esc(t("speedTiersTitle"))}</p>
+    ${schedule.length ? schedule.map((entry, i) => `
+      <div class="fin-card" data-i="${i}">
+        <div class="top"><span class="task">⚡ ${esc(entry.tier)}</span><span class="status-pill warn">≤ ${entry.max_days} ${esc(t("daysUnit"))}</span></div>
+        <p class="desc">${esc(t("payMultiplierField"))}: ×${entry.pay_multiplier}</p>
+        <div class="amount-row">
+          <button class="btn f-edit">${esc(t("edit"))}</button>
+          <button class="btn danger f-delete">${esc(t("deleteBtn"))}</button>
+        </div>
+      </div>
+    `).join("") : `<p class="empty-state">${esc(t("noSpeedTiers"))}</p>`}
+  `);
+  root.querySelectorAll(".fin-card").forEach((card) => {
+    const entry = schedule[Number(card.dataset.i)];
+    const idx = Number(card.dataset.i);
+    card.querySelector(".f-edit").onclick = () => show(screenSpeedTierForm, "edit", idx, entry);
+    card.querySelector(".f-delete").onclick = async () => {
+      try {
+        await api(`/admin/speed-tiers/${idx}`, { method: "DELETE" });
+        await replaceTop(screenSpeedTiers);
+      } catch (e) {
+        showError(e.message);
+      }
+    };
+  });
+  setMainButton(t("addSpeedTierBtn"), () => show(screenSpeedTierForm, "add", null, null), "#2f6f62");
+}
+
+async function screenSpeedTierForm(mode, index, entry) {
+  setScreen(`
+    <p class="page-title">${esc(t("addSpeedTierBtn"))}</p>
+    <div class="field"><label>${esc(t("maxDaysField"))}</label><input id="f-max-days" type="number" min="1" value="${esc(entry ? entry.max_days : "")}" /></div>
+    <div class="field"><label>${esc(t("tierNameField"))}</label><input id="f-tier" type="text" value="${esc(entry ? entry.tier : "")}" /></div>
+    <div class="field"><label>${esc(t("payMultiplierField"))}</label><input id="f-multiplier" type="number" min="0" step="0.1" value="${esc(entry ? entry.pay_multiplier : "")}" /></div>
+  `);
+
+  setMainButton(`💾 ${t("saveChanges")}`, async () => {
+    const maxDays = root.querySelector("#f-max-days").value;
+    const tier = root.querySelector("#f-tier").value.trim();
+    const payMultiplier = root.querySelector("#f-multiplier").value;
+    if (!maxDays || !tier || !payMultiplier) {
+      showError(`${t("maxDaysField")}, ${t("tierNameField")}, ${t("payMultiplierField")}`);
+      return;
+    }
+    const app = tg();
+    app.MainButton.showProgress();
+    try {
+      const body = JSON.stringify({ max_days: Number(maxDays), tier, pay_multiplier: Number(payMultiplier) });
+      if (mode === "add") {
+        await api("/admin/speed-tiers", { method: "POST", body });
+      } else {
+        await api(`/admin/speed-tiers/${index}`, { method: "PUT", body });
       }
       app.HapticFeedback && app.HapticFeedback.notificationOccurred("success");
       await goBack();
@@ -1391,9 +1717,20 @@ async function screenProfile() {
       <p class="section-lbl">${esc(t("management"))}</p>
       <button class="nav-card" id="nav-settings"><span class="ic">⚙️</span><span class="grow">${esc(t("settingsNav"))}</span><span class="chev">›</span></button>
     ` : ""}
+    ${(me.available_modules || []).length > 1 ? `
+      <button class="nav-card" id="nav-switch-module"><span class="ic">🔄</span><span class="grow">${esc(t("switchModuleLabel"))}</span><span class="chev">›</span></button>
+    ` : ""}
   `);
   const settingsBtn = root.querySelector("#nav-settings");
   if (settingsBtn) settingsBtn.onclick = () => show(screenSettings);
+  const switchModuleBtn = root.querySelector("#nav-switch-module");
+  if (switchModuleBtn) {
+    switchModuleBtn.onclick = () => {
+      localStorage.removeItem(MODULE_STORAGE_KEY);
+      nav.module = null;
+      resetTo(screenModuleChooser);
+    };
+  }
   root.querySelectorAll(".lang-pill").forEach((btn) => {
     btn.onclick = async () => {
       const lang = btn.dataset.lang;
@@ -1410,6 +1747,43 @@ async function screenProfile() {
   });
 }
 
+/* ---------- Modul tanlash (Fasad sex TZ, Phase 0) ---------- */
+
+/* "mebel"/"fasad_sex" — bir nechta modulga ega foydalanuvchi (masalan ADMIN)
+   birini tanlaydi, tanlov localStorage'da saqlanadi (theme'ning saqlanish
+   uslubi bilan bir xil kalit nomlash: MODULE_STORAGE_KEY). */
+async function screenModuleChooser() {
+  setScreen(`
+    <p class="page-title">${esc(t("chooseModuleTitle"))}</p>
+    <button class="nav-card" data-module="mebel">
+      <span class="ic">🪑</span>
+      <span class="grow">
+        <span style="display:block">${esc(t("mebelModuleName"))}</span>
+        <span style="display:block;font-size:12px;color:var(--ink-soft)">${esc(t("mebelModulePath"))}</span>
+      </span>
+      <span class="chev">›</span>
+    </button>
+    <button class="nav-card" data-module="fasad_sex">
+      <span class="ic">🏗️</span>
+      <span class="grow">
+        <span style="display:block">${esc(t("fasadModuleName"))}</span>
+        <span style="display:block;font-size:12px;color:var(--ink-soft)">${esc(t("fasadModulePath"))}</span>
+      </span>
+      <span class="chev">›</span>
+    </button>
+  `);
+  root.querySelectorAll("[data-module]").forEach((el) => {
+    el.onclick = () => {
+      const module = el.dataset.module;
+      nav.module = module;
+      localStorage.setItem(MODULE_STORAGE_KEY, module);
+      const defs = tabDefsForRole(state.employee.role, nav.module);
+      nav.section = defs[0].key;
+      resetTo(defs[0].screen);
+    };
+  });
+}
+
 /* ---------- Bootstrap ---------- */
 
 function applyTheme(scheme) {
@@ -1417,7 +1791,7 @@ function applyTheme(scheme) {
 }
 
 function routeHome() {
-  const defs = tabDefsForRole(state.employee.role);
+  const defs = tabDefsForRole(state.employee.role, nav.module);
   nav.section = defs[0].key;
   resetTo(defs[0].screen);
 }
@@ -1448,7 +1822,21 @@ async function bootstrap() {
     return;
   }
 
-  routeHome();
+  const modules = state.employee.available_modules || ["mebel"];
+  if (modules.length === 1) {
+    nav.module = modules[0];
+    routeHome();
+    return;
+  }
+  const saved = localStorage.getItem(MODULE_STORAGE_KEY);
+  if (saved && modules.includes(saved)) {
+    nav.module = saved;
+    routeHome();
+    return;
+  }
+  nav.module = null;
+  nav.section = null;
+  resetTo(screenModuleChooser);
 }
 
 bootstrap();

@@ -33,9 +33,33 @@ class AppSettingsSnapshot:
     report_time: str
     lead_follow_up_threshold_days: int
     sales_board_lists: dict
+    daily_quota_points_per_worker: int
+    speed_tier_schedule: list[dict]
+    daily_report_time: str
 
 
 _cache: AppSettingsSnapshot | None = None
+
+
+def validate_speed_tier_schedule(schedule: list[dict]) -> None:
+    """Fasad sex TZ, Phase 7: har yozuv `max_days` (musbat butun son),
+    `tier` (bo'sh bo'lmagan matn), `pay_multiplier` (musbat son) talab
+    qiladi; `max_days` takrorlanmasin — `validate_reminder_schedule()`dagi
+    `time` uchun bir xil "uniquely-keyed" qoida bilan bir xil."""
+    seen_max_days: set[int] = set()
+    for entry in schedule:
+        max_days = entry.get("max_days")
+        tier = entry.get("tier")
+        pay_multiplier = entry.get("pay_multiplier")
+        if not isinstance(max_days, int) or isinstance(max_days, bool) or max_days <= 0:
+            raise InvalidReminderScheduleError(f"Noto'g'ri max_days: {max_days!r} (musbat butun son kerak)")
+        if max_days in seen_max_days:
+            raise InvalidReminderScheduleError(f"max_days takrorlanmoqda: {max_days}")
+        seen_max_days.add(max_days)
+        if not isinstance(tier, str) or not tier.strip():
+            raise InvalidReminderScheduleError(f"Noto'g'ri tier: {tier!r} (bo'sh bo'lmagan matn kerak)")
+        if not isinstance(pay_multiplier, (int, float)) or isinstance(pay_multiplier, bool) or pay_multiplier <= 0:
+            raise InvalidReminderScheduleError(f"Noto'g'ri pay_multiplier: {pay_multiplier!r} (musbat son kerak)")
 
 
 def validate_reminder_schedule(schedule: list[dict]) -> None:
@@ -88,6 +112,9 @@ async def _load_from_db() -> AppSettingsSnapshot:
         report_time=row.report_time,
         lead_follow_up_threshold_days=row.lead_follow_up_threshold_days,
         sales_board_lists=row.sales_board_lists,
+        daily_quota_points_per_worker=row.daily_quota_points_per_worker,
+        speed_tier_schedule=row.speed_tier_schedule,
+        daily_report_time=row.daily_report_time,
     )
 
 
@@ -111,8 +138,12 @@ async def update_setting(**fields: object) -> AppSettingsSnapshot:
     Masalan: `await update_setting(brigade_share_ratio=0.4)`."""
     if "reminder_schedule" in fields:
         validate_reminder_schedule(fields["reminder_schedule"])
+    if "speed_tier_schedule" in fields:
+        validate_speed_tier_schedule(fields["speed_tier_schedule"])
     if "report_time" in fields:
         validate_time_str(fields["report_time"])
+    if "daily_report_time" in fields:
+        validate_time_str(fields["daily_report_time"])
 
     async with async_session() as session:
         repo = AppSettingRepository(session)

@@ -20,7 +20,7 @@ from db.repositories import (
     TaskRepository,
 )
 from miniapp.util import err
-from services import notification_service, penalty_service, task_service, timer_service
+from services import financial_service, notification_service, penalty_service, task_service, timer_service
 from utils.enums import TaskStatus, TaskType
 
 routes = web.RouteTableDef()
@@ -38,7 +38,7 @@ async def _is_assigned(task_id: int, employee_id: int) -> bool:
     return any(a.employee_id == employee_id for a in assignments)
 
 
-async def _list_my_tasks(employee_id: int, task_type: TaskType) -> list[dict]:
+async def _list_my_tasks(employee_id: int, task_type: TaskType, category: str | None = None) -> list[dict]:
     async with async_session() as session:
         assignment_repo = TaskAssignmentRepository(session)
         task_repo = TaskRepository(session)
@@ -49,6 +49,8 @@ async def _list_my_tasks(employee_id: int, task_type: TaskType) -> list[dict]:
         for assignment in assignments:
             task = await task_repo.get_by_id(assignment.task_id)
             if task is None or task.status == TaskStatus.COMPLETED or task.task_type != task_type:
+                continue
+            if category and (task.misc_category is None or task.misc_category.value != category):
                 continue
 
             department_name = None
@@ -63,6 +65,7 @@ async def _list_my_tasks(employee_id: int, task_type: TaskType) -> list[dict]:
                     "status": task.status.value,
                     "deadline": task.deadline.isoformat() if task.deadline else None,
                     "department": department_name,
+                    "misc_category": task.misc_category.value if task.misc_category else None,
                 }
             )
         return items
@@ -76,8 +79,12 @@ async def list_tasks(request: web.Request) -> web.Response:
 
 @routes.get("/misctasks")
 async def list_misctasks(request: web.Request) -> web.Response:
+    """Fasad sex TZ, Phase 9: ixtiyoriy `?category=` filtri — noto'g'ri
+    qiymat berilsa (lug'atda yo'q kategoriya) natija shunchaki bo'sh
+    ro'yxat bo'ladi, `/leads?brand=`ning filtr naqshi bilan bir xil."""
     employee = request["employee"]
-    return web.json_response(await _list_my_tasks(employee.id, TaskType.MISC))
+    category = request.query.get("category")
+    return web.json_response(await _list_my_tasks(employee.id, TaskType.MISC, category))
 
 
 @routes.get("/tasks/{task_id}")
@@ -215,19 +222,49 @@ async def finish_task(request: web.Request) -> web.Response:
         except Exception:
             logger.exception("notify_penalty_applied xatosi (kpi_log_id=%s)", kpi_log.id)
 
-    if task.task_type == TaskType.ORDER:
+    # Fasad sex TZ, Phase 7: tezlik-darajali to'lov taklifi — sozlanmagan
+    # bo'lsa (bo'sh jadval) hech narsa qaytmaydi, shu sabab "Yakunlash"
+    # amali muvaffaqiyatli qoladi, faqat log qilinadi (penalty bilan bir
+    # xil non-blocking naqsh).
+    try:
+        speed_tier_suggestion = await financial_service.suggest_speed_tier_bonus(task.id)
+    except Exception:
+        logger.exception("suggest_speed_tier_bonus xatosi (task_id=%s)", task.id)
+        speed_tier_suggestion = None
+
+    if speed_tier_suggestion is not None:
         try:
-            next_task = await task_service.advance_task_stage(task.id)
+            await notification_service.notify_speed_tier_suggested(bot, speed_tier_suggestion.id)
+        except Exception:
+            logger.exception(
+                "notify_speed_tier_suggested xatosi (suggestion_id=%s)", speed_tier_suggestion.id
+            )
+
+    if task.task_type == TaskType.ORDER:
+        # Phase 3 (fork/join): advance_task_stage endi Task | list[Task] | None
+        # qaytaradi — fork nuqtasida bir nechta yangi bosqich yaratiladi.
+        # `None` ikki ma'no: buyurtma tugadi YOKI join bo'limi qardosh
+        # tarmoqlarni kutmoqda — ikkalasida ham yangi bosqich bildirishnomasi
+        # yubormaymiz.
+        try:
+            result = await task_service.advance_task_stage(task.id)
         except Exception:
             logger.exception("advance_task_stage xatosi (task_id=%s)", task.id)
-            next_task = None
+            result = None
+
+        if result is None:
+            new_tasks = []
+        elif isinstance(result, list):
+            new_tasks = result
+        else:
+            new_tasks = [result]
 
         try:
             await notification_service.notify_client_stage_advanced(bot, task.id)
         except Exception:
             logger.exception("notify_client_stage_advanced xatosi (task_id=%s)", task.id)
 
-        if next_task is not None:
+        for next_task in new_tasks:
             try:
                 await notification_service.notify_stage_pending_setup(bot, next_task.id)
             except Exception:

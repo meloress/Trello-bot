@@ -68,8 +68,11 @@ const I18N = {
     taskLabel: "Vazifa",
     wage_deduction: "Bosqich uzoq",
     advance_waiver: "Avans kechirim",
+    speed_tier_bonus: "Tezlik bonusi",
     enterAmount: "Summani kiriting",
     amountSaved: "Saqlandi",
+    speedTierLabel: "Tezlik darajasi",
+    suggestedPayAmountLabel: "Tavsiya etilgan to'lov",
 
     brigade_title: "Brigada",
     weeklyReport: "Hisobot",
@@ -107,6 +110,15 @@ const I18N = {
     tab_home: "Bosh sahifa", tab_stats: "Statistika", tab_employees: "Xodimlar", tab_financial: "Moliyaviy",
     tab_brigade: "Brigada", tab_leads: "Lidlarim",
 
+    // Modul tanlash (Fasad sex TZ, Phase 0)
+    chooseModuleTitle: "Qaysi tizim?",
+    mebelModuleName: "Mebel ishlab chiqarish",
+    mebelModulePath: "Stolyarka → Shkurka → Kraska → Dostavka",
+    fasadModuleName: "Fasad sex",
+    fasadModulePath: "Kontrol → Stolyarka → Shkurka → Kraska → Montaj",
+    switchModuleLabel: "Tizimni almashtirish",
+    fasadHomeTab: "Bosh sahifa",
+
     // Admin bosh sahifa: kutilayotgan amallar
     pendingSetupAlert: (n) => `Sozlash kutilmoqda (${n})`,
     reassignAlert: (n) => `Ko'rib chiqish kutilmoqda (${n})`,
@@ -119,10 +131,29 @@ const I18N = {
     miscTaskTextPh: "Masalan: Ofisni tozalash",
     misctaskCreated: "Topshiriq yaratildi",
 
+    // MISC kategoriya (Fasad sex TZ, Phase 9)
+    miscCategoryLabel: "Kategoriya",
+    miscCategoryAll: "Barchasi",
+    miscCategoryOffice: "Ofis xodimlari",
+    miscCategoryFasadSex: "Fasad sex",
+    miscCategoryInstaller: "O'rnatuvchilar",
+    miscCategoryWelder: "Payvandchi",
+    miscTasksNav: "Barcha vazifalar",
+    noMiscTasksAdmin: "Hech qanday vazifa topilmadi.",
+
     // To'liq statistika (10-band)
     fullStatsTitle: "Statistika (joriy oy)",
     overallRanking: "Umumiy reyting",
     noStats: "Bu oy uchun ma'lumot yo'q.",
+
+    // Kunlik norma / sig'im statistikasi (Fasad sex TZ, Phase 6)
+    capacityStatsNav: "Kunlik norma (sig'im)",
+    capacityStatsTitle: "Kunlik norma (sig'im)",
+    capacityPickDepartment: "Bo'limni tanlang",
+    workerCountLabel: "Ishchilar soni",
+    plannedPointsLabel: "Reja (punkt)",
+    actualPointsLabel: "Bajarilgan (vazifa)",
+    capacityActualCaption: "\"Bajarilgan\" — shu davrda yakunlangan vazifalar SONI, haqiqiy kv.m/punkt o'lchovi emas (taxminiy ko'rsatkich).",
 
     // Xodim tafsiloti/tahrirlash
     editEmployee: "Xodimni tahrirlash",
@@ -132,6 +163,14 @@ const I18N = {
     deactivate: "🚫 Faolsizlantirish",
     saveChanges: "Saqlash",
     savedOk: "Saqlandi ✅",
+    dailyReportRequiredField: "Kunlik rasm/video hisobot ro'yxatida",
+
+    // Kunlik rasm/video hisobot muvofiqligi (Fasad sex TZ, Phase 8)
+    dailyReportsNav: "📸 Kunlik hisobot",
+    dailyReportsTitle: "Kunlik rasm/video hisobot",
+    submittedLabel: "Yuborgan",
+    missingLabel: "Yubormagan",
+    noDailyReportEmployees: "Kunlik hisobot ro'yxatida xodim yo'q.",
 
     // Sozlamalar (16-band)
     settingsNav: "Sozlamalar",
@@ -146,9 +185,23 @@ const I18N = {
     setting_advance_waiver_percent: "Kechiriladigan foiz (%)",
     setting_report_time: "Hisobot vaqti (HH:MM)",
     setting_lead_follow_up_threshold_days: "Lid follow-up chegarasi (kun)",
+    setting_daily_quota_points_per_worker: "Kunlik norma (punkt/ishchi)",
+    setting_daily_report_time: "Kunlik hisobot so'rov vaqti (HH:MM)",
     departmentChainNav: "Bo'lim ketma-ketligi",
     autoreassignNav: "Avto-o'tkazish (48s)",
     remindersNav: "Eslatmalar",
+    speedTiersNav: "Tezlik darajalari",
+    departmentsNav: "Bo'limlar",
+    addDepartmentBtn: "Yangi bo'lim qo'shish",
+    departmentNameField: "Bo'lim nomi",
+    trelloListIdField: "Trello ro'yxat ID (ixtiyoriy)",
+    startsStoppedField: "Boshida to'xtatilgan (joy kutiladi)",
+    noDepartments: "Bo'limlar topilmadi.",
+    addMaterialTemplateNav: "Yangi material turi",
+    materialTemplateTitle: "Yangi material turi",
+    materialNameLabel: "Material nomi (masalan: Eman)",
+    materialTemplateHint: "Odatda: 24 soat → 72 soat → yakuniy",
+    materialTemplateFailed: (done, total, error) => `${done}/${total} qadam bajarildi, ${done + 1}/${total} muvaffaqiyatsiz: ${error}. Bo'limlar ro'yxatini tekshiring.`,
 
     departmentChainTitle: "Bo'lim ketma-ketligi",
     departmentChainPick: "Qaysi bo'limning KEYINGI bosqichini sozlaysiz?",
@@ -164,6 +217,14 @@ const I18N = {
     urgency_warning: "⚠️ Ogohlantirish",
     urgency_urgent: "🚨 Shoshilinch",
     deleteBtn: "🗑 O'chirish",
+
+    speedTiersTitle: "Tezlik-darajali to'lov jadvali",
+    addSpeedTierBtn: "➕ Yangi daraja qo'shish",
+    noSpeedTiers: "Hozircha tezlik darajalari sozlanmagan.",
+    maxDaysField: "Maksimal kun",
+    tierNameField: "Daraja nomi",
+    payMultiplierField: "To'lov ko'paytiruvchisi",
+    daysUnit: "kun",
 
     advanceWaiverNav: "Avans kechirim",
     advanceWaiverTitle: "Avans kechirim taklifi",
@@ -266,8 +327,11 @@ const I18N = {
     taskLabel: "Задача",
     wage_deduction: "Долгий этап",
     advance_waiver: "Прощение аванса",
+    speed_tier_bonus: "Бонус за скорость",
     enterAmount: "Введите сумму",
     amountSaved: "Сохранено",
+    speedTierLabel: "Уровень скорости",
+    suggestedPayAmountLabel: "Предложенная оплата",
 
     brigade_title: "Бригада",
     weeklyReport: "Отчёт",
@@ -304,6 +368,15 @@ const I18N = {
     tab_home: "Главная", tab_stats: "Статистика", tab_employees: "Сотрудники", tab_financial: "Финансы",
     tab_brigade: "Бригада", tab_leads: "Мои лиды",
 
+    // Выбор модуля (ТЗ Fasad sex, Phase 0)
+    chooseModuleTitle: "Какая система?",
+    mebelModuleName: "Производство мебели",
+    mebelModulePath: "Столярка → Шкурка → Краска → Доставка",
+    fasadModuleName: "Fasad sex",
+    fasadModulePath: "Контроль → Столярка → Шкурка → Краска → Монтаж",
+    switchModuleLabel: "Сменить систему",
+    fasadHomeTab: "Главная",
+
     pendingSetupAlert: (n) => `Ожидает настройки (${n})`,
     reassignAlert: (n) => `Ожидает рассмотрения (${n})`,
     newTaskCta: "Новая задача",
@@ -314,9 +387,27 @@ const I18N = {
     miscTaskTextPh: "Например: Убрать офис",
     misctaskCreated: "Поручение создано",
 
+    // Категория MISC (Fasad sex TZ, Phase 9)
+    miscCategoryLabel: "Категория",
+    miscCategoryAll: "Все",
+    miscCategoryOffice: "Офисные сотрудники",
+    miscCategoryFasadSex: "Fasad sex",
+    miscCategoryInstaller: "Монтажники",
+    miscCategoryWelder: "Сварщик",
+    miscTasksNav: "Все задачи",
+    noMiscTasksAdmin: "Задачи не найдены.",
+
     fullStatsTitle: "Статистика (текущий месяц)",
     overallRanking: "Общий рейтинг",
     noStats: "За этот месяц данных нет.",
+
+    capacityStatsNav: "Дневная норма (мощность)",
+    capacityStatsTitle: "Дневная норма (мощность)",
+    capacityPickDepartment: "Выберите отдел",
+    workerCountLabel: "Количество рабочих",
+    plannedPointsLabel: "План (пункты)",
+    actualPointsLabel: "Выполнено (задач)",
+    capacityActualCaption: "\"Выполнено\" — КОЛИЧЕСТВО завершённых задач за период, а не реальный замер кв.м/пунктов (приблизительный показатель).",
 
     editEmployee: "Редактировать сотрудника",
     activeStatus: "Активен",
@@ -325,6 +416,13 @@ const I18N = {
     deactivate: "🚫 Деактивировать",
     saveChanges: "Сохранить",
     savedOk: "Сохранено ✅",
+    dailyReportRequiredField: "В списке дневного фото/видео отчёта",
+
+    dailyReportsNav: "📸 Дневной отчёт",
+    dailyReportsTitle: "Дневной фото/видео отчёт",
+    submittedLabel: "Отправили",
+    missingLabel: "Не отправили",
+    noDailyReportEmployees: "В списке дневного отчёта нет сотрудников.",
 
     settingsNav: "Настройки",
     settingsTitle: "Настройки",
@@ -338,9 +436,23 @@ const I18N = {
     setting_advance_waiver_percent: "Прощаемый процент (%)",
     setting_report_time: "Время отчёта (ЧЧ:ММ)",
     setting_lead_follow_up_threshold_days: "Порог напоминания по лиду (дни)",
+    setting_daily_quota_points_per_worker: "Дневная норма (пункт/рабочий)",
+    setting_daily_report_time: "Время запроса дневного отчёта (ЧЧ:ММ)",
     departmentChainNav: "Цепочка отделов",
     autoreassignNav: "Авто-передача (48ч)",
     remindersNav: "Напоминания",
+    speedTiersNav: "Уровни скорости",
+    departmentsNav: "Отделы",
+    addDepartmentBtn: "Добавить отдел",
+    departmentNameField: "Название отдела",
+    trelloListIdField: "ID списка Trello (необязательно)",
+    startsStoppedField: "Изначально остановлено (ждёт места)",
+    noDepartments: "Отделы не найдены.",
+    addMaterialTemplateNav: "Новый тип материала",
+    materialTemplateTitle: "Новый тип материала",
+    materialNameLabel: "Название материала (например: Дуб)",
+    materialTemplateHint: "Обычно: 24 часа → 72 часа → финал",
+    materialTemplateFailed: (done, total, error) => `${done}/${total} шагов выполнено, ${done + 1}/${total} не удался: ${error}. Проверьте список отделов.`,
 
     departmentChainTitle: "Цепочка отделов",
     departmentChainPick: "Для какого отдела настроить СЛЕДУЮЩИЙ этап?",
@@ -356,6 +468,14 @@ const I18N = {
     urgency_warning: "⚠️ Предупреждение",
     urgency_urgent: "🚨 Срочное",
     deleteBtn: "🗑 Удалить",
+
+    speedTiersTitle: "Расписание оплаты по скорости",
+    addSpeedTierBtn: "➕ Добавить уровень",
+    noSpeedTiers: "Уровни скорости пока не настроены.",
+    maxDaysField: "Максимум дней",
+    tierNameField: "Название уровня",
+    payMultiplierField: "Множитель оплаты",
+    daysUnit: "дн.",
 
     advanceWaiverNav: "Прощение аванса",
     advanceWaiverTitle: "Предложение прощения аванса",

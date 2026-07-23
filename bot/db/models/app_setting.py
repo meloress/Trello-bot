@@ -16,6 +16,13 @@ DEFAULT_REMINDER_SCHEDULE = [
     {"time": "17:00", "urgency": "urgent"},
 ]
 
+# Fasad sex TZ, Phase 7: bosqich necha kunda tugatilganiga qarab tavsiya
+# etiladigan to'lov "tezlik darajasi" jadvali — [{"max_days": N, "tier":
+# "<nom>", "pay_multiplier": X}, ...]. Aniq foiz/nom TZda berilmagan (ochiq
+# savol #7), shu sabab standart qiymat BO'SH — admin to'ldirmaguncha butun
+# xususiyat harakatsiz (`financial_service.calculate_speed_tier_bonus`).
+DEFAULT_SPEED_TIER_SCHEDULE: list = []
+
 # 5-bosqich (Sotuv CRM), 6.1-band: har (brand, bosqich) juftligi uchun
 # Trello list ID. `departments.trello_list_id` bilan bir xil naqsh: bot UI
 # orqali EMAS, to'g'ridan-to'g'ri bazada sozlanadi.
@@ -66,3 +73,15 @@ class AppSetting(TimestampedBase):
     # bilan bir xil naqsh: bot UI orqali EMAS, to'g'ridan-to'g'ri bazada
     # sozlanadi (5-bosqich hujjatiga qarang).
     sales_board_lists: Mapped[dict] = mapped_column(JSON, nullable=False)
+    # Fasad sex TZ, Phase 6: kunlik norma — har ishchi kuniga shuncha "punkt"
+    # ishlab chiqarishi kutiladi ("5 punkt ≈ 100 kv.m"). Bu qiymat FAQAT
+    # stats/dashboard'da ko'rsatish uchun — timer/jarima sifatida MAJBURIY
+    # QILINMAYDI (stats_service.get_capacity_vs_actual()).
+    daily_quota_points_per_worker: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Fasad sex TZ, Phase 7: tezlik-darajali to'lov taklifi jadvali (yuqoridagi
+    # DEFAULT_SPEED_TIER_SCHEDULE izohiga q.) — standart bo'sh ro'yxat.
+    speed_tier_schedule: Mapped[list] = mapped_column(JSON, nullable=False)
+    # Fasad sex TZ, Phase 8: kunlik rasm/video hisobot SO'ROVI shu vaqtda
+    # (HH:MM, Toshkent) `daily_report_required=True` xodimlarga yuboriladi
+    # (`jobs/daily_report_job.py`) — `report_time` bilan bir xil naqsh.
+    daily_report_time: Mapped[str] = mapped_column(String(5), nullable=False)

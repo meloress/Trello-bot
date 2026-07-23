@@ -25,9 +25,25 @@ migratsiyalar faqat Alembic (`bot/db/migrations/`) orqali amalga oshiriladi.
 | trello_list_id | VARCHAR(50) | shu yo'nalishga tegishli vazifalar yoziladigan Trello ro'yxati (list) ID'si; NULL = hali sozlanmagan, `task_service.create_task()` bunday yo'nalish uchun aniq xato ko'taradi (`4aeafdfa9317` migratsiyasi) |
 | next_department_id | FK -> departments.id | NULL bo'lishi mumkin; standart ishlab chiqarish ketma-ketligidagi KEYINGI bo'lim (masalan Stolyar.next = Shkurka.id, 6.1/7.4-band, `576f19bf5629` migratsiyasi). NULL = zanjirning so'nggi bosqichi. `task_service.advance_task_stage()` shu ustunga qarab buyurtmani avtomatik keyingi bosqichga o'tkazadi. `/deptchain` buyrug'i orqali (`handlers/admin/settings.py`) sozlanadi |
 | auto_reassign_after_48h | BOOLEAN | default: false (8.3-band, `470b837c8dae` migratsiyasi). `True` bo'lsa, shu bo'limdagi OVERDUE buyurtma muddatidan 48 soatdan ortiq kechiksa `overdue_watch_job` AVTOMATIK signal beradi (brigada tanlovi va yakuniy tasdiq qo'lda, `handlers/admin/reassign_task.py`). `/autoreassign` buyrug'i orqali sozlanadi |
+| starts_stopped | BOOLEAN | default: false (Fasad sex TZ: buyurtma STOPPED holatda ochilishi, `2ec88464a4f8` migratsiyasi). `True` bo'lsa, `task_service.create_task()` yangi vazifani `ACTIVE` o'rniga `STOPPED` holatda yaratadi va bir vaqtda `StopLog` qatorini ham yozadi ("joy tayyor bo'lishini kutmoqda") — shu qator bo'lmasa `timer_service.resume_task()` ishlamas edi. Mini App'ning `POST /admin/departments` / `POST /admin/departments/{id}` orqali sozlanadi |
+| requires_join | BOOLEAN | default: false (Fasad sex TZ, Phase 3 fork/join, `b7c1e4f9a83d` migratsiyasi). `True` = konvergensiya (join) bo'limi — bir nechta parallel tarmoq shu bo'limga qaytib qo'shiladi. `task_service.advance_task_stage()` bu bo'limga o'tishdan oldin BARCHA qardosh tarmoqlar (bir xil `tasks.previous_task_id`ni ulashadigan qatorlar) COMPLETED bo'lishini kutadi — oxirgi tarmoq tugaganda yagona join bosqichi yaratiladi; undan oldingi tarmoqlar `None` qaytaradi (bosqich hali yaratilmaydi). Mini App'ning `POST /admin/departments/{id}` orqali sozlanadi |
+| module | VARCHAR(20) | default: `'mebel'` (Fasad sex TZ, Phase 0 — Mini App modul almashtirgichi, `d33c76d946db` migratsiyasi). Shu bo'lim qaysi ishlab chiqarish moduliga tegishli — `"mebel"` (asosiy, standart) yoki `"fasad_sex"` (yangi, parallel zanjir); enum/CHECK emas, oddiy VARCHAR (repo konvensiyasi — 3-modul kelajakda qo'shilsa, cheklovsiz kengayadi). `miniapp/api/common.py`'ning `GET /me`'si `available_modules`'ni shu ustunga qarab hisoblaydi (rol + `employee.department_id` bo'yicha) — frontend shu ro'yxatga qarab modul tanlash ekranini ko'rsatadi/o'tkazib yuboradi |
+| factory_name | VARCHAR(100), NULL | Fasad sex TZ §9 "ikkinchi zavod" (`3137620903a2` migratsiyasi). `module`dan MUSTAQIL — `module` qaysi ishlab chiqarish TIZIMIga (mebel/fasad_sex), `factory_name` esa qaysi jismoniy ZAVOD/FILIALga tegishli ekanini belgilaydi (2+ jismoniy joylashuv statistikasi aralashmasligi uchun, hech biri ikkinchisidan hisoblanmaydi). NULL = hali belgilanmagan. `stats_service.get_monthly_stats(factory_name=...)` ixtiyoriy filtr parametri sifatida ishlatadi (`Employee.department_id -> Department.factory_name` join, `None` — filtrsiz, avvalgidek). Mini App'ning `POST /admin/departments` / `POST /admin/departments/{id}` orqali sozlanadi (`GET /admin/stats?factory_name=` orqali o'qiladi) — hozircha alohida UI/zavod-tanlash ekrani yo'q |
+| stop_target_list_id | VARCHAR(50), NULL | Fasad sex TZ, Phase 5 (`c8a2e6f31b90` migratsiyasi). NULL = standart xatti-harakat — `timer_service.stop_task()`/`resume_task()` faqat DB status (`STOPPED`/`ACTIVE`) o'zgartiradi, karta joyidan qo'zg'almaydi (mavjud mebel liniyasidagi HAMMA bo'lim uchun shu). Sozlangan bo'lsa: Stop bosilganda karta shu Trello ro'yxatiga (masalan "stopda") ko'chiriladi, Resume bosilganda esa `trello_list_id`ga (bu ustunga EMAS) qaytariladi — ikkalasi ham ikkinchi-darajali effekt (try/except-log-only, DB yozuvidan KEYIN, muvaffaqiyatsizlik Stop/Resume amalini bloklamaydi). Mini App'ning `POST /admin/departments/{id}` orqali sozlanadi — hozircha alohida UI ekrani yo'q, qaysi bo'limlarda yoqilishi keyingi config-only qadam |
 | created_at / updated_at | TIMESTAMPTZ | |
 
-**Bog'lanishlar**: `brigades` (1-M), `employees` (1-M), `tasks` (1-M, `current_department_id` orqali), `next_department` (M-1, o'z-o'ziga, ixtiyoriy).
+**Bog'lanishlar**: `brigades` (1-M), `employees` (1-M), `tasks` (1-M, `current_department_id` orqali), `next_department` (M-1, o'z-o'ziga, ixtiyoriy), `department_fork_targets` (1-M, fork nuqtasi sifatida).
+
+### department_fork_targets — Fork zanjiri (Fasad sex TZ, Phase 3)
+Fork/join zanjiri uchun (`b7c1e4f9a83d` migratsiyasi). `next_department_id` bitta bola (chiziqli zanjir) beradi — bu jadval esa BITTA bo'limni N parallel tarmoqqa BO'LADI (fork). Fork/join FAQAT shu jadvalga qatori bor bo'limlar uchun ishlaydi; qolgan hamma bo'lim `next_department_id` bo'yicha o'zgarishsiz ishlaydi. `advance_task_stage()` joriy bo'lim uchun bu jadvalni BIRINCHI tekshiradi: qator bor bo'lsa — har bir target uchun bitta `PENDING_SETUP` bosqich yaratiladi (hammasi bir xil `previous_task_id`ni ulashadi, Trello karta KO'CHMAYDI — fork nuqtasi list'ida qoladi), `list[Task]` qaytaradi.
+| Ustun | Tur | Izoh |
+|---|---|---|
+| id | PK | |
+| department_id | FK -> departments.id (`fk_department_fork_targets_department_id`) | NOT NULL; fork NUQTASI (masalan "Fayl yig'ish") |
+| target_department_id | FK -> departments.id (`fk_department_fork_targets_target_department_id`) | NOT NULL; undan chiqadigan parallel tarmoqdan biri (masalan "Korpus qismi") |
+| created_at / updated_at | TIMESTAMPTZ | |
+
+`UNIQUE(department_id, target_department_id)` (`uq_department_fork_target`). Mini App'ning `GET/POST /admin/departments/{id}/fork-targets` orqali boshqariladi (POST = to'liq almashtirish: hammasini o'chir, yangisini qo'sh). Frontend UI hali yo'q (real Fasad Sex zanjiri hali yaratilmagan).
 
 ### brigades — Brigadalar
 | Ustun | Tur | Izoh |
@@ -56,6 +72,7 @@ migratsiyalar faqat Alembic (`bot/db/migrations/`) orqali amalga oshiriladi.
 | next_payment_date | DATE | default: joriy oyning 15-sanasi (8.5-band); tizim minus ball to'planganda buni siljitib boradi |
 | is_active | BOOLEAN | default: true; ishdan bo'shatilganda false qilinadi ("O'CHIRISH" tugmasi soft-delete) |
 | language | VARCHAR(2) | default: 'uz' (`a1c9f3e7d502` migratsiyasi); Mini App profil ekranidagi til tanlovi ("uz"/"ru") — `bot/miniapp/api/common.py`ning `POST /me/language`si yozadi |
+| daily_report_required | BOOLEAN | Fasad sex TZ, Phase 8 (`83d73ef87edc`): shu xodim kunlik rasm/video hisobot ro'yxatida (default: false). FAQAT kuzatuv — `penalty_service.py`ga tegishli emas. `POST /admin/employees/{id}` orqali tahrirlanadi |
 | created_at / updated_at | TIMESTAMPTZ | |
 
 **Bog'lanishlar**: `department` (M-1), `brigade` (M-1, a'zolik), `led_brigades`
@@ -87,6 +104,7 @@ migratsiyalar faqat Alembic (`bot/db/migrations/`) orqali amalga oshiriladi.
 | reassigned_at | TIMESTAMPTZ, NULL | 8.3-band (`470b837c8dae`): rahbar brigadani QO'LDA almashtirgan payt (`task_service.reassign_task_brigade()`). Bo'lsa, `penalty_service.calculate_and_apply_task_penalty()` kechikishni `deadline` o'rniga shu vaqtdan hisoblaydi — eski brigada allaqachon darhol jarimalangan davrni yangi brigadaga qayta hisoblamaslik uchun |
 | trello_checklist_id | VARCHAR(50), NULL | 6.2-band (`470b837c8dae`): kartadagi "Bosqichlar" checklist ID'si — bir xil `trello_card_id`ni bo'lishuvchi barcha bosqich-qatorlariga bir xil qiymat ko'chiriladi (`advance_task_stage()`) |
 | client_id | FK -> clients.id, NULL | 12-band (`b3f7a1c9d204`, 4-bosqich): bosqich o'tganda/"Stop" bosilganda avtomatik xabarnoma yuboriladigan mijoz. MISC vazifada har doim NULL (`create_misc_task()` client_id qabul qilmaydi). `advance_task_stage()` bosqichdan-bosqichga `trello_checklist_id` kabi ko'chiradi |
+| misc_category | VARCHAR(20), NULL | Fasad sex TZ, Phase 9 (`e1a4b8f36c02` migratsiyasi). MISC vazifalar uchun ixtiyoriy kategoriya (ofis/Fasad sex/o'rnatuvchi/payvandchi, `utils/enums.MiscCategory`). ORDER'da har doim NULL — faqat `task_type=MISC` qatorlarida ma'noli, funksiya qo'shilishidan oldingi eski MISC qatorlar ham NULL bo'lishi mumkin |
 | created_at / updated_at | TIMESTAMPTZ | |
 
 **MISC vazifalar KPI/jarima tizimiga ORDER bilan BIR XIL qoidada ta'sir qiladi**
@@ -117,6 +135,25 @@ chaqirmaydi (karta arxivlanishi = butun buyurtmaning TERMINAL yopilishi, keyingi
 bosqichga o'tish emas — ikkovi ziddiyatli bo'lardi). `daily_sync_job._list_open_tasks()`
 `pending_setup` qatorlarni chetlab o'tadi (`deadline=NULL` bilan `determine_status()`
 chaqirilsa yiqiladi, va muddat hali yo'qligi sabab label tekshiruvi ma'nosiz).
+
+**Fork/join (Fasad sex TZ, Phase 3)**: yuqoridagi chiziqli oqim `advance_task_stage()`da
+fork/join qo'shimchasi bilan kengaytirildi (qaytish turi endi `Task | list[Task] | None`),
+lekin fork/join'ga KIRMAGAN har qanday bo'lim uchun xatti-harakat AYNAN eskicha
+qoladi. Joriy bo'lim `department_fork_targets` jadvalida qatorga ega bo'lsa (fork
+NUQTASI) — har target uchun bitta `pending_setup` qator yaratiladi (hammasi bir xil
+`previous_task_id` = fork nuqtasi task id'si, bir xil `trello_card_id`), Trello karta
+KO'CHMAYDI (bitta karta N list'da tura olmaydi — u fork nuqtasi list'ida qoladi,
+parallel jarayon checklist orqali ko'rinadi), `list[Task]` qaytadi. Keyingi bo'lim
+`requires_join=True` bo'lsa (konvergensiya) — o'sha fork nuqtasidan chiqqan qardosh
+tarmoqlar (`task_repo.list_by_previous_task_id()`) hammasi COMPLETED bo'lgunча har
+tarmoq `None` qaytaradi; OXIRGI tarmoq tugaganda esa oddiy chiziqli yo'l ishlaydi
+(karta join bo'limi list'iga ko'chadi, yagona join qatori yaratiladi). Qardosh
+qidiruv har fork tarmog'i join'gача AYNAN bitta bo'lim chuqurlikda deb faraz qiladi
+(`ponytail:` izohi — ko'p bosqichli sub-zanjir kerak bo'lsa `fork_root_task_id`ni
+oldinга ko'chirish kerak). Checklist "Bosqichlar" ham chiziqli emas, BFS + `visited`
+to'plami bilan quriladi (`_collect_department_chain_names()`) — fork fan-out'ni,
+join fan-in'ni (bir marta) to'g'ri ochadi; fork YO'Q zanjir uchun eski chiziqli
+natija bilan bayt-mos.
 
 **6.2-band (karta a'zo + checklist)**: `create_task()` kartaga har bir
 biriktirilgan xodimni (agar `trello_member_id` bo'lsa) a'zo qilib qo'shadi va
@@ -151,6 +188,27 @@ brigada tanlovi va tasdiq qo'lda (`task_service.reassign_task_brigade()`,
 `UNIQUE(task_id, employee_id)` — bitta xodim bitta vazifaga faqat bir marta biriktiriladi.
 
 **Bog'lanishlar**: `task` (M-1), `employee` (M-1).
+
+### task_sellers — Vazifa <-> Sotuvchi (M-to-M)
+Fasad sex TZ, Phase 5 (`c8a2e6f31b90` migratsiyasi). `task_assignments` bilan
+BIR XIL shakl, lekin ma'nosi boshqa — bu KPI/timer tayinlash EMAS, faqat
+"Stop" bosilganda qo'shimcha xabar oladigan sotuvchi(lar) ro'yxati
+(`notification_service.notify_task_stopped()` bu jadvalni ham o'qiydi va
+mavjud stopper/brigadir/nazoratchi-admin ro'yxatiga `employee_id` bo'yicha
+deduplikatsiya qilib qo'shadi). `task_service.create_task()`ning
+`seller_ids` parametri orqali yoziladi — bittaga ko'pi bilan 3 ta sotuvchi
+(`ValueError`, `create_misc_task`ning 3 xodim chegarasi bilan bir xil naqsh).
+| Ustun | Tur | Izoh |
+|---|---|---|
+| id | PK | |
+| task_id | FK -> tasks.id | |
+| employee_id | FK -> employees.id | |
+| created_at / updated_at | TIMESTAMPTZ | |
+
+`UNIQUE(task_id, employee_id)`.
+
+**Bog'lanishlar**: yo'q (oddiy ko'p-ko'pga jadval, ORM relationship'siz —
+`TaskSellerRepository.list_by_task()` orqali to'g'ridan-to'g'ri so'raladi).
 
 ### kpi_logs — Ball/Jarima tarixi
 | Ustun | Tur | Izoh |
@@ -225,6 +283,9 @@ formulasidan tabiiy kelib chiqadi: dayIndex=0 -> jarima yo'q.
 | report_time | VARCHAR(5) | 10.2-band (`b3f7a1c9d204`, 4-bosqich): kunlik/haftalik/oylik Telegram hisobotlari shu vaqtda (HH:MM, Toshkent) yuboriladi (default: `20:00`). Haftalik — yakshanba, oylik — har oyning 1-sanasi (kun tanlovi sozlanuvchan emas, TZda so'ralmagan) |
 | lead_follow_up_threshold_days | INTEGER | 13.3-band (`ff165aafd9b1`, 5-bosqich): necha kun lidga aloqa bo'lmasa mas'ul sotuvchiga eslatma boradi (default: 7, foydalanuvchi bilan tasdiqlangan) |
 | sales_board_lists | JSON | 6.1-band (`ff165aafd9b1`, 5-bosqich): `{"ezza": {"new_lead": list_id, "contacted": ..., "offer_sent": ..., "agreed": ..., "closed": ...}, "melores": {...}}` — har (brand, bosqich) juftligi uchun Trello list ID. `departments.trello_list_id` bilan bir xil naqsh: bot UI orqali EMAS, to'g'ridan-to'g'ri bazada sozlanadi. Default: hamma qiymat `NULL` (haqiqiy Ezza/Melores boardlari hali yaratilmagan) |
+| daily_quota_points_per_worker | INTEGER | Fasad sex TZ, Phase 6 (`7b3d4bf8afe4`): kunlik norma — har ISHCHI kuniga shuncha "punkt" ishlab chiqarishi kutiladi ("5 punkt ≈ 100 kv.m", default: 5). FAQAT stats/dashboard uchun (`stats_service.get_capacity_vs_actual()`) — timer/jarima sifatida MAJBURIY QILINMAYDI, `penalty_service.py`ga tegishli emas |
+| speed_tier_schedule | JSON | Fasad sex TZ, Phase 7 (`a3f7c9d02b41`): tezlik-darajali to'lov taklifi jadvali — `[{"max_days": N, "tier": "<nom>", "pay_multiplier": X}, ...]`. Default: bo'sh ro'yxat (admin to'ldirmaguncha xususiyat harakatsiz) |
+| daily_report_time | VARCHAR(5) | Fasad sex TZ, Phase 8 (`83d73ef87edc`): kunlik rasm/video hisobot SO'ROVI shu vaqtda (HH:MM, Toshkent) `daily_report_required=true` xodimlarga yuboriladi (`jobs/daily_report_job.py`, default: `09:00`) — `report_time` bilan bir xil naqsh |
 | created_at / updated_at | TIMESTAMPTZ | |
 
 `f490887dee10` migratsiyasi orqali yaratilgan va bitta seed qator bilan
@@ -237,9 +298,9 @@ barcha mos APScheduler job'larini (`main.py`da ro'yxatdan o'tkazilgan) olib
 tashlab, qayta yaratadi (`handlers/admin/settings.py`ning `/reminders` va
 `/settings` oqimlari har o'zgarishdan keyin shu funksiyalarni chaqiradi).
 Faqat `Role.ADMIN`/`Role.SUPERVISOR` o'zgartira oladi (`middlewares/auth.py:
-RoleAccessMiddleware`). 10 ta skalyar qiymat (yuqoridagi jadval, `lead_follow_up_
-threshold_days` shu jumladan) `/settings` orqali xuddi shu yo'l bilan
-tahrirlanadi. `sales_board_lists` bundan mustasno — `departments.trello_list_id`
+RoleAccessMiddleware`). 11 ta skalyar qiymat (yuqoridagi jadval, `lead_follow_up_
+threshold_days` va `daily_quota_points_per_worker` shu jumladan) `/settings`
+orqali xuddi shu yo'l bilan tahrirlanadi. `sales_board_lists` bundan mustasno — `departments.trello_list_id`
 kabi bot UI orqali EMAS, to'g'ridan-to'g'ri bazada sozlanadi (haqiqiy Ezza/
 Melores Trello boardlari yaratilgach).
 
@@ -247,12 +308,35 @@ Melores Trello boardlari yaratilgach).
 `penalty_service.py`da hali konstanta bo'lib qolmoqda, chunki so'ralgan 4 ta
 sozlama ro'yxatiga kirmagan edi.
 
+### daily_report_submissions — Kunlik rasm/video hisobot muvofiqligi (Fasad sex TZ, Phase 8)
+| Ustun | Tur | Izoh |
+|---|---|---|
+| id | PK | |
+| employee_id | FK -> employees.id | |
+| report_date | DATE | hisobot QAYSI kalendar kun UCHUN (Toshkent vaqti) — jo'natilgan payt emas |
+| file_id | VARCHAR(200) | Telegram'ning `photo`/`video` fayl identifikatori — tizimda fayl saqlash qatlami yo'q, faqat shu satr saqlanadi |
+| submitted_at | TIMESTAMPTZ | oxirgi yuborilgan payt |
+| created_at / updated_at | TIMESTAMPTZ | |
+
+`UNIQUE(employee_id, report_date)` (`uq_daily_report_submissions_employee_date`,
+`83d73ef87edc` migratsiyasi) — bitta xodim uchun bitta kunga bitta yozuv,
+qayta yuborilsa `services/daily_report_service.submit_daily_report()` mavjud
+qatorni YANGILAYDI (upsert), yangi qator yaratmaydi. **FAQAT kuzatuv** — bu
+jadval hech qanday jarima/ball hisobiga ta'sir qilmaydi (`penalty_service.py`ga
+ATAYLAB tegilmagan; TZning o'zi ham bu masalada ochiq savol qoldirgan).
+Yig'ish/so'rov oqimi to'liq chat-based (`handlers/common/daily_report.py`,
+`/mijoz`dan keyingi ikkinchi ataylab chat-only istisno — Telegram'ning tabiiy
+kamera/galereya tugmasi Mini App WebView fayl-inputidan qulayroq), Mini App
+faqat `GET /admin/daily-reports` orqali muvofiqlik holatini KO'RSATADI.
+
+**Bog'lanishlar**: `employee` (M-1).
+
 ### financial_suggestions — Moliyaviy javobgarlik TAKLIFLARI (8.6-band, 3-bosqich)
 | Ustun | Tur | Izoh |
 |---|---|---|
 | id | PK | |
 | task_id | FK -> tasks.id | qaysi bosqich-qatoriga tegishli |
-| kind | VARCHAR | `wage_deduction` (1-qoida) yoki `advance_waiver` (2-qoida) |
+| kind | VARCHAR | `wage_deduction` (1-qoida), `advance_waiver` (2-qoida) yoki `speed_tier_bonus` (Fasad sex TZ, Phase 7 — `a3f7c9d02b41` migratsiyasi `alter_column` bilan enum ro'yxatini kengaytirdi, VARCHAR uzunligi 14->qiymatga mos avtomatik o'sdi) |
 | status | VARCHAR | doim `pending_manager_review` bilan yaratiladi — tizim hech qachon o'zi `approved`/`rejected` qilmaydi, bu BOSHQA (hali qurilmagan) modul ishi |
 | applicable | BOOLEAN | qoida shu holatga tatbiq etiladimi |
 | stage_duration_days | INTEGER, NULL | `wage_deduction`: bosqich necha kun davom etgani |
@@ -261,6 +345,8 @@ sozlama ro'yxatiga kirmagan edi.
 | advance_percent_paid | INTEGER, NULL | `advance_waiver`: qo'lda kiritilgan avans foizi |
 | order_total_value | FLOAT, NULL | `advance_waiver`: qo'lda kiritilgan buyurtma summasi |
 | waived_amount | FLOAT, NULL | `advance_waiver`: kechiriladigan summa = `order_total_value * (advance_waiver_percent/100)` |
+| speed_tier | VARCHAR(50), NULL | Fasad sex TZ, Phase 7 (`a3f7c9d02b41` migratsiyasi). `speed_tier_bonus`: `app_settings.speed_tier_schedule`dan mos kelgan tezlik darajasi nomi (`financial_service.calculate_speed_tier_bonus()`); mos keladigan daraja topilmasa ham baribir aniqlanadi |
+| suggested_pay_amount | FLOAT, NULL | Fasad sex TZ, Phase 7 (`a3f7c9d02b41` migratsiyasi). `speed_tier_bonus`: taklif qilingan haq = `base_pay_amount * pay_multiplier` — `base_pay_amount` berilmasa (hali qo'lda kiritish yo'q) `NULL` qoladi, faqat `speed_tier`ning o'zi aniqlanadi |
 | created_at / updated_at | TIMESTAMPTZ | |
 
 `f98817708ac9` migratsiyasida yaratilgan. Sof hisoblash `services/financial_service.py`

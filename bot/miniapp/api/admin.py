@@ -3,13 +3,15 @@ takliflar. Ruxsat: faqat Role.ADMIN/Role.SUPERVISOR (`server.py`da
 route bo'yicha `require_roles` orqali ulanadi)."""
 
 import logging
-from datetime import datetime
+from datetime import date, datetime, timezone
 
 from aiohttp import web
 
 from core.database import async_session
 from db.repositories import (
     BrigadeRepository,
+    DailyReportSubmissionRepository,
+    DepartmentForkTargetRepository,
     DepartmentRepository,
     EmployeeRepository,
     FinancialSuggestionRepository,
@@ -17,19 +19,21 @@ from db.repositories import (
     TaskRepository,
 )
 from config import settings
-from jobs import reminder_job, report_job
+from jobs import daily_report_job, reminder_job, report_job
 from miniapp.util import err
 from services import (
     client_service,
+    daily_report_service,
     employee_service,
     financial_service,
     notification_service,
+    penalty_service,
     settings_service,
     stats_service,
     task_service,
 )
 from trello.client import TrelloAPIError, TrelloClient
-from utils.enums import Role, TaskStatus
+from utils.enums import MiscCategory, Role, TaskStatus, TaskType
 from utils.formatters import ROLE_LABELS
 
 routes = web.RouteTableDef()
@@ -101,9 +105,98 @@ async def list_departments(request: web.Request) -> web.Response:
                 "name": d.name,
                 "next_department_id": d.next_department_id,
                 "auto_reassign_after_48h": d.auto_reassign_after_48h,
+                "starts_stopped": d.starts_stopped,
+                "requires_join": d.requires_join,
+                "factory_name": d.factory_name,
+                "stop_target_list_id": d.stop_target_list_id,
             }
             for d in departments
         ]
+    )
+
+
+@routes.post("/departments")
+async def create_department(request: web.Request) -> web.Response:
+    """Fasad sex TZ: bo'lim CRUD'ining birinchi qismi — hozirgacha
+    `departments` qatori faqat bir martalik seed skript orqali yaratilar edi."""
+    body = await request.json()
+    name = (body.get("name") or "").strip()
+    if not name:
+        return err("name majburiy")
+
+    async with async_session() as session:
+        repo = DepartmentRepository(session)
+        department = await repo.create(
+            name=name,
+            trello_list_id=body.get("trello_list_id"),
+            auto_reassign_after_48h=bool(body.get("auto_reassign_after_48h", False)),
+            starts_stopped=bool(body.get("starts_stopped", False)),
+            factory_name=body.get("factory_name"),
+        )
+        await session.commit()
+
+    return web.json_response(
+        {
+            "id": department.id,
+            "name": department.name,
+            "next_department_id": department.next_department_id,
+            "auto_reassign_after_48h": department.auto_reassign_after_48h,
+            "starts_stopped": department.starts_stopped,
+            "requires_join": department.requires_join,
+            "factory_name": department.factory_name,
+        },
+        status=201,
+    )
+
+
+# Qisman yangilash uchun ruxsat etilgan maydonlar — keyingi fazalar (fork/
+# join, factory) shu ro'yxatga qo'shimcha qiladi, shuning uchun oddiy
+# ro'yxat/tsikl sifatida saqlanadi (hardcoded pozitsion tuzilma emas).
+DEPARTMENT_UPDATABLE_FIELDS = (
+    "name",
+    "trello_list_id",
+    "auto_reassign_after_48h",
+    "starts_stopped",
+    "factory_name",
+    "requires_join",
+    "stop_target_list_id",
+)
+
+
+@routes.post("/departments/{department_id}")
+async def update_department(request: web.Request) -> web.Response:
+    """Qisman yangilash: so'rov tanasida FAQAT kelgan maydonlar yoziladi
+    (`toggle_autoreassign` bilan bir xil session/commit naqshi)."""
+    department_id = int(request.match_info["department_id"])
+    body = await request.json()
+
+    updates = {}
+    for field in DEPARTMENT_UPDATABLE_FIELDS:
+        if field in body:
+            updates[field] = body[field]
+    if "name" in updates and not (updates["name"] or "").strip():
+        return err("name bo'sh bo'lishi mumkin emas")
+
+    async with async_session() as session:
+        repo = DepartmentRepository(session)
+        department = await repo.get_by_id(department_id)
+        if department is None:
+            return err("not_found", 404)
+        if updates:
+            await repo.update(department, **updates)
+            await session.commit()
+
+    return web.json_response(
+        {
+            "id": department.id,
+            "name": department.name,
+            "next_department_id": department.next_department_id,
+            "auto_reassign_after_48h": department.auto_reassign_after_48h,
+            "starts_stopped": department.starts_stopped,
+            "requires_join": department.requires_join,
+            "factory_name": department.factory_name,
+            "stop_target_list_id": department.stop_target_list_id,
+        }
     )
 
 
@@ -125,6 +218,56 @@ async def set_department_chain(request: web.Request) -> web.Response:
         await session.commit()
 
     return web.json_response({"id": department_id, "next_department_id": next_department_id})
+
+
+@routes.get("/departments/{department_id}/fork-targets")
+async def list_fork_targets(request: web.Request) -> web.Response:
+    """Fasad sex Phase 3: shu fork nuqtasidan chiqadigan parallel tarmoq
+    bo'limlari ro'yxati (ism bilan)."""
+    department_id = int(request.match_info["department_id"])
+    if not _department_scope_ok(request, department_id):
+        return err("not_found", 404)
+    async with async_session() as session:
+        fork_repo = DepartmentForkTargetRepository(session)
+        dept_repo = DepartmentRepository(session)
+        rows = await fork_repo.list_by_department(department_id)
+        items = []
+        for row in rows:
+            target = await dept_repo.get_by_id(row.target_department_id)
+            items.append(
+                {
+                    "target_department_id": row.target_department_id,
+                    "target_department_name": target.name if target else None,
+                }
+            )
+    return web.json_response(items)
+
+
+@routes.post("/departments/{department_id}/fork-targets")
+async def set_fork_targets(request: web.Request) -> web.Response:
+    """Fasad sex Phase 3: fork nuqtasi tarmoqlarini TO'LIQ ALMASHTIRISH
+    (delegate_task/reassign_task_brigade'dagi "hammasini o'chir, yangisini
+    qo'sh" naqshi bilan bir xil)."""
+    department_id = int(request.match_info["department_id"])
+    if not _department_scope_ok(request, department_id):
+        return err("bu bo'lim sizning doirangizda emas", 403)
+    body = await request.json()
+    target_ids = body.get("target_department_ids") or []
+
+    async with async_session() as session:
+        dept_repo = DepartmentRepository(session)
+        fork_repo = DepartmentForkTargetRepository(session)
+        if await dept_repo.get_by_id(department_id) is None:
+            return err("not_found", 404)
+        for row in await fork_repo.list_by_department(department_id):
+            await fork_repo.delete(row)
+        for tid in target_ids:
+            await fork_repo.create(department_id=department_id, target_department_id=int(tid))
+        await session.commit()
+
+    return web.json_response(
+        {"department_id": department_id, "target_department_ids": [int(t) for t in target_ids]}
+    )
 
 
 @routes.post("/departments/{department_id}/autoreassign")
@@ -221,6 +364,8 @@ async def create_task(request: web.Request) -> web.Response:
         )
         client_id = client.id
 
+    seller_ids = [int(s) for s in (body.get("seller_ids") or [])]
+
     try:
         task = await task_service.create_task(
             title=title,
@@ -229,11 +374,15 @@ async def create_task(request: web.Request) -> web.Response:
             department_id=int(department_id),
             employee_ids=[int(brigadier_id)],
             client_id=client_id,
+            created_by_employee_id=request["employee"].id,
+            seller_ids=seller_ids,
         )
     except task_service.DepartmentNotFoundError:
         return err("bo'lim topilmadi", 404)
     except task_service.DepartmentNotConfiguredError as exc:
         return err(str(exc), 409)
+    except ValueError as exc:
+        return err(str(exc))
 
     return web.json_response({"id": task.id, "status": task.status.value}, status=201)
 
@@ -305,6 +454,7 @@ async def employee_detail(request: web.Request) -> web.Response:
             "brigade": brigade.name if brigade else None,
             "is_active": employee.is_active,
             "telegram_linked": employee.telegram_id is not None,
+            "daily_report_required": employee.daily_report_required,
         }
     )
 
@@ -356,6 +506,8 @@ async def update_employee(request: web.Request) -> web.Response:
     elif "department_id" in body:
         # bo'lim o'zgarganda eski brigada mos kelmasligi mumkin (chat bilan bir xil qoida)
         fields["brigade_id"] = None
+    if "daily_report_required" in body:
+        fields["daily_report_required"] = bool(body["daily_report_required"])
 
     if not fields:
         return err("hech qanday maydon berilmadi")
@@ -441,6 +593,8 @@ async def list_financial(request: web.Request) -> web.Response:
                     "stage_duration_days": s.stage_duration_days,
                     "suggested_deduction_amount": s.suggested_deduction_amount,
                     "waived_amount": s.waived_amount,
+                    "speed_tier": s.speed_tier,
+                    "suggested_pay_amount": s.suggested_pay_amount,
                 }
             )
     return web.json_response(items)
@@ -465,6 +619,28 @@ async def set_financial_amount(request: web.Request) -> web.Response:
     return web.json_response(
         {"id": suggestion.id, "suggested_deduction_amount": suggestion.suggested_deduction_amount}
     )
+
+
+@routes.post("/financial/{suggestion_id}/pay-amount")
+async def set_financial_pay_amount(request: web.Request) -> web.Response:
+    """Fasad sex TZ, Phase 7: `set_financial_amount`dagi bilan bir xil
+    naqsh, faqat SPEED_TIER_BONUS taklifining `suggested_pay_amount`
+    maydonini to'ldiradi."""
+    suggestion_id = int(request.match_info["suggestion_id"])
+    body = await request.json()
+    try:
+        amount = float(body["amount"])
+    except (KeyError, TypeError, ValueError):
+        return err("amount noto'g'ri")
+    if amount < 0:
+        return err("amount manfiy bo'lishi mumkin emas")
+
+    try:
+        suggestion = await financial_service.set_speed_tier_pay_amount(suggestion_id, amount)
+    except ValueError as exc:
+        return err(str(exc), 404)
+
+    return web.json_response({"id": suggestion.id, "suggested_pay_amount": suggestion.suggested_pay_amount})
 
 
 @routes.post("/financial/advance-waiver")
@@ -514,9 +690,14 @@ async def create_misc_task(request: web.Request) -> web.Response:
     if deadline <= datetime.now(deadline.tzinfo):
         return err("deadline kelajakda bo'lishi kerak")
 
+    category_value = body.get("category") or None
+    if category_value is not None and category_value not in {c.value for c in MiscCategory}:
+        return err("category noto'g'ri")
+    category = MiscCategory(category_value) if category_value else None
+
     try:
         task = await task_service.create_misc_task(
-            text=text, deadline=deadline, employee_ids=[int(e) for e in employee_ids]
+            text=text, deadline=deadline, employee_ids=[int(e) for e in employee_ids], category=category
         )
     except ValueError as exc:
         return err(str(exc), 409)
@@ -529,14 +710,64 @@ async def create_misc_task(request: web.Request) -> web.Response:
     return web.json_response({"id": task.id, "title": task.title}, status=201)
 
 
+@routes.get("/misctasks")
+async def list_admin_misctasks(request: web.Request) -> web.Response:
+    """Fasad sex TZ, Phase 9 tuzatish: worker-scoped `GET /misctasks`dan
+    farqli, HAR BIR MISC vazifani ko'rsatadi (kimga biriktirilganidan
+    qat'i nazar) — shu kamchilikni yopish uchun qo'shildi (mustaqil sharh:
+    admin bo'lim filtri mavjud edi, lekin MISC vazifalarni butunlay ko'ra
+    olmasdi). Ixtiyoriy `?category=` filtri, `list_misctasks`dagi bilan bir
+    xil naqsh: lug'atda yo'q qiymat berilsa — bo'sh ro'yxat."""
+    category_value = request.query.get("category")
+    category = None
+    if category_value:
+        if category_value not in {c.value for c in MiscCategory}:
+            return web.json_response([])
+        category = MiscCategory(category_value)
+
+    async with async_session() as session:
+        tasks = await TaskRepository(session).list_by_type(TaskType.MISC, misc_category=category)
+        tasks = [t for t in tasks if _department_scope_ok(request, t.current_department_id)]
+
+        assignment_repo = TaskAssignmentRepository(session)
+        employee_repo = EmployeeRepository(session)
+        items = []
+        for task in tasks:
+            assignments = await assignment_repo.list_by_task(task.id)
+            names = []
+            for a in assignments:
+                employee = await employee_repo.get_by_id(a.employee_id)
+                if employee is not None:
+                    names.append(employee.full_name)
+            items.append(
+                {
+                    "id": task.id,
+                    "title": task.title,
+                    "status": task.status.value,
+                    "deadline": task.deadline.isoformat() if task.deadline else None,
+                    "misc_category": task.misc_category.value if task.misc_category else None,
+                    "assigned_employee_names": names,
+                }
+            )
+    return web.json_response(items)
+
+
 @routes.get("/stats")
 async def full_stats(request: web.Request) -> web.Response:
     """10-band: `/stats`ning to'liq versiyasi — dashboard'dagi xulosa
     tile'laridan farqli, har bir xodim bo'yicha to'liq saralangan jadval.
     Faqat KPI oladigan rollar (ishchi/brigadir) — rahbar/nazoratchi/sotuvchida
-    ball umuman bo'lmagani uchun ro'yxatga qo'shilmaydi."""
+    ball umuman bo'lmagani uchun ro'yxatga qo'shilmaydi. Ixtiyoriy
+    `?factory_name=` query parametri (Fasad sex TZ §9) natijani shu zavodga
+    tegishli bo'limlardagi xodimlar bilan cheklaydi — berilmasa, avvalgidek
+    filtrsiz."""
+    factory_name = request.query.get("factory_name")
     stats = sorted(
-        (s for s in await stats_service.get_monthly_stats() if s.role in stats_service.KPI_ROLES),
+        (
+            s
+            for s in await stats_service.get_monthly_stats(factory_name=factory_name)
+            if s.role in stats_service.KPI_ROLES
+        ),
         key=lambda s: s.total_score,
         reverse=True,
     )
@@ -555,8 +786,48 @@ async def full_stats(request: web.Request) -> web.Response:
     )
 
 
+@routes.get("/stats/capacity")
+async def capacity_stats(request: web.Request) -> web.Response:
+    """Fasad sex TZ, Phase 6: kunlik norma (5 punkt/ishchi) — bo'lim uchun
+    reja (`planned_points`) va bajarilgan vazifa soni (`actual_points`,
+    PROKSI, haqiqiy kv.m emas) yonma-yon. `?department_id=` majburiy;
+    `?since=`/`?until=` ixtiyoriy ISO 8601 — berilmasa, joriy oy
+    (`stats_service._month_bounds` bilan bir xil qoida)."""
+    department_id = request.query.get("department_id")
+    if not department_id:
+        return err("department_id majburiy")
+    try:
+        department_id = int(department_id)
+    except ValueError:
+        return err("department_id noto'g'ri")
+    if not _department_scope_ok(request, department_id):
+        return err("bu bo'lim sizning doirangizda emas", 403)
+
+    since_raw = request.query.get("since")
+    until_raw = request.query.get("until")
+    if since_raw and until_raw:
+        try:
+            since = datetime.fromisoformat(since_raw)
+            until = datetime.fromisoformat(until_raw)
+        except ValueError:
+            return err("since/until ISO 8601 formatida bo'lishi kerak")
+    else:
+        since, until = penalty_service.month_bounds(datetime.now(timezone.utc))
+
+    capacity = await stats_service.get_capacity_vs_actual(department_id, since, until)
+    return web.json_response(
+        {
+            "worker_count": capacity.worker_count,
+            "planned_points": capacity.planned_points,
+            "actual_points": capacity.actual_points,
+        }
+    )
+
+
 _SETTING_FIELDS = list(settings_service.AppSettingsSnapshot.__dataclass_fields__)
-_SETTING_FIELDS = [f for f in _SETTING_FIELDS if f not in ("reminder_schedule", "sales_board_lists")]
+_SETTING_FIELDS = [
+    f for f in _SETTING_FIELDS if f not in ("reminder_schedule", "sales_board_lists", "speed_tier_schedule")
+]
 
 
 def _parse_setting_value(field: str, value: object) -> object:
@@ -576,7 +847,7 @@ def _parse_setting_value(field: str, value: object) -> object:
             raise ValueError
     elif field in (
         "plus_ball_per_day", "plus_ball_max_days", "financial_flag_threshold_days",
-        "lead_follow_up_threshold_days",
+        "lead_follow_up_threshold_days", "daily_quota_points_per_worker",
     ):
         value = int(value)
         if value <= 0:
@@ -585,7 +856,7 @@ def _parse_setting_value(field: str, value: object) -> object:
         value = int(value)
         if not (0 <= value <= 100):
             raise ValueError
-    elif field == "report_time":
+    elif field in ("report_time", "daily_report_time"):
         settings_service.validate_time_str(value)
     else:
         raise ValueError(f"noma'lum sozlama: {field}")
@@ -614,6 +885,8 @@ async def update_settings(request: web.Request) -> web.Response:
     updated = await settings_service.update_setting(**fields)
     if "report_time" in fields:
         report_job.schedule_all(request.config_dict["bot"], updated.report_time)
+    if "daily_report_time" in fields:
+        daily_report_job.schedule_all(request.config_dict["bot"], updated.daily_report_time)
 
     return web.json_response({field: getattr(updated, field) for field in _SETTING_FIELDS})
 
@@ -666,6 +939,69 @@ async def delete_reminder(request: web.Request) -> web.Response:
     updated = await settings_service.update_setting(reminder_schedule=schedule)
     reminder_job.schedule_all(request.config_dict["bot"], updated.reminder_schedule)
     return web.json_response(updated.reminder_schedule)
+
+
+@routes.get("/speed-tiers")
+async def list_speed_tiers(request: web.Request) -> web.Response:
+    snapshot = await settings_service.get_settings()
+    return web.json_response(snapshot.speed_tier_schedule)
+
+
+@routes.post("/speed-tiers")
+async def add_speed_tier(request: web.Request) -> web.Response:
+    body = await request.json()
+    snapshot = await settings_service.get_settings()
+    schedule = list(snapshot.speed_tier_schedule)
+    try:
+        schedule.append(
+            {
+                "max_days": int(body.get("max_days")),
+                "tier": (body.get("tier") or "").strip(),
+                "pay_multiplier": float(body.get("pay_multiplier")),
+            }
+        )
+    except (TypeError, ValueError):
+        return err("max_days, tier, pay_multiplier noto'g'ri")
+    try:
+        updated = await settings_service.update_setting(speed_tier_schedule=schedule)
+    except settings_service.InvalidReminderScheduleError as exc:
+        return err(str(exc))
+    return web.json_response(updated.speed_tier_schedule, status=201)
+
+
+@routes.put("/speed-tiers/{index}")
+async def edit_speed_tier(request: web.Request) -> web.Response:
+    index = int(request.match_info["index"])
+    body = await request.json()
+    snapshot = await settings_service.get_settings()
+    schedule = list(snapshot.speed_tier_schedule)
+    if not 0 <= index < len(schedule):
+        return err("not_found", 404)
+    try:
+        schedule[index] = {
+            "max_days": int(body.get("max_days")),
+            "tier": (body.get("tier") or "").strip(),
+            "pay_multiplier": float(body.get("pay_multiplier")),
+        }
+    except (TypeError, ValueError):
+        return err("max_days, tier, pay_multiplier noto'g'ri")
+    try:
+        updated = await settings_service.update_setting(speed_tier_schedule=schedule)
+    except settings_service.InvalidReminderScheduleError as exc:
+        return err(str(exc))
+    return web.json_response(updated.speed_tier_schedule)
+
+
+@routes.delete("/speed-tiers/{index}")
+async def delete_speed_tier(request: web.Request) -> web.Response:
+    index = int(request.match_info["index"])
+    snapshot = await settings_service.get_settings()
+    schedule = list(snapshot.speed_tier_schedule)
+    if not 0 <= index < len(schedule):
+        return err("not_found", 404)
+    del schedule[index]
+    updated = await settings_service.update_setting(speed_tier_schedule=schedule)
+    return web.json_response(updated.speed_tier_schedule)
 
 
 @routes.get("/pending-setup")
@@ -767,6 +1103,36 @@ async def list_reassign_candidates(request: web.Request) -> web.Response:
                 }
             )
     return web.json_response(items)
+
+
+@routes.get("/daily-reports")
+async def daily_reports_compliance(request: web.Request) -> web.Response:
+    """Fasad sex TZ, Phase 8: kunlik rasm/video hisobot muvofiqligi —
+    `daily_report_required=True` FAOL xodimlar ikki guruhga bo'linadi
+    (yuborgan/yubormagan). `date` so'rov parametri bo'lmasa — bugun
+    (Toshkent vaqti)."""
+    date_param = request.query.get("date")
+    try:
+        report_date = date.fromisoformat(date_param) if date_param else daily_report_service.today_tashkent()
+    except ValueError:
+        return err("date noto'g'ri formatda (YYYY-MM-DD kerak)")
+
+    async with async_session() as session:
+        required = await EmployeeRepository(session).list_daily_report_required()
+        submissions = await DailyReportSubmissionRepository(session).list_by_date(report_date)
+    submitted_ids = {s.employee_id for s in submissions}
+    required = [e for e in required if _department_scope_ok(request, e.department_id)]
+
+    def _brief(e) -> dict:
+        return {"id": e.id, "full_name": e.full_name, "department_id": e.department_id}
+
+    return web.json_response(
+        {
+            "date": report_date.isoformat(),
+            "submitted": [_brief(e) for e in required if e.id in submitted_ids],
+            "missing": [_brief(e) for e in required if e.id not in submitted_ids],
+        }
+    )
 
 
 @routes.get("/tasks/{task_id}/reassign-brigades")

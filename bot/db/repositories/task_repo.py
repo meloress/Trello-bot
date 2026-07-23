@@ -5,7 +5,7 @@ from sqlalchemy import select
 from db.models.department import Department
 from db.models.task import Task
 from db.repositories.base import BaseRepository
-from utils.enums import TaskStatus, TaskType
+from utils.enums import MiscCategory, TaskStatus, TaskType
 
 _OPEN_STATUSES = [TaskStatus.ACTIVE, TaskStatus.STOPPED]
 
@@ -28,9 +28,31 @@ class TaskRepository(BaseRepository[Task]):
         )
         return result.scalars().first()
 
+    async def list_by_previous_task_id(self, previous_task_id: int) -> list[Task]:
+        """Fasad sex TZ (Phase 3, fork/join): bitta fork nuqtasidan chiqqan
+        qardosh tarmoq-qatorlarini topish — hammasi bir xil
+        `previous_task_id`ni (fork nuqtasining task id'si) ulashadi."""
+        result = await self.session.execute(
+            select(Task).where(Task.previous_task_id == previous_task_id)
+        )
+        return list(result.scalars().all())
+
     async def list_by_status(self, status: TaskStatus) -> list[Task]:
         """Kunlik label sinxronizatsiyasi va taymer job'lari uchun (6.3, 7.4-band)."""
         result = await self.session.execute(select(Task).where(Task.status == status))
+        return list(result.scalars().all())
+
+    async def list_by_type(
+        self, task_type: TaskType, *, misc_category: MiscCategory | None = None
+    ) -> list[Task]:
+        """Fasad sex TZ, Phase 9 tuzatish: admin-tomonlama MISC vazifalar
+        ro'yxati (`GET /admin/misctasks`) — bitta xodimning `task_assignments`
+        yozuviga bog'liq emas, `list_by_employee`dagidan farqli, HAMMA MISC
+        vazifalarni ko'radi. Ixtiyoriy `misc_category` filtri."""
+        query = select(Task).where(Task.task_type == task_type)
+        if misc_category is not None:
+            query = query.where(Task.misc_category == misc_category)
+        result = await self.session.execute(query.order_by(Task.id.desc()))
         return list(result.scalars().all())
 
     async def list_due_between(

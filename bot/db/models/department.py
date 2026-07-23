@@ -35,6 +35,35 @@ class Department(TimestampedBase):
     # majburiy emas, shu sabab bo'lim darajasida yoqiladi/o'chiriladi
     # (admin panel, /autoreassign).
     auto_reassign_after_48h: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Fasad sex TZ: ba'zi bo'limlarda buyurtma darhol ACTIVE emas, STOPPED
+    # holatda ochiladi (joy tayyor bo'lishini kutish) — task_service.create_task()
+    # shu bayroqqa qarab boshlang'ich holatni tanlaydi.
+    starts_stopped: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Fasad sex TZ (Phase 3): konvergensiya (join) bo'limi — bir nechta parallel
+    # tarmoq shu bo'limga qaytib qo'shiladi. True bo'lsa,
+    # task_service.advance_task_stage() bu bo'limga o'tishdan oldin BARCHA
+    # qardosh tarmoqlar tugashini kutadi (fork nuqtasi esa
+    # department_fork_targets jadvalida belgilanadi).
+    requires_join: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Fasad sex TZ (Phase 0): shu bo'lim qaysi ishlab chiqarish moduliga
+    # tegishli — "mebel" (asosiy, standart) yoki "fasad_sex" (yangi, parallel
+    # zanjir). Oddiy VARCHAR, CHECK/enum emas (CLAUDE.md konvensiyasi) — 3-modul
+    # keyinchalik qo'shilsa, migratsiya kod o'zgarishisiz kengayadi.
+    module: Mapped[str] = mapped_column(String(20), nullable=False, default="mebel")
+    # Fasad sex TZ, §9 "ikkinchi zavod": shu bo'lim qaysi FIZIK zavod/filialga
+    # tegishli — `module`dan MUSTAQIL (module = qaysi ishlab chiqarish
+    # tizimi, factory_name = qaysi jismoniy joylashuv). NULL = hali
+    # belgilanmagan (bitta zavod bo'lgan davrdagi bo'limlar). Faqat statistikani
+    # zavod bo'yicha ajratish uchun (stats_service.py), UI/CRUD'dan tashqari
+    # boshqa hech qanday mantiqqa ta'sir qilmaydi.
+    factory_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    # Fasad sex TZ (Phase 5): "Stop" bosilganda karta shu Trello ro'yxatiga
+    # ko'chirilishi kerak bo'lgan bo'limlar uchun maqsad list (masalan
+    # "stopda"). NULL = standart xatti-harakat — Stop faqat DB status/label
+    # o'zgartiradi, karta joyidan qo'zg'almaydi (timer_service.stop_task()).
+    # `trello_list_id`dan MUSTAQIL — Resume bosilganda karta ANIQ shu
+    # ustunga emas, bo'limning ODATIY `trello_list_id`siga qaytariladi.
+    stop_target_list_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
     brigades: Mapped[list["Brigade"]] = relationship(back_populates="department")
     employees: Mapped[list["Employee"]] = relationship(back_populates="department")

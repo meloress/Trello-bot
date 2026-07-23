@@ -26,6 +26,18 @@ class TaskType(str, Enum):
     MISC = "misc"
 
 
+class MiscCategory(str, Enum):
+    """Fasad sex TZ, Phase 9: MISC vazifalar uchun ixtiyoriy kategoriya
+    belgisi (ofis/Fasad sex ishlab chiqarish/o'rnatuvchilar/payvandchilar) —
+    faqat ichki barqaror identifikator, aniq o'zbekcha nomlanish hali ochiq
+    savol (`.claude/plans/09z-fasad-sex-ochiq-savollar.md` #6/#14)."""
+
+    OFFICE = "office"
+    FASAD_SEX = "fasad_sex"
+    INSTALLER = "installer"
+    WELDER = "welder"
+
+
 class ReminderUrgency(str, Enum):
     """7.3-band: kunlik eslatma jadvalidagi har bir vaqt o'zining
     eskalatsiya darajasiga ega (xabar matni shunga qarab kuchayadi)."""
@@ -41,6 +53,10 @@ class FinancialSuggestionKind(str, Enum):
 
     WAGE_DEDUCTION = "wage_deduction"
     ADVANCE_WAIVER = "advance_waiver"
+    # Fasad sex TZ, Phase 7: bosqich necha kunda tugatilganiga qarab tavsiya
+    # etiladigan to'lov (tezlik darajasi bo'yicha) — kelib chiqishi boshqa
+    # ikkitasidan farqli (jarima/kechirim emas, mumkin bo'lgan BONUS).
+    SPEED_TIER_BONUS = "speed_tier_bonus"
 
 
 class FinancialSuggestionStatus(str, Enum):

@@ -6,13 +6,18 @@ funksiyalarni chaqiradi. `core/database.py`dagi `async_session` `expire_on_commi
 bilan sozlangani uchun qaytarilgan ORM obyektlari commit'dan keyin ham xavfsiz o'qiladi.
 """
 
+import logging
 from datetime import datetime, timezone
 
+from config import settings
 from core.database import async_session
 from db.models.stop_log import StopLog
 from db.models.task import Task
-from db.repositories import StopLogRepository, TaskAssignmentRepository, TaskRepository
+from db.repositories import DepartmentRepository, StopLogRepository, TaskAssignmentRepository, TaskRepository
+from trello.client import TrelloClient
 from utils.enums import TaskStatus
+
+logger = logging.getLogger(__name__)
 
 
 class TaskNotFoundError(Exception):
@@ -47,6 +52,46 @@ async def start_task(task_id: int, employee_ids: list[int]) -> Task:
         return task
 
 
+async def _move_card_to_stop_list(card_id: str, department_id: int) -> None:
+    """Fasad sex TZ (Phase 5): bo'lim `stop_target_list_id` sozlagan bo'lsa,
+    "Stop" bosilganda karta shu maxsus Trello ro'yxatiga ko'chiriladi
+    (mavjud label o'zgarishi bilan bir qatorda, ikkinchi-darajali effekt —
+    `task_service.py`dagi `_create_stage_checklist` bilan bir xil
+    try/except-log-only naqsh). `stop_target_list_id=None` bo'lgan bo'limlar
+    uchun (mavjud mebel liniyasidagi HAMMA bo'lim) bu funksiya HECH QANDAY
+    Trello chaqiruvi qilmaydi — bugungi xatti-harakat o'zgarishsiz qoladi."""
+    async with async_session() as session:
+        department = await DepartmentRepository(session).get_by_id(department_id)
+    if department is None or not department.stop_target_list_id:
+        return
+    try:
+        async with TrelloClient(settings.trello_api_key, settings.trello_token) as trello:
+            await trello.move_card_to_list(card_id, department.stop_target_list_id)
+    except Exception:
+        logger.exception(
+            "Task kartasi (%s) 'stopda' ro'yxatiga ko'chirilmadi (department=%s)", card_id, department_id
+        )
+
+
+async def _move_card_back_from_stop_list(card_id: str, department_id: int) -> None:
+    """Yuqoridagisining teskarisi: "Resume" bosilganda karta bo'limning
+    ODATIY ro'yxatiga (`trello_list_id`, YANGI `stop_target_list_id` ustuni
+    emas) qaytariladi — FAQAT shu bo'lim `stop_target_list_id` sozlagan
+    bo'lsa (aks holda karta hech qachon ko'chmagan, qaytarishning hojati
+    yo'q)."""
+    async with async_session() as session:
+        department = await DepartmentRepository(session).get_by_id(department_id)
+    if department is None or not department.stop_target_list_id or not department.trello_list_id:
+        return
+    try:
+        async with TrelloClient(settings.trello_api_key, settings.trello_token) as trello:
+            await trello.move_card_to_list(card_id, department.trello_list_id)
+    except Exception:
+        logger.exception(
+            "Task kartasi (%s) asosiy ro'yxatga qaytarilmadi (department=%s)", card_id, department_id
+        )
+
+
 async def stop_task(task_id: int, employee_id: int, reason: str) -> StopLog:
     """"Stop" tugmasi: faqat faol vazifani to'xtatadi, sabab yozish majburiy (7.5-band)."""
     if not reason or not reason.strip():
@@ -77,7 +122,16 @@ async def stop_task(task_id: int, employee_id: int, reason: str) -> StopLog:
         )
 
         await session.commit()
-        return stop_log
+        card_id = task.trello_card_id
+        department_id = task.current_department_id
+
+    # Fasad sex TZ (Phase 5): DB holati (STOPPED + StopLog) allaqachon
+    # commit qilingan — bu Trello karta ko'chirishi ikkinchi-darajali effekt,
+    # muvaffaqiyatsiz bo'lsa ham Stop amali o'zi muvaffaqiyatli hisoblanadi.
+    if card_id and department_id is not None:
+        await _move_card_to_stop_list(card_id, department_id)
+
+    return stop_log
 
 
 async def resume_task(task_id: int, employee_id: int | None = None) -> Task:
@@ -111,7 +165,15 @@ async def resume_task(task_id: int, employee_id: int | None = None) -> Task:
         await task_repo.update(task, status=TaskStatus.ACTIVE)
 
         await session.commit()
-        return task
+        card_id = task.trello_card_id
+        department_id = task.current_department_id
+
+    # Fasad sex TZ (Phase 5): xuddi stop_task() dagidek — DB holati allaqachon
+    # commit qilingan, karta ko'chirishi ikkinchi-darajali effekt.
+    if card_id and department_id is not None:
+        await _move_card_back_from_stop_list(card_id, department_id)
+
+    return task
 
 
 async def finish_task(task_id: int, employee_id: int | None = None) -> Task:
