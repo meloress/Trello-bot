@@ -109,12 +109,14 @@ ularni taxmin qilmaydi.
   vazifa-soni proksi ekani 4 joyda (docstring x2, db-schema.md, frontend
   caption) aniq yozilgan. `penalty_service.py`ga tegilmadi (jarima QOIDASI
   EMAS talabi saqlandi).
-- [ ] **Phase 7 — Tezlikka qarab to'lov taklifi (speed-tier).** Yangi
+- [x] **Phase 7 — Tezlikka qarab to'lov taklifi (speed-tier).** BAJARILDI
+  (`3c4e150`, review: Approved). Yangi
   `app_settings.speed_tier_schedule: JSON NOT NULL DEFAULT '[]'` (bo'sh —
-  aniq foizlar kelmaguncha inert). `financial_suggestions`ga `speed_tier`,
-  `suggested_pay_amount`. Yangi pure function
+  aniq foizlar kelmaguncha inert, tekshirilgan). `financial_suggestions`ga
+  `speed_tier`, `suggested_pay_amount`. Yangi pure function
   `financial_service.calculate_speed_tier_bonus()` — "taklif qiladi, hech
-  qachon ijro etmaydi" pattern.
+  qachon ijro etmaydi" pattern (idempotent, tekshirilgan). `kind` ustuni
+  yangi qiymat sig'ishi uchun kengaytirildi (mavjud precedent bo'yicha).
 - [ ] **Phase 8 — Kunlik rasm/video hisobot (compliance).** Chat-based FSM
   (`/mijoz` bilan bir xil sabab). Yangi jadval `daily_report_submissions`.
   Yangi `employees.daily_report_required: BOOLEAN NOT NULL DEFAULT false`.
