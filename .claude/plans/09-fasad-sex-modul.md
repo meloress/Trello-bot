@@ -36,7 +36,14 @@ ularni taxmin qilmaydi.
 
 ## Bosqichlar (checklist)
 
-- [ ] **Phase 0 — Mini App'da ikki tizim almashtirgichi.**
+- [x] **Phase 0 — Mini App'da ikki tizim almashtirgichi.** BAJARILDI
+  (`ccafb99`, review: Approved). `fasad_sex` tab to'plami hozircha
+  placeholder (`screenAdminHome`/`screenProfile` qayta ishlatiladi, haqiqiy
+  Fasad sex ekranlari hali yo'q) — ESLATMA: placeholder ADMIN-only
+  endpoint'larga tayanadi, shu tufayli `fasad_sex` bo'limiga ADMIN/
+  SUPERVISOR'dan boshqa rol (ishchi/brigadir) tayinlanishidan OLDIN, real
+  Fasad sex bosh sahifa ekrani (keyingi bosqichlarda) qurilishi kerak —
+  aks holda 403 xatosi ko'rinadi.
   Yangi `departments.module: VARCHAR(20) NOT NULL DEFAULT 'mebel'`.
   `GET /me`ga `available_modules`. Frontend: `screenModuleChooser()`,
   `tabDefsForRole(role, module)` ikkinchi parametr, Profil'da "🔄 Tizimni
