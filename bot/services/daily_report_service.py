@@ -6,6 +6,8 @@ ochiq-savollar.md`), shu sabab `penalty_service.py`ga ATAYLAB tegilmagan.
 
 from datetime import date, datetime, timezone
 
+from sqlalchemy.exc import IntegrityError
+
 from core.database import async_session
 from db.models.daily_report_submission import DailyReportSubmission
 from db.models.employee import Employee
@@ -33,12 +35,23 @@ async def submit_daily_report(
         if existing is not None:
             submission = await repo.update(existing, file_id=file_id, submitted_at=submitted_at)
         else:
-            submission = await repo.create(
-                employee_id=employee_id,
-                report_date=report_date,
-                file_id=file_id,
-                submitted_at=submitted_at,
-            )
+            try:
+                submission = await repo.create(
+                    employee_id=employee_id,
+                    report_date=report_date,
+                    file_id=file_id,
+                    submitted_at=submitted_at,
+                )
+            except IntegrityError:
+                # ponytail: check-then-act race — a Telegram photo album fires N
+                # concurrent handler calls (separate asyncio.Task per Update), so
+                # a sibling call's create() can win between our check and insert.
+                # UNIQUE(employee_id, report_date) is what catches it; fall back
+                # to updating the row the winner just created instead of letting
+                # IntegrityError bubble to the chat handler as a scary error.
+                await session.rollback()
+                existing = await repo.get_by_employee_and_date(employee_id, report_date)
+                submission = await repo.update(existing, file_id=file_id, submitted_at=submitted_at)
         await session.commit()
         return submission
 
