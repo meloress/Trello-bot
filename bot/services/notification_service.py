@@ -28,6 +28,7 @@ from db.repositories import (
     StopLogRepository,
     TaskAssignmentRepository,
     TaskRepository,
+    TaskSellerRepository,
 )
 from utils.enums import ReminderUrgency, Role
 from utils.formatters import format_dt as _format_dt
@@ -75,8 +76,9 @@ async def notify_task_started(bot: Bot, task_id: int) -> None:
 
 
 async def notify_task_stopped(bot: Bot, stop_log_id: int) -> None:
-    """7.5-band: "Stop" bosilganda to'xtatgan xodimga, uning brigadiriga va shu
-    yo'nalishdagi nazoratchi/adminlarga xabar (`timer_service.stop_task()`
+    """7.5-band: "Stop" bosilganda to'xtatgan xodimga, uning brigadiriga, shu
+    yo'nalishdagi nazoratchi/adminlarga VA buyurtmaga biriktirilgan barcha
+    sotuvchilarga (Fasad sex TZ Phase 5) xabar (`timer_service.stop_task()`
     qaytargan `StopLog.id` asosida)."""
     async with async_session() as session:
         stop_repo = StopLogRepository(session)
@@ -110,6 +112,15 @@ async def notify_task_stopped(bot: Bot, stop_log_id: int) -> None:
         for employee in await employee_repo.list_by_department(task.current_department_id):
             if employee.role in (Role.SUPERVISOR, Role.ADMIN):
                 recipients[employee.id] = employee.telegram_id
+
+        # Fasad sex TZ Phase 5: buyurtmaga biriktirilgan sotuvchi(lar) ham
+        # Stop haqida xabar olishi kerak. `recipients` employee_id bo'yicha
+        # kalitlangani uchun bir kishi ham supervisor/admin, ham sotuvchi
+        # bo'lsa avtomatik deduplikatsiya qilinadi (ikki marta yubormaydi).
+        for task_seller in await TaskSellerRepository(session).list_by_task(task.id):
+            seller = await employee_repo.get_by_id(task_seller.employee_id)
+            if seller is not None:
+                recipients[seller.id] = seller.telegram_id
 
     text = (
         f"🛑 Vazifa to'xtatildi: {task.title}\n"

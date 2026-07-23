@@ -29,6 +29,7 @@ migratsiyalar faqat Alembic (`bot/db/migrations/`) orqali amalga oshiriladi.
 | requires_join | BOOLEAN | default: false (Fasad sex TZ, Phase 3 fork/join, `b7c1e4f9a83d` migratsiyasi). `True` = konvergensiya (join) bo'limi — bir nechta parallel tarmoq shu bo'limga qaytib qo'shiladi. `task_service.advance_task_stage()` bu bo'limga o'tishdan oldin BARCHA qardosh tarmoqlar (bir xil `tasks.previous_task_id`ni ulashadigan qatorlar) COMPLETED bo'lishini kutadi — oxirgi tarmoq tugaganda yagona join bosqichi yaratiladi; undan oldingi tarmoqlar `None` qaytaradi (bosqich hali yaratilmaydi). Mini App'ning `POST /admin/departments/{id}` orqali sozlanadi |
 | module | VARCHAR(20) | default: `'mebel'` (Fasad sex TZ, Phase 0 — Mini App modul almashtirgichi, `d33c76d946db` migratsiyasi). Shu bo'lim qaysi ishlab chiqarish moduliga tegishli — `"mebel"` (asosiy, standart) yoki `"fasad_sex"` (yangi, parallel zanjir); enum/CHECK emas, oddiy VARCHAR (repo konvensiyasi — 3-modul kelajakda qo'shilsa, cheklovsiz kengayadi). `miniapp/api/common.py`'ning `GET /me`'si `available_modules`'ni shu ustunga qarab hisoblaydi (rol + `employee.department_id` bo'yicha) — frontend shu ro'yxatga qarab modul tanlash ekranini ko'rsatadi/o'tkazib yuboradi |
 | factory_name | VARCHAR(100), NULL | Fasad sex TZ §9 "ikkinchi zavod" (`3137620903a2` migratsiyasi). `module`dan MUSTAQIL — `module` qaysi ishlab chiqarish TIZIMIga (mebel/fasad_sex), `factory_name` esa qaysi jismoniy ZAVOD/FILIALga tegishli ekanini belgilaydi (2+ jismoniy joylashuv statistikasi aralashmasligi uchun, hech biri ikkinchisidan hisoblanmaydi). NULL = hali belgilanmagan. `stats_service.get_monthly_stats(factory_name=...)` ixtiyoriy filtr parametri sifatida ishlatadi (`Employee.department_id -> Department.factory_name` join, `None` — filtrsiz, avvalgidek). Mini App'ning `POST /admin/departments` / `POST /admin/departments/{id}` orqali sozlanadi (`GET /admin/stats?factory_name=` orqali o'qiladi) — hozircha alohida UI/zavod-tanlash ekrani yo'q |
+| stop_target_list_id | VARCHAR(50), NULL | Fasad sex TZ, Phase 5 (`c8a2e6f31b90` migratsiyasi). NULL = standart xatti-harakat — `timer_service.stop_task()`/`resume_task()` faqat DB status (`STOPPED`/`ACTIVE`) o'zgartiradi, karta joyidan qo'zg'almaydi (mavjud mebel liniyasidagi HAMMA bo'lim uchun shu). Sozlangan bo'lsa: Stop bosilganda karta shu Trello ro'yxatiga (masalan "stopda") ko'chiriladi, Resume bosilganda esa `trello_list_id`ga (bu ustunga EMAS) qaytariladi — ikkalasi ham ikkinchi-darajali effekt (try/except-log-only, DB yozuvidan KEYIN, muvaffaqiyatsizlik Stop/Resume amalini bloklamaydi). Mini App'ning `POST /admin/departments/{id}` orqali sozlanadi — hozircha alohida UI ekrani yo'q, qaysi bo'limlarda yoqilishi keyingi config-only qadam |
 | created_at / updated_at | TIMESTAMPTZ | |
 
 **Bog'lanishlar**: `brigades` (1-M), `employees` (1-M), `tasks` (1-M, `current_department_id` orqali), `next_department` (M-1, o'z-o'ziga, ixtiyoriy), `department_fork_targets` (1-M, fork nuqtasi sifatida).
@@ -185,6 +186,27 @@ brigada tanlovi va tasdiq qo'lda (`task_service.reassign_task_brigade()`,
 `UNIQUE(task_id, employee_id)` — bitta xodim bitta vazifaga faqat bir marta biriktiriladi.
 
 **Bog'lanishlar**: `task` (M-1), `employee` (M-1).
+
+### task_sellers — Vazifa <-> Sotuvchi (M-to-M)
+Fasad sex TZ, Phase 5 (`c8a2e6f31b90` migratsiyasi). `task_assignments` bilan
+BIR XIL shakl, lekin ma'nosi boshqa — bu KPI/timer tayinlash EMAS, faqat
+"Stop" bosilganda qo'shimcha xabar oladigan sotuvchi(lar) ro'yxati
+(`notification_service.notify_task_stopped()` bu jadvalni ham o'qiydi va
+mavjud stopper/brigadir/nazoratchi-admin ro'yxatiga `employee_id` bo'yicha
+deduplikatsiya qilib qo'shadi). `task_service.create_task()`ning
+`seller_ids` parametri orqali yoziladi — bittaga ko'pi bilan 3 ta sotuvchi
+(`ValueError`, `create_misc_task`ning 3 xodim chegarasi bilan bir xil naqsh).
+| Ustun | Tur | Izoh |
+|---|---|---|
+| id | PK | |
+| task_id | FK -> tasks.id | |
+| employee_id | FK -> employees.id | |
+| created_at / updated_at | TIMESTAMPTZ | |
+
+`UNIQUE(task_id, employee_id)`.
+
+**Bog'lanishlar**: yo'q (oddiy ko'p-ko'pga jadval, ORM relationship'siz —
+`TaskSellerRepository.list_by_task()` orqali to'g'ridan-to'g'ri so'raladi).
 
 ### kpi_logs — Ball/Jarima tarixi
 | Ustun | Tur | Izoh |

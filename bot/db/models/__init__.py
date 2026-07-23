@@ -12,6 +12,7 @@ from db.models.penalty_rule import PenaltyRule
 from db.models.stop_log import StopLog
 from db.models.task import Task
 from db.models.task_assignment import TaskAssignment
+from db.models.task_seller import TaskSeller
 
 __all__ = [
     "AppSetting",
@@ -28,4 +29,5 @@ __all__ = [
     "StopLog",
     "Task",
     "TaskAssignment",
+    "TaskSeller",
 ]

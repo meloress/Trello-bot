@@ -105,6 +105,7 @@ async def list_departments(request: web.Request) -> web.Response:
                 "starts_stopped": d.starts_stopped,
                 "requires_join": d.requires_join,
                 "factory_name": d.factory_name,
+                "stop_target_list_id": d.stop_target_list_id,
             }
             for d in departments
         ]
@@ -155,6 +156,7 @@ DEPARTMENT_UPDATABLE_FIELDS = (
     "starts_stopped",
     "factory_name",
     "requires_join",
+    "stop_target_list_id",
 )
 
 
@@ -190,6 +192,7 @@ async def update_department(request: web.Request) -> web.Response:
             "starts_stopped": department.starts_stopped,
             "requires_join": department.requires_join,
             "factory_name": department.factory_name,
+            "stop_target_list_id": department.stop_target_list_id,
         }
     )
 
@@ -358,6 +361,8 @@ async def create_task(request: web.Request) -> web.Response:
         )
         client_id = client.id
 
+    seller_ids = [int(s) for s in (body.get("seller_ids") or [])]
+
     try:
         task = await task_service.create_task(
             title=title,
@@ -367,11 +372,14 @@ async def create_task(request: web.Request) -> web.Response:
             employee_ids=[int(brigadier_id)],
             client_id=client_id,
             created_by_employee_id=request["employee"].id,
+            seller_ids=seller_ids,
         )
     except task_service.DepartmentNotFoundError:
         return err("bo'lim topilmadi", 404)
     except task_service.DepartmentNotConfiguredError as exc:
         return err(str(exc), 409)
+    except ValueError as exc:
+        return err(str(exc))
 
     return web.json_response({"id": task.id, "status": task.status.value}, status=201)
 

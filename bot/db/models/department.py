@@ -57,6 +57,13 @@ class Department(TimestampedBase):
     # zavod bo'yicha ajratish uchun (stats_service.py), UI/CRUD'dan tashqari
     # boshqa hech qanday mantiqqa ta'sir qilmaydi.
     factory_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    # Fasad sex TZ (Phase 5): "Stop" bosilganda karta shu Trello ro'yxatiga
+    # ko'chirilishi kerak bo'lgan bo'limlar uchun maqsad list (masalan
+    # "stopda"). NULL = standart xatti-harakat — Stop faqat DB status/label
+    # o'zgartiradi, karta joyidan qo'zg'almaydi (timer_service.stop_task()).
+    # `trello_list_id`dan MUSTAQIL — Resume bosilganda karta ANIQ shu
+    # ustunga emas, bo'limning ODATIY `trello_list_id`siga qaytariladi.
+    stop_target_list_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
     brigades: Mapped[list["Brigade"]] = relationship(back_populates="department")
     employees: Mapped[list["Employee"]] = relationship(back_populates="department")

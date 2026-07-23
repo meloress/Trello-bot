@@ -27,6 +27,7 @@ from db.repositories import (
     StopLogRepository,
     TaskAssignmentRepository,
     TaskRepository,
+    TaskSellerRepository,
 )
 from services import penalty_service
 from trello.client import TrelloClient
@@ -160,7 +161,12 @@ async def create_task(
     employee_ids: list[int],
     client_id: int | None = None,
     created_by_employee_id: int | None = None,
+    seller_ids: list[int] | None = None,
 ) -> Task:
+    seller_ids = seller_ids or []
+    if len(seller_ids) > 3:
+        raise ValueError("Bitta buyurtmaga ko'pi bilan 3 ta sotuvchi biriktirish mumkin")
+
     async with async_session() as session:
         department = await DepartmentRepository(session).get_by_id(department_id)
         if department is None:
@@ -196,6 +202,11 @@ async def create_task(
 
         for employee_id in employee_ids:
             await assignment_repo.create(task_id=task.id, employee_id=employee_id)
+
+        if seller_ids:
+            seller_repo = TaskSellerRepository(session)
+            for seller_id in seller_ids:
+                await seller_repo.create(task_id=task.id, employee_id=seller_id)
 
         if starts_stopped:
             # Fasad sex TZ: "joy tayyor bo'lishini kutish" — STOPPED holatda

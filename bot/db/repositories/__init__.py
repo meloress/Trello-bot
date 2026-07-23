@@ -13,6 +13,7 @@ from db.repositories.penalty_rule_repo import PenaltyRuleRepository
 from db.repositories.stop_log_repo import StopLogRepository
 from db.repositories.task_assignment_repo import TaskAssignmentRepository
 from db.repositories.task_repo import TaskRepository
+from db.repositories.task_seller_repo import TaskSellerRepository
 
 __all__ = [
     "AppSettingRepository",
@@ -30,4 +31,5 @@ __all__ = [
     "StopLogRepository",
     "TaskAssignmentRepository",
     "TaskRepository",
+    "TaskSellerRepository",
 ]
