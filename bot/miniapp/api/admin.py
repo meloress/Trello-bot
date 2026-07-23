@@ -33,7 +33,7 @@ from services import (
     task_service,
 )
 from trello.client import TrelloAPIError, TrelloClient
-from utils.enums import MiscCategory, Role, TaskStatus
+from utils.enums import MiscCategory, Role, TaskStatus, TaskType
 from utils.formatters import ROLE_LABELS
 
 routes = web.RouteTableDef()
@@ -708,6 +708,48 @@ async def create_misc_task(request: web.Request) -> web.Response:
         logger.exception("notify_task_started xatosi (task_id=%s)", task.id)
 
     return web.json_response({"id": task.id, "title": task.title}, status=201)
+
+
+@routes.get("/misctasks")
+async def list_admin_misctasks(request: web.Request) -> web.Response:
+    """Fasad sex TZ, Phase 9 tuzatish: worker-scoped `GET /misctasks`dan
+    farqli, HAR BIR MISC vazifani ko'rsatadi (kimga biriktirilganidan
+    qat'i nazar) — shu kamchilikni yopish uchun qo'shildi (mustaqil sharh:
+    admin bo'lim filtri mavjud edi, lekin MISC vazifalarni butunlay ko'ra
+    olmasdi). Ixtiyoriy `?category=` filtri, `list_misctasks`dagi bilan bir
+    xil naqsh: lug'atda yo'q qiymat berilsa — bo'sh ro'yxat."""
+    category_value = request.query.get("category")
+    category = None
+    if category_value:
+        if category_value not in {c.value for c in MiscCategory}:
+            return web.json_response([])
+        category = MiscCategory(category_value)
+
+    async with async_session() as session:
+        tasks = await TaskRepository(session).list_by_type(TaskType.MISC, misc_category=category)
+        tasks = [t for t in tasks if _department_scope_ok(request, t.current_department_id)]
+
+        assignment_repo = TaskAssignmentRepository(session)
+        employee_repo = EmployeeRepository(session)
+        items = []
+        for task in tasks:
+            assignments = await assignment_repo.list_by_task(task.id)
+            names = []
+            for a in assignments:
+                employee = await employee_repo.get_by_id(a.employee_id)
+                if employee is not None:
+                    names.append(employee.full_name)
+            items.append(
+                {
+                    "id": task.id,
+                    "title": task.title,
+                    "status": task.status.value,
+                    "deadline": task.deadline.isoformat() if task.deadline else None,
+                    "misc_category": task.misc_category.value if task.misc_category else None,
+                    "assigned_employee_names": names,
+                }
+            )
+    return web.json_response(items)
 
 
 @routes.get("/stats")

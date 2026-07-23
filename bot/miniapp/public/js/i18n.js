@@ -138,6 +138,8 @@ const I18N = {
     miscCategoryFasadSex: "Fasad sex",
     miscCategoryInstaller: "O'rnatuvchilar",
     miscCategoryWelder: "Payvandchi",
+    miscTasksNav: "Barcha vazifalar",
+    noMiscTasksAdmin: "Hech qanday vazifa topilmadi.",
 
     // To'liq statistika (10-band)
     fullStatsTitle: "Statistika (joriy oy)",
@@ -392,6 +394,8 @@ const I18N = {
     miscCategoryFasadSex: "Fasad sex",
     miscCategoryInstaller: "Монтажники",
     miscCategoryWelder: "Сварщик",
+    miscTasksNav: "Все задачи",
+    noMiscTasksAdmin: "Задачи не найдены.",
 
     fullStatsTitle: "Статистика (текущий месяц)",
     overallRanking: "Общий рейтинг",

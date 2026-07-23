@@ -446,6 +446,7 @@ async function screenAdminHome() {
     ${pendingSetup.length ? `<button class="alert-card" id="nav-pending-setup"><span class="ic">⏳</span><span class="grow">${esc(t("pendingSetupAlert", pendingSetup.length))}</span><span class="chev">›</span></button>` : ""}
     ${reassignCandidates.length ? `<button class="alert-card" id="nav-reassign"><span class="ic">🔁</span><span class="grow">${esc(t("reassignAlert", reassignCandidates.length))}</span><span class="chev">›</span></button>` : ""}
     <button class="nav-card" id="nav-daily-reports"><span class="ic">📸</span><span class="grow">${esc(t("dailyReportsNav"))}</span><span class="chev">›</span></button>
+    <button class="nav-card" id="nav-misctasks"><span class="ic">🗂️</span><span class="grow">${esc(t("miscTasksNav"))}</span><span class="chev">›</span></button>
   `);
   root.querySelector("#nav-newtask").onclick = () => show(screenNewTaskForm);
   const pendingBtn = root.querySelector("#nav-pending-setup");
@@ -453,6 +454,40 @@ async function screenAdminHome() {
   const reassignBtn = root.querySelector("#nav-reassign");
   if (reassignBtn) reassignBtn.onclick = () => show(screenReassignList);
   root.querySelector("#nav-daily-reports").onclick = () => show(screenDailyReports);
+  root.querySelector("#nav-misctasks").onclick = () => show(screenAdminMiscTasks);
+}
+
+async function screenAdminMiscTasks(category) {
+  /* Fasad sex TZ, Phase 9 tuzatish: admin/nazoratchi uchun HAMMA MISC
+     vazifalar ro'yxati (worker-scoped `/misctasks`dan farqli, faqat o'ziga
+     biriktirilganlar bilan cheklanmagan) — `screenTaskList`dagi bitta
+     kategoriya-filtri naqshi bilan bir xil. */
+  setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
+  const url = `/admin/misctasks${category ? `?category=${encodeURIComponent(category)}` : ""}`;
+  const tasks = await api(url);
+  const filterHtml = `
+    <div class="field"><label>${esc(t("miscCategoryLabel"))}</label>
+      <select id="f-category-filter">
+        <option value="">${esc(t("miscCategoryAll"))}</option>
+        ${MISC_CATEGORIES.map((c) => `<option value="${c}" ${category === c ? "selected" : ""}>${esc(t(miscCategoryKey(c)))}</option>`).join("")}
+      </select>
+    </div>`;
+  setScreen(`
+    <p class="page-title">${esc(t("miscTasksNav"))}</p>
+    ${filterHtml}
+    ${tasks.length ? tasks.map((tsk) => `
+      <div class="fin-card">
+        <div class="top"><span class="task">${esc(tsk.title)}</span></div>
+        <div class="amount-row">
+          ${tsk.misc_category ? `<span class="status-pill neutral">${esc(t(miscCategoryKey(tsk.misc_category)))}</span>` : ""}
+          <span class="status-pill ${tsk.status === "active" ? "positive" : tsk.status === "overdue" ? "critical" : "neutral"}">${esc(statusLabel(tsk.status))}</span>
+        </div>
+        <p class="hint">${esc(tsk.assigned_employee_names.length ? tsk.assigned_employee_names.join(", ") : "—")}</p>
+      </div>
+    `).join("") : `<p class="empty-state">${esc(t("noMiscTasksAdmin"))}</p>`}
+  `);
+  const filterSel = root.querySelector("#f-category-filter");
+  if (filterSel) filterSel.onchange = () => replaceTop(screenAdminMiscTasks, filterSel.value || undefined);
 }
 
 async function screenDailyReports() {
