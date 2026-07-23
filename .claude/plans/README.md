@@ -34,6 +34,8 @@ bajarilmagan qismini aniqladi. Quyidagi hujjatlar shularning har biri uchun.
 | 6 | [06-production-launch.md](06-production-launch.md) | 17 (6-bosqich, A-qism) | E2E smoke test ishga tushirish + Railway'ga chiqarish | TAYYOR, ISHGA TUSHIRISH QOLDI |
 | 7 | [07-tz-ochiq-savollar.md](07-tz-ochiq-savollar.md) | 19 | TZning o'z ochiq savollari — konsolidatsiyalangan holat | KUZATUV RO'YXATI |
 | 8 | [08-saas-tayyorgarlik.md](08-saas-tayyorgarlik.md) | 15 (6-bosqich, B/C/D-qism) | Ping billing / multi-tenant / video darslar | BLOKLANGAN (Ping shartnomasi kutilmoqda) |
+| 9 | [09-fasad-sex-modul.md](09-fasad-sex-modul.md) | yangi TZ (`Nazorat_Trello_Bot_TZ_v1.2`) | Ikkinchi, parallel ishlab chiqarish moduli (Fasad sex) — 10 bosqich (Phase 0-9) | BOSHLANDI — `feature/fasad-sex-module` branch'da, hujjat ichidagi checklist'ga qarang |
+| 9z | [09z-fasad-sex-ochiq-savollar.md](09z-fasad-sex-ochiq-savollar.md) | yangi TZ §13-14 | Fasad sex TZ'ning o'z ochiq savollari | KUZATUV RO'YXATI |
 
 ## Ishlash tartibi
 
@@ -42,6 +44,9 @@ bajarilmagan qismini aniqladi. Quyidagi hujjatlar shularning har biri uchun.
 1-5 tugagach yoki alohida-alohida ham bajarilishi mumkin (bir-biriga
 bog'liq emas, faqat "hammasi tugagach yakuniy E2E test" degan tavsiya bor).
 7 — kod emas, kuzatuv. 8 — hozircha tegilmaydi (tashqi blokerga bog'liq).
+9/9z — mavjud mebel-ishlab-chiqarish ishidan MUSTAQIL, alohida branch'da
+olib boriladi (ichki bosqich tartibi hujjatning o'z "Ishlash tartibi"
+bo'limida).
 
 Har bir hujjat tugagach: shu jadvaldagi holat yangilanadi, `shared/db-schema.md`
 (agar sxema o'zgargan bo'lsa) yangilanadi, va **hujjatning o'zi bu papkadan
