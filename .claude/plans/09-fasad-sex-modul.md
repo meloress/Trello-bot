@@ -91,13 +91,17 @@ ularni taxmin qilmaydi.
   BAJARILDI (`3ccf8e3`, review: Approved). Schema o'zgarishi YO'Q — 3 ta
   oddiy `departments` qatori, Phase 2'ning yaratish+zanjirlash orqali.
   Faqat frontend qulaylik (bitta forma → 3 chaqiruv ketma-ketligi).
-- [ ] **Phase 5 — Stop mexanizmi kengaytmalari.** (a) Yangi jadval
-  `task_sellers` (0-3 sotuvchi/buyurtma), `notify_task_stopped()`ning
-  mavjud recipient-yig'ish tsikliga qo'shiladi. (b) Yangi
+- [x] **Phase 5 — Stop mexanizmi kengaytmalari.** BAJARILDI (`5f1d970`,
+  review: Approved). (a) Yangi jadval `task_sellers` (0-3
+  sotuvchi/buyurtma), `notify_task_stopped()`ning mavjud recipient-yig'ish
+  tsikliga qo'shildi (dublikat xabar yo'q, tekshirilgan). (b) Yangi
   `departments.stop_target_list_id: VARCHAR(50) NULL` — o'rnatilgan bo'lsa,
-  Stop bosilganda karta shu list'ga ham ko'chiriladi (label bilan
-  PARALLEL). `01-stop-trello-izoh.md`/`02-label-holatlari.md` bilan
-  muvofiqlashtiriladi, takrorlanmaydi.
+  Stop bosilganda karta shu list'ga ham ko'chiriladi, Resume'da orqaga
+  qaytadi; `stop_target_list_id=None` bo'lgan bo'limlar uchun xatti-harakat
+  o'zgarishsiz (tekshirilgan). `01-stop-trello-izoh.md`/
+  `02-label-holatlari.md`ga tegilmadi. Minor: `seller_ids` ichida dublikat
+  id kelsa `IntegrityError` (ValueError emas) chiqadi — hozircha real
+  xavf yo'q (frontend yo'q).
 - [ ] **Phase 6 — Kunlik norma (5 punkt/ishchi) — faqat statistika.** Yangi
   `app_settings.daily_quota_points_per_worker: INT NOT NULL DEFAULT 5`.
   `stats_service.get_capacity_vs_actual()`. Jarima QOIDASI EMAS.
