@@ -87,10 +87,10 @@ ularni taxmin qilmaydi.
   tasdiqlangan). `_collect_department_chain_names()` — chiziqli emas, BFS.
   Fork paytida karta join'gacha fork-nuqtasi list'ida qoladi (tasdiqlanishi
   kerak bo'lgan taxmin, ochiq savol #13'ga qarang).
-- [ ] **Phase 4 — Material turi shabloni (Laminoks/Eman va h.k.).** Schema
-  o'zgarishi YO'Q — 3 ta oddiy `departments` qatori, Phase 2'ning
-  yaratish+zanjirlash orqali. Faqat frontend qulaylik (bitta forma → 3
-  chaqiruv ketma-ketligi).
+- [x] **Phase 4 — Material turi shabloni (Laminoks/Eman va h.k.).**
+  BAJARILDI (`3ccf8e3`, review: Approved). Schema o'zgarishi YO'Q — 3 ta
+  oddiy `departments` qatori, Phase 2'ning yaratish+zanjirlash orqali.
+  Faqat frontend qulaylik (bitta forma → 3 chaqiruv ketma-ketligi).
 - [ ] **Phase 5 — Stop mexanizmi kengaytmalari.** (a) Yangi jadval
   `task_sellers` (0-3 sotuvchi/buyurtma), `notify_task_stopped()`ning
   mavjud recipient-yig'ish tsikliga qo'shiladi. (b) Yangi
