@@ -45,8 +45,11 @@ ularni taxmin qilmaydi.
   VARCHAR(100) NULL`. `stats_service.py`ga filtr parametri. `GET
   /admin/stats`ga query param. (`module`dan MUSTAQIL o'lchov — factory_name
   bir modul ICHIDAGI jismoniy filial farqi.)
-- [ ] **Phase 2 — Department admin CRUD + umumiy bosqich qo'shish + Kontrol
-  + STOPPED holatda ochilish.** `POST /admin/departments` (yaratish),
+- [x] **Phase 2 — Department admin CRUD + umumiy bosqich qo'shish + Kontrol
+  + STOPPED holatda ochilish.** BAJARILDI (`7301dcd`, review: Approved,
+  2 ta Minor topilma — `name` update'da trim qilinmaydi, boolean maydonlar
+  update'da cast qilinmaydi — keyingi fazalar shu qatorlarga tegsa tuzatish
+  kerak). `POST /admin/departments` (yaratish),
   `POST /admin/departments/{id}` (umumiy qisman-yangilash). Zanjirga
   istalgan joyga qo'shish — mavjud `POST /departments/{id}/chain` orqali,
   YANGI BACKEND KOD KERAK EMAS (tasdiqlangan). "Kontrol" — oddiy Department
