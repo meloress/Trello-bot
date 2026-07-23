@@ -164,6 +164,11 @@ const I18N = {
     trelloListIdField: "Trello ro'yxat ID (ixtiyoriy)",
     startsStoppedField: "Boshida to'xtatilgan (joy kutiladi)",
     noDepartments: "Bo'limlar topilmadi.",
+    addMaterialTemplateNav: "Yangi material turi",
+    materialTemplateTitle: "Yangi material turi",
+    materialNameLabel: "Material nomi (masalan: Eman)",
+    materialTemplateHint: "Odatda: 24 soat → 72 soat → yakuniy",
+    materialTemplateFailed: (done, total, error) => `${done}/${total} qadam bajarildi, ${done + 1}/${total} muvaffaqiyatsiz: ${error}. Bo'limlar ro'yxatini tekshiring.`,
 
     departmentChainTitle: "Bo'lim ketma-ketligi",
     departmentChainPick: "Qaysi bo'limning KEYINGI bosqichini sozlaysiz?",
@@ -371,6 +376,11 @@ const I18N = {
     trelloListIdField: "ID списка Trello (необязательно)",
     startsStoppedField: "Изначально остановлено (ждёт места)",
     noDepartments: "Отделы не найдены.",
+    addMaterialTemplateNav: "Новый тип материала",
+    materialTemplateTitle: "Новый тип материала",
+    materialNameLabel: "Название материала (например: Дуб)",
+    materialTemplateHint: "Обычно: 24 часа → 72 часа → финал",
+    materialTemplateFailed: (done, total, error) => `${done}/${total} шагов выполнено, ${done + 1}/${total} не удался: ${error}. Проверьте список отделов.`,
 
     departmentChainTitle: "Цепочка отделов",
     departmentChainPick: "Для какого отдела настроить СЛЕДУЮЩИЙ этап?",

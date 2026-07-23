@@ -991,6 +991,7 @@ async function screenDepartments() {
   const departments = await api("/admin/departments");
   setScreen(`
     <p class="page-title">${esc(t("departmentsNav"))}</p>
+    <button class="nav-card accent" id="nav-material-template"><span class="ic">🧵</span><span class="grow">${esc(t("addMaterialTemplateNav"))}</span><span class="chev">›</span></button>
     ${departments.length ? departments.map((d) => `
       <div class="fin-card">
         <div class="top"><span class="task">${esc(d.name)}</span></div>
@@ -1001,6 +1002,7 @@ async function screenDepartments() {
       </div>
     `).join("") : `<p class="empty-state">${esc(t("noDepartments"))}</p>`}
   `);
+  root.querySelector("#nav-material-template").onclick = () => show(screenAddMaterialTemplate);
   setMainButton(`➕ ${t("addDepartmentBtn")}`, () => show(screenAddDepartment), "#2f6f62");
 }
 
@@ -1034,6 +1036,49 @@ async function screenAddDepartment() {
       await goBack();
     } catch (e) {
       showError(e.message);
+    } finally {
+      app.MainButton.hideProgress();
+    }
+  }, "#2f6f62");
+}
+
+async function screenAddMaterialTemplate() {
+  setScreen(`
+    <p class="page-title">${esc(t("materialTemplateTitle"))}</p>
+    <div class="field"><label>${esc(t("materialNameLabel"))}</label><input id="f-material" type="text" /></div>
+    <p class="hint">${esc(t("materialTemplateHint"))}</p>
+  `);
+  setMainButton(`💾 ${t("create")}`, async () => {
+    const material = root.querySelector("#f-material").value.trim();
+    if (!material) {
+      showError(t("materialNameLabel"));
+      return;
+    }
+    const stageNames = [
+      `${material} fayl tashaldi`,
+      `${material} ishlab chiqarishda tasdiqlandi`,
+      `${material} 100% tayyor`,
+    ];
+    const app = tg();
+    app.MainButton.showProgress();
+    let done = 0;
+    try {
+      const created = [];
+      for (const name of stageNames) {
+        created.push(await api("/admin/departments", { method: "POST", body: JSON.stringify({ name }) }));
+        done++;
+      }
+      for (let i = 0; i < created.length - 1; i++) {
+        await api(`/admin/departments/${created[i].id}/chain`, {
+          method: "POST",
+          body: JSON.stringify({ next_department_id: created[i + 1].id }),
+        });
+        done++;
+      }
+      app.HapticFeedback && app.HapticFeedback.notificationOccurred("success");
+      await goBack();
+    } catch (e) {
+      showError(t("materialTemplateFailed", done, stageNames.length + 2, e.message));
     } finally {
       app.MainButton.hideProgress();
     }
