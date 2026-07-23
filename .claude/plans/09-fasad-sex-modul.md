@@ -138,9 +138,19 @@ ularni taxmin qilmaydi.
   bu holatda yangi/idle foydalanuvchidan kelgan `/mijoz` catch-all'ga tushib
   qolib, `client_link_router`ga UMUMAN yetib bormas edi; tartib tuzatildi
   (`common_start_router` endi eng oxirida).
-- [ ] **Phase 9 — Vazifa buyurish 4 toifasi (MISC kategoriya).** Yangi
-  `tasks.misc_category: VARCHAR NULL` + `MiscCategory` enum (4 qiymat).
-  `create_misc_task()`ga `category` parametri.
+- [x] **Phase 9 — Vazifa buyurish 4 toifasi (MISC kategoriya).** BAJARILDI.
+  Yangi `tasks.misc_category: VARCHAR(20) NULL` + `MiscCategory` enum (4
+  qiymat: office/fasad_sex/installer/welder). `create_misc_task()`ga
+  ixtiyoriy `category` parametri (`None` — avvalgidek). Mini App:
+  `POST /admin/misctasks` `category`ni qabul qiladi va tekshiradi (noto'g'ri
+  qiymat → 400, 500 emas); `GET /misctasks` (worker) ixtiyoriy
+  `?category=` filtri bilan kengaytirildi (`/leads?brand=`dagi bilan bir
+  xil naqsh — admin'ning o'zida alohida MISC-ro'yxat ekrani yo'q edi, faqat
+  yaratish formasi bor edi, shu sabab filtr mavjud ro'yxat — ishchining
+  o'z vazifalari ekrani — ustiga qo'shildi). Frontend: yaratish formasida
+  kategoriya dropdown + ro'yxat ekranida filtr dropdown, `i18n.js`
+  (uz/ru) yangi kalitlar. `create_task()` (ORDER) va 3-xodim
+  cheklovi/Trello'siz xatti-harakat tegilmadi (tekshirilgan).
 
 ## Ishlash tartibi
 
