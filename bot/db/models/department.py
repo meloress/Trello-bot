@@ -44,6 +44,13 @@ class Department(TimestampedBase):
     # zanjir). Oddiy VARCHAR, CHECK/enum emas (CLAUDE.md konvensiyasi) — 3-modul
     # keyinchalik qo'shilsa, migratsiya kod o'zgarishisiz kengayadi.
     module: Mapped[str] = mapped_column(String(20), nullable=False, default="mebel")
+    # Fasad sex TZ, §9 "ikkinchi zavod": shu bo'lim qaysi FIZIK zavod/filialga
+    # tegishli — `module`dan MUSTAQIL (module = qaysi ishlab chiqarish
+    # tizimi, factory_name = qaysi jismoniy joylashuv). NULL = hali
+    # belgilanmagan (bitta zavod bo'lgan davrdagi bo'limlar). Faqat statistikani
+    # zavod bo'yicha ajratish uchun (stats_service.py), UI/CRUD'dan tashqari
+    # boshqa hech qanday mantiqqa ta'sir qilmaydi.
+    factory_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
 
     brigades: Mapped[list["Brigade"]] = relationship(back_populates="department")
     employees: Mapped[list["Employee"]] = relationship(back_populates="department")

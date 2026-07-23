@@ -20,6 +20,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, select
 
 from core.database import async_session
+from db.models.department import Department
 from db.models.employee import Employee
 from db.models.kpi_log import KpiLog
 from db.models.task import Task
@@ -134,22 +135,32 @@ async def _compute_stats(
     ]
 
 
-async def get_monthly_stats(reference_month: datetime | None = None) -> list[EmployeeStats]:
+async def get_monthly_stats(
+    reference_month: datetime | None = None, factory_name: str | None = None
+) -> list[EmployeeStats]:
     """Barcha FAOL xodimlar uchun oy statistikasi (10-band, admin/stats/
     dashboard) — rol bo'yicha filtrlanmagan (dashboard'ning "faol xodim"
     umumiy hisobi ham shundan kelib chiqadi). KPI-ga xos ko'rinishlar (reyting,
     o'rtacha ball) chaqiruvchi tomonda `KPI_ROLES` bilan filtrlanadi.
     `reference_month` — shu oyning istalgan sanasi (Default: joriy oy);
     `jobs/report_job.py`ning oylik hisoboti O'TGAN oy uchun shu orqali chaqiradi.
-    Faoliyati bo'sh xodim ham 0 qiymatlar bilan ro'yxatda bo'ladi."""
+    Faoliyati bo'sh xodim ham 0 qiymatlar bilan ro'yxatda bo'ladi.
+    `factory_name` — Fasad sex TZ §9 "ikkinchi zavod": berilsa, faqat shu
+    zavodga tegishli bo'limdagi (`Employee.department_id -> Department.
+    factory_name`) xodimlar bilan cheklanadi. Default (`None`) — hech qanday
+    filtr, `NULL` zavodli bo'limlar ham (barcha eski bo'limlar) natijada
+    qoladi, xatti-harakat o'zgarishsiz — barcha mavjud chaqiruvchilar
+    (masalan `jobs/report_job.py`) hech narsani o'zgartirmasdan ishlashda
+    davom etadi."""
     since, until = _month_bounds(reference_month or datetime.now(timezone.utc))
 
     async with async_session() as session:
-        employees = (
-            await session.execute(
-                select(Employee.id, Employee.full_name, Employee.role).where(Employee.is_active.is_(True))
+        query = select(Employee.id, Employee.full_name, Employee.role).where(Employee.is_active.is_(True))
+        if factory_name is not None:
+            query = query.join(Department, Department.id == Employee.department_id).where(
+                Department.factory_name == factory_name
             )
-        ).all()
+        employees = (await session.execute(query)).all()
 
     return await _compute_stats(employees, since, until)
 

@@ -102,6 +102,7 @@ async def list_departments(request: web.Request) -> web.Response:
                 "next_department_id": d.next_department_id,
                 "auto_reassign_after_48h": d.auto_reassign_after_48h,
                 "starts_stopped": d.starts_stopped,
+                "factory_name": d.factory_name,
             }
             for d in departments
         ]
@@ -124,6 +125,7 @@ async def create_department(request: web.Request) -> web.Response:
             trello_list_id=body.get("trello_list_id"),
             auto_reassign_after_48h=bool(body.get("auto_reassign_after_48h", False)),
             starts_stopped=bool(body.get("starts_stopped", False)),
+            factory_name=body.get("factory_name"),
         )
         await session.commit()
 
@@ -134,6 +136,7 @@ async def create_department(request: web.Request) -> web.Response:
             "next_department_id": department.next_department_id,
             "auto_reassign_after_48h": department.auto_reassign_after_48h,
             "starts_stopped": department.starts_stopped,
+            "factory_name": department.factory_name,
         },
         status=201,
     )
@@ -142,7 +145,13 @@ async def create_department(request: web.Request) -> web.Response:
 # Qisman yangilash uchun ruxsat etilgan maydonlar — keyingi fazalar (fork/
 # join, factory) shu ro'yxatga qo'shimcha qiladi, shuning uchun oddiy
 # ro'yxat/tsikl sifatida saqlanadi (hardcoded pozitsion tuzilma emas).
-DEPARTMENT_UPDATABLE_FIELDS = ("name", "trello_list_id", "auto_reassign_after_48h", "starts_stopped")
+DEPARTMENT_UPDATABLE_FIELDS = (
+    "name",
+    "trello_list_id",
+    "auto_reassign_after_48h",
+    "starts_stopped",
+    "factory_name",
+)
 
 
 @routes.post("/departments/{department_id}")
@@ -175,6 +184,7 @@ async def update_department(request: web.Request) -> web.Response:
             "next_department_id": department.next_department_id,
             "auto_reassign_after_48h": department.auto_reassign_after_48h,
             "starts_stopped": department.starts_stopped,
+            "factory_name": department.factory_name,
         }
     )
 
@@ -607,9 +617,17 @@ async def full_stats(request: web.Request) -> web.Response:
     """10-band: `/stats`ning to'liq versiyasi — dashboard'dagi xulosa
     tile'laridan farqli, har bir xodim bo'yicha to'liq saralangan jadval.
     Faqat KPI oladigan rollar (ishchi/brigadir) — rahbar/nazoratchi/sotuvchida
-    ball umuman bo'lmagani uchun ro'yxatga qo'shilmaydi."""
+    ball umuman bo'lmagani uchun ro'yxatga qo'shilmaydi. Ixtiyoriy
+    `?factory_name=` query parametri (Fasad sex TZ §9) natijani shu zavodga
+    tegishli bo'limlardagi xodimlar bilan cheklaydi — berilmasa, avvalgidek
+    filtrsiz."""
+    factory_name = request.query.get("factory_name")
     stats = sorted(
-        (s for s in await stats_service.get_monthly_stats() if s.role in stats_service.KPI_ROLES),
+        (
+            s
+            for s in await stats_service.get_monthly_stats(factory_name=factory_name)
+            if s.role in stats_service.KPI_ROLES
+        ),
         key=lambda s: s.total_score,
         reverse=True,
     )
