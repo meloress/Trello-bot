@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Boolean, Enum, Float, ForeignKey, Integer
+from sqlalchemy import Boolean, Enum, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from db.base import TimestampedBase
@@ -49,5 +49,11 @@ class FinancialSuggestion(TimestampedBase):
     advance_percent_paid: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     order_total_value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     waived_amount: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+    # SPEED_TIER_BONUS (Fasad sex TZ, Phase 7: bosqich tezligiga qarab to'lov
+    # taklifi — bo'sh jadval bo'lsa yoki hech qaysi tier mos kelmasa yozuv
+    # umuman yaratilmaydi, `financial_service.suggest_speed_tier_bonus`ga q.)
+    speed_tier: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    suggested_pay_amount: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     task: Mapped["Task"] = relationship()

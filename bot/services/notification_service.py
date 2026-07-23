@@ -351,6 +351,38 @@ async def notify_financial_flag(bot: Bot, suggestion_id: int) -> None:
         await _send(bot, telegram_id, text)
 
 
+async def notify_speed_tier_suggested(bot: Bot, suggestion_id: int) -> None:
+    """Fasad sex TZ, Phase 7: bosqich tugatilgandan so'ng tezlik darajasi
+    aniqlanganda — bo'lim NAZORATCHI(lari) + barcha ADMIN'larga signal,
+    `notify_financial_flag` bilan bir xil qabul qiluvchilar/shakl."""
+    async with async_session() as session:
+        suggestion = await FinancialSuggestionRepository(session).get_by_id(suggestion_id)
+        if suggestion is None:
+            logger.warning("notify_speed_tier_suggested: suggestion %s topilmadi", suggestion_id)
+            return
+
+        task = await TaskRepository(session).get_by_id(suggestion.task_id)
+        if task is None:
+            logger.warning("notify_speed_tier_suggested: task %s topilmadi", suggestion.task_id)
+            return
+
+        employee_repo = EmployeeRepository(session)
+        recipients: dict[int, int | None] = {}
+        if task.current_department_id is not None:
+            for employee in await employee_repo.list_by_department(task.current_department_id):
+                if employee.role == Role.SUPERVISOR:
+                    recipients[employee.id] = employee.telegram_id
+        for admin in await employee_repo.list_by_role(Role.ADMIN):
+            recipients[admin.id] = admin.telegram_id
+
+    text = (
+        f"⚡ \"{task.title}\" bosqichi \"{suggestion.speed_tier}\" tezlik darajasiga mos keldi. "
+        "To'lov taklifini Mini App'ning Moliyaviy bo'limida ko'rib chiqing."
+    )
+    for telegram_id in recipients.values():
+        await _send(bot, telegram_id, text)
+
+
 async def notify_admins_report(bot: Bot, text: str) -> None:
     """10.2-band: `jobs/report_job.py`ning kunlik/haftalik/oylik hisobotlari
     barcha ADMIN+SUPERVISOR'larga shu orqali yuboriladi (Markdown kod-blok

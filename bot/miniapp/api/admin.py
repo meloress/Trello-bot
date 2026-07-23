@@ -588,6 +588,8 @@ async def list_financial(request: web.Request) -> web.Response:
                     "stage_duration_days": s.stage_duration_days,
                     "suggested_deduction_amount": s.suggested_deduction_amount,
                     "waived_amount": s.waived_amount,
+                    "speed_tier": s.speed_tier,
+                    "suggested_pay_amount": s.suggested_pay_amount,
                 }
             )
     return web.json_response(items)
@@ -612,6 +614,28 @@ async def set_financial_amount(request: web.Request) -> web.Response:
     return web.json_response(
         {"id": suggestion.id, "suggested_deduction_amount": suggestion.suggested_deduction_amount}
     )
+
+
+@routes.post("/financial/{suggestion_id}/pay-amount")
+async def set_financial_pay_amount(request: web.Request) -> web.Response:
+    """Fasad sex TZ, Phase 7: `set_financial_amount`dagi bilan bir xil
+    naqsh, faqat SPEED_TIER_BONUS taklifining `suggested_pay_amount`
+    maydonini to'ldiradi."""
+    suggestion_id = int(request.match_info["suggestion_id"])
+    body = await request.json()
+    try:
+        amount = float(body["amount"])
+    except (KeyError, TypeError, ValueError):
+        return err("amount noto'g'ri")
+    if amount < 0:
+        return err("amount manfiy bo'lishi mumkin emas")
+
+    try:
+        suggestion = await financial_service.set_speed_tier_pay_amount(suggestion_id, amount)
+    except ValueError as exc:
+        return err(str(exc), 404)
+
+    return web.json_response({"id": suggestion.id, "suggested_pay_amount": suggestion.suggested_pay_amount})
 
 
 @routes.post("/financial/advance-waiver")
@@ -747,7 +771,9 @@ async def capacity_stats(request: web.Request) -> web.Response:
 
 
 _SETTING_FIELDS = list(settings_service.AppSettingsSnapshot.__dataclass_fields__)
-_SETTING_FIELDS = [f for f in _SETTING_FIELDS if f not in ("reminder_schedule", "sales_board_lists")]
+_SETTING_FIELDS = [
+    f for f in _SETTING_FIELDS if f not in ("reminder_schedule", "sales_board_lists", "speed_tier_schedule")
+]
 
 
 def _parse_setting_value(field: str, value: object) -> object:
@@ -857,6 +883,69 @@ async def delete_reminder(request: web.Request) -> web.Response:
     updated = await settings_service.update_setting(reminder_schedule=schedule)
     reminder_job.schedule_all(request.config_dict["bot"], updated.reminder_schedule)
     return web.json_response(updated.reminder_schedule)
+
+
+@routes.get("/speed-tiers")
+async def list_speed_tiers(request: web.Request) -> web.Response:
+    snapshot = await settings_service.get_settings()
+    return web.json_response(snapshot.speed_tier_schedule)
+
+
+@routes.post("/speed-tiers")
+async def add_speed_tier(request: web.Request) -> web.Response:
+    body = await request.json()
+    snapshot = await settings_service.get_settings()
+    schedule = list(snapshot.speed_tier_schedule)
+    try:
+        schedule.append(
+            {
+                "max_days": int(body.get("max_days")),
+                "tier": (body.get("tier") or "").strip(),
+                "pay_multiplier": float(body.get("pay_multiplier")),
+            }
+        )
+    except (TypeError, ValueError):
+        return err("max_days, tier, pay_multiplier noto'g'ri")
+    try:
+        updated = await settings_service.update_setting(speed_tier_schedule=schedule)
+    except settings_service.InvalidReminderScheduleError as exc:
+        return err(str(exc))
+    return web.json_response(updated.speed_tier_schedule, status=201)
+
+
+@routes.put("/speed-tiers/{index}")
+async def edit_speed_tier(request: web.Request) -> web.Response:
+    index = int(request.match_info["index"])
+    body = await request.json()
+    snapshot = await settings_service.get_settings()
+    schedule = list(snapshot.speed_tier_schedule)
+    if not 0 <= index < len(schedule):
+        return err("not_found", 404)
+    try:
+        schedule[index] = {
+            "max_days": int(body.get("max_days")),
+            "tier": (body.get("tier") or "").strip(),
+            "pay_multiplier": float(body.get("pay_multiplier")),
+        }
+    except (TypeError, ValueError):
+        return err("max_days, tier, pay_multiplier noto'g'ri")
+    try:
+        updated = await settings_service.update_setting(speed_tier_schedule=schedule)
+    except settings_service.InvalidReminderScheduleError as exc:
+        return err(str(exc))
+    return web.json_response(updated.speed_tier_schedule)
+
+
+@routes.delete("/speed-tiers/{index}")
+async def delete_speed_tier(request: web.Request) -> web.Response:
+    index = int(request.match_info["index"])
+    snapshot = await settings_service.get_settings()
+    schedule = list(snapshot.speed_tier_schedule)
+    if not 0 <= index < len(schedule):
+        return err("not_found", 404)
+    del schedule[index]
+    updated = await settings_service.update_setting(speed_tier_schedule=schedule)
+    return web.json_response(updated.speed_tier_schedule)
 
 
 @routes.get("/pending-setup")

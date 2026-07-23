@@ -41,6 +41,10 @@ class FinancialSuggestionKind(str, Enum):
 
     WAGE_DEDUCTION = "wage_deduction"
     ADVANCE_WAIVER = "advance_waiver"
+    # Fasad sex TZ, Phase 7: bosqich necha kunda tugatilganiga qarab tavsiya
+    # etiladigan to'lov (tezlik darajasi bo'yicha) — kelib chiqishi boshqa
+    # ikkitasidan farqli (jarima/kechirim emas, mumkin bo'lgan BONUS).
+    SPEED_TIER_BONUS = "speed_tier_bonus"
 
 
 class FinancialSuggestionStatus(str, Enum):

@@ -20,7 +20,7 @@ from db.repositories import (
     TaskRepository,
 )
 from miniapp.util import err
-from services import notification_service, penalty_service, task_service, timer_service
+from services import financial_service, notification_service, penalty_service, task_service, timer_service
 from utils.enums import TaskStatus, TaskType
 
 routes = web.RouteTableDef()
@@ -214,6 +214,24 @@ async def finish_task(request: web.Request) -> web.Response:
             await notification_service.notify_penalty_applied(bot, kpi_log.id)
         except Exception:
             logger.exception("notify_penalty_applied xatosi (kpi_log_id=%s)", kpi_log.id)
+
+    # Fasad sex TZ, Phase 7: tezlik-darajali to'lov taklifi — sozlanmagan
+    # bo'lsa (bo'sh jadval) hech narsa qaytmaydi, shu sabab "Yakunlash"
+    # amali muvaffaqiyatli qoladi, faqat log qilinadi (penalty bilan bir
+    # xil non-blocking naqsh).
+    try:
+        speed_tier_suggestion = await financial_service.suggest_speed_tier_bonus(task.id)
+    except Exception:
+        logger.exception("suggest_speed_tier_bonus xatosi (task_id=%s)", task.id)
+        speed_tier_suggestion = None
+
+    if speed_tier_suggestion is not None:
+        try:
+            await notification_service.notify_speed_tier_suggested(bot, speed_tier_suggestion.id)
+        except Exception:
+            logger.exception(
+                "notify_speed_tier_suggested xatosi (suggestion_id=%s)", speed_tier_suggestion.id
+            )
 
     if task.task_type == TaskType.ORDER:
         # Phase 3 (fork/join): advance_task_stage endi Task | list[Task] | None

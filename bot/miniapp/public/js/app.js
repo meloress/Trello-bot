@@ -738,25 +738,44 @@ async function screenFinancial() {
         <div class="top"><span class="task">${esc(t("taskLabel"))} #${s.task_id}${s.task_title ? " — " + esc(s.task_title) : ""}</span><span class="status-pill warn">${esc(t(s.kind))}</span></div>
         ${s.kind === "wage_deduction" && s.suggested_deduction_amount === null ? `
           <div class="amount-row"><input type="number" class="f-amount" placeholder="${esc(t("enterAmount"))}" /><button class="btn primary f-amount-save">${esc(t("save"))}</button></div>
+        ` : s.kind === "speed_tier_bonus" ? `
+          <p class="desc">${esc(t("speedTierLabel"))}: ${esc(s.speed_tier)}</p>
+          ${s.suggested_pay_amount === null ? `
+            <div class="amount-row"><input type="number" class="f-pay-amount" placeholder="${esc(t("suggestedPayAmountLabel"))}" /><button class="btn primary f-pay-amount-save">${esc(t("save"))}</button></div>
+          ` : `<p class="desc">${esc(t("suggestedPayAmountLabel"))}: ${s.suggested_pay_amount}</p>`}
         ` : `<p class="desc">${s.suggested_deduction_amount !== null ? s.suggested_deduction_amount : s.waived_amount}</p>`}
       </div>
     `).join("") : `<p class="empty-state">${esc(t("noPendingFinancial"))}</p>`}
   `);
   root.querySelector("#nav-advance-waiver").onclick = () => show(screenAdvanceWaiverForm);
   root.querySelectorAll(".fin-card").forEach((card) => {
-    const btn = card.querySelector(".f-amount-save");
-    if (!btn) return;
     const item = items[Number(card.dataset.i)];
-    btn.onclick = async () => {
-      const value = card.querySelector(".f-amount").value;
-      if (!value) return;
-      try {
-        await api(`/admin/financial/${item.id}/amount`, { method: "POST", body: JSON.stringify({ amount: Number(value) }) });
-        await replaceTop(screenFinancial);
-      } catch (e) {
-        showError(e.message);
-      }
-    };
+    const amountBtn = card.querySelector(".f-amount-save");
+    if (amountBtn) {
+      amountBtn.onclick = async () => {
+        const value = card.querySelector(".f-amount").value;
+        if (!value) return;
+        try {
+          await api(`/admin/financial/${item.id}/amount`, { method: "POST", body: JSON.stringify({ amount: Number(value) }) });
+          await replaceTop(screenFinancial);
+        } catch (e) {
+          showError(e.message);
+        }
+      };
+    }
+    const payBtn = card.querySelector(".f-pay-amount-save");
+    if (payBtn) {
+      payBtn.onclick = async () => {
+        const value = card.querySelector(".f-pay-amount").value;
+        if (!value) return;
+        try {
+          await api(`/admin/financial/${item.id}/pay-amount`, { method: "POST", body: JSON.stringify({ amount: Number(value) }) });
+          await replaceTop(screenFinancial);
+        } catch (e) {
+          showError(e.message);
+        }
+      };
+    }
   });
 }
 
@@ -918,6 +937,7 @@ async function screenSettings() {
     <button class="nav-card" id="nav-chain"><span class="ic">🔗</span><span class="grow">${esc(t("departmentChainNav"))}</span><span class="chev">›</span></button>
     <button class="nav-card" id="nav-autoreassign"><span class="ic">🔁</span><span class="grow">${esc(t("autoreassignNav"))}</span><span class="chev">›</span></button>
     <button class="nav-card" id="nav-reminders"><span class="ic">🕗</span><span class="grow">${esc(t("remindersNav"))}</span><span class="chev">›</span></button>
+    <button class="nav-card" id="nav-speed-tiers"><span class="ic">⚡</span><span class="grow">${esc(t("speedTiersNav"))}</span><span class="chev">›</span></button>
     <button class="nav-card" id="nav-departments"><span class="ic">🏭</span><span class="grow">${esc(t("departmentsNav"))}</span><span class="chev">›</span></button>
   `);
   root.querySelectorAll(".settings-row").forEach((el) => {
@@ -926,6 +946,7 @@ async function screenSettings() {
   root.querySelector("#nav-chain").onclick = () => show(screenDepartmentChain);
   root.querySelector("#nav-autoreassign").onclick = () => show(screenAutoreassign);
   root.querySelector("#nav-reminders").onclick = () => show(screenReminders);
+  root.querySelector("#nav-speed-tiers").onclick = () => show(screenSpeedTiers);
   root.querySelector("#nav-departments").onclick = () => show(screenDepartments);
 }
 
@@ -1181,6 +1202,75 @@ async function screenReminderForm(mode, index, entry) {
         await api("/admin/reminders", { method: "POST", body: JSON.stringify({ time, urgency }) });
       } else {
         await api(`/admin/reminders/${index}`, { method: "PUT", body: JSON.stringify({ time, urgency }) });
+      }
+      app.HapticFeedback && app.HapticFeedback.notificationOccurred("success");
+      await goBack();
+    } catch (e) {
+      showError(e.message);
+    } finally {
+      app.MainButton.hideProgress();
+    }
+  }, "#2f6f62");
+}
+
+/* ---------- Fasad sex TZ, Phase 7: tezlik-darajali to'lov jadvali ---------- */
+
+async function screenSpeedTiers() {
+  setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
+  const schedule = await api("/admin/speed-tiers");
+  setScreen(`
+    <p class="page-title">${esc(t("speedTiersTitle"))}</p>
+    ${schedule.length ? schedule.map((entry, i) => `
+      <div class="fin-card" data-i="${i}">
+        <div class="top"><span class="task">⚡ ${esc(entry.tier)}</span><span class="status-pill warn">≤ ${entry.max_days} ${esc(t("daysUnit"))}</span></div>
+        <p class="desc">${esc(t("payMultiplierField"))}: ×${entry.pay_multiplier}</p>
+        <div class="amount-row">
+          <button class="btn f-edit">${esc(t("edit"))}</button>
+          <button class="btn danger f-delete">${esc(t("deleteBtn"))}</button>
+        </div>
+      </div>
+    `).join("") : `<p class="empty-state">${esc(t("noSpeedTiers"))}</p>`}
+  `);
+  root.querySelectorAll(".fin-card").forEach((card) => {
+    const entry = schedule[Number(card.dataset.i)];
+    const idx = Number(card.dataset.i);
+    card.querySelector(".f-edit").onclick = () => show(screenSpeedTierForm, "edit", idx, entry);
+    card.querySelector(".f-delete").onclick = async () => {
+      try {
+        await api(`/admin/speed-tiers/${idx}`, { method: "DELETE" });
+        await replaceTop(screenSpeedTiers);
+      } catch (e) {
+        showError(e.message);
+      }
+    };
+  });
+  setMainButton(t("addSpeedTierBtn"), () => show(screenSpeedTierForm, "add", null, null), "#2f6f62");
+}
+
+async function screenSpeedTierForm(mode, index, entry) {
+  setScreen(`
+    <p class="page-title">${esc(t("addSpeedTierBtn"))}</p>
+    <div class="field"><label>${esc(t("maxDaysField"))}</label><input id="f-max-days" type="number" min="1" value="${esc(entry ? entry.max_days : "")}" /></div>
+    <div class="field"><label>${esc(t("tierNameField"))}</label><input id="f-tier" type="text" value="${esc(entry ? entry.tier : "")}" /></div>
+    <div class="field"><label>${esc(t("payMultiplierField"))}</label><input id="f-multiplier" type="number" min="0" step="0.1" value="${esc(entry ? entry.pay_multiplier : "")}" /></div>
+  `);
+
+  setMainButton(`💾 ${t("saveChanges")}`, async () => {
+    const maxDays = root.querySelector("#f-max-days").value;
+    const tier = root.querySelector("#f-tier").value.trim();
+    const payMultiplier = root.querySelector("#f-multiplier").value;
+    if (!maxDays || !tier || !payMultiplier) {
+      showError(`${t("maxDaysField")}, ${t("tierNameField")}, ${t("payMultiplierField")}`);
+      return;
+    }
+    const app = tg();
+    app.MainButton.showProgress();
+    try {
+      const body = JSON.stringify({ max_days: Number(maxDays), tier, pay_multiplier: Number(payMultiplier) });
+      if (mode === "add") {
+        await api("/admin/speed-tiers", { method: "POST", body });
+      } else {
+        await api(`/admin/speed-tiers/${index}`, { method: "PUT", body });
       }
       app.HapticFeedback && app.HapticFeedback.notificationOccurred("success");
       await goBack();
