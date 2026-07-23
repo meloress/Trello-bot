@@ -38,7 +38,7 @@ async def _is_assigned(task_id: int, employee_id: int) -> bool:
     return any(a.employee_id == employee_id for a in assignments)
 
 
-async def _list_my_tasks(employee_id: int, task_type: TaskType) -> list[dict]:
+async def _list_my_tasks(employee_id: int, task_type: TaskType, category: str | None = None) -> list[dict]:
     async with async_session() as session:
         assignment_repo = TaskAssignmentRepository(session)
         task_repo = TaskRepository(session)
@@ -49,6 +49,8 @@ async def _list_my_tasks(employee_id: int, task_type: TaskType) -> list[dict]:
         for assignment in assignments:
             task = await task_repo.get_by_id(assignment.task_id)
             if task is None or task.status == TaskStatus.COMPLETED or task.task_type != task_type:
+                continue
+            if category and (task.misc_category is None or task.misc_category.value != category):
                 continue
 
             department_name = None
@@ -63,6 +65,7 @@ async def _list_my_tasks(employee_id: int, task_type: TaskType) -> list[dict]:
                     "status": task.status.value,
                     "deadline": task.deadline.isoformat() if task.deadline else None,
                     "department": department_name,
+                    "misc_category": task.misc_category.value if task.misc_category else None,
                 }
             )
         return items
@@ -76,8 +79,12 @@ async def list_tasks(request: web.Request) -> web.Response:
 
 @routes.get("/misctasks")
 async def list_misctasks(request: web.Request) -> web.Response:
+    """Fasad sex TZ, Phase 9: ixtiyoriy `?category=` filtri — noto'g'ri
+    qiymat berilsa (lug'atda yo'q kategoriya) natija shunchaki bo'sh
+    ro'yxat bo'ladi, `/leads?brand=`ning filtr naqshi bilan bir xil."""
     employee = request["employee"]
-    return web.json_response(await _list_my_tasks(employee.id, TaskType.MISC))
+    category = request.query.get("category")
+    return web.json_response(await _list_my_tasks(employee.id, TaskType.MISC, category))
 
 
 @routes.get("/tasks/{task_id}")

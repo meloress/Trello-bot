@@ -33,7 +33,7 @@ from services import (
     task_service,
 )
 from trello.client import TrelloAPIError, TrelloClient
-from utils.enums import Role, TaskStatus
+from utils.enums import MiscCategory, Role, TaskStatus
 from utils.formatters import ROLE_LABELS
 
 routes = web.RouteTableDef()
@@ -690,9 +690,14 @@ async def create_misc_task(request: web.Request) -> web.Response:
     if deadline <= datetime.now(deadline.tzinfo):
         return err("deadline kelajakda bo'lishi kerak")
 
+    category_value = body.get("category") or None
+    if category_value is not None and category_value not in {c.value for c in MiscCategory}:
+        return err("category noto'g'ri")
+    category = MiscCategory(category_value) if category_value else None
+
     try:
         task = await task_service.create_misc_task(
-            text=text, deadline=deadline, employee_ids=[int(e) for e in employee_ids]
+            text=text, deadline=deadline, employee_ids=[int(e) for e in employee_ids], category=category
         )
     except ValueError as exc:
         return err(str(exc), 409)

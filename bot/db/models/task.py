@@ -7,7 +7,7 @@ from sqlalchemy import DateTime, Enum, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from db.base import TimestampedBase
-from utils.enums import TaskStatus, TaskType
+from utils.enums import MiscCategory, TaskStatus, TaskType
 
 if TYPE_CHECKING:
     from db.models.department import Department
@@ -73,6 +73,14 @@ class Task(TimestampedBase):
     # yuboriladigan mijoz. MISC vazifada odatda NULL. Bosqichdan-bosqichga
     # (advance_task_stage()) trello_checklist_id kabi ko'chiriladi.
     client_id: Mapped[Optional[int]] = mapped_column(ForeignKey("clients.id"), nullable=True)
+    # Fasad sex TZ, Phase 9: MISC vazifalar uchun ixtiyoriy kategoriya
+    # (ofis/Fasad sex/o'rnatuvchi/payvandchi). ORDER'da har doim NULL —
+    # faqat task_type=MISC qatorlarida ma'noli, ba'zi eski MISC qatorlar ham
+    # bu funksiyadan oldin yaratilgani uchun NULL bo'lishi mumkin.
+    misc_category: Mapped[Optional[MiscCategory]] = mapped_column(
+        Enum(MiscCategory, name="misc_category", native_enum=False, values_callable=lambda e: [m.value for m in e]),
+        nullable=True,
+    )
 
     current_department: Mapped[Optional["Department"]] = relationship(back_populates="tasks")
     client: Mapped[Optional["Client"]] = relationship()

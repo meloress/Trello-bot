@@ -31,7 +31,7 @@ from db.repositories import (
 )
 from services import penalty_service
 from trello.client import TrelloClient
-from utils.enums import TaskStatus, TaskType
+from utils.enums import MiscCategory, TaskStatus, TaskType
 
 logger = logging.getLogger(__name__)
 
@@ -566,13 +566,18 @@ async def reassign_task_brigade(task_id: int, new_brigade_id: int) -> Task:
     return task
 
 
-async def create_misc_task(*, text: str, deadline: datetime, employee_ids: list[int]) -> Task:
+async def create_misc_task(
+    *, text: str, deadline: datetime, employee_ids: list[int], category: MiscCategory | None = None
+) -> Task:
     """9-band: "Vazifalar" moduli — Trello'siz, faqat tizim ichida
     boshqariladigan alohida topshiriq (masalan "Ofisni tozalash"). Trello'ga
     HECH QANDAY murojaat qilinmaydi — faqat bazaga yoziladi. Bildirishnoma
     bu funksiya ichida YUBORILMAYDI (chaqiruvchi handler
     `notification_service.notify_task_started()` orqali o'zi yuboradi —
     `create_task()` bilan bir xil naqsh).
+
+    `category`: Fasad sex TZ, Phase 9 — ixtiyoriy MISC kategoriya belgisi
+    (`None` bo'lsa avvalgidek, kategoriyasiz vazifa).
 
     TZ 9-band: "Bitta vazifaga 3 tagacha odam belgilanishi mumkin" — bu
     cheklov shu yerda tekshiriladi (UI validatsiyasiga tayanmaydi)."""
@@ -602,6 +607,7 @@ async def create_misc_task(*, text: str, deadline: datetime, employee_ids: list[
             status=TaskStatus.ACTIVE,
             current_department_id=department_id,
             started_at=datetime.now(timezone.utc),
+            misc_category=category,
         )
 
         for employee_id in employee_ids:

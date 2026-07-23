@@ -131,6 +131,14 @@ const I18N = {
     miscTaskTextPh: "Masalan: Ofisni tozalash",
     misctaskCreated: "Topshiriq yaratildi",
 
+    // MISC kategoriya (Fasad sex TZ, Phase 9)
+    miscCategoryLabel: "Kategoriya",
+    miscCategoryAll: "Barchasi",
+    miscCategoryOffice: "Ofis xodimlari",
+    miscCategoryFasadSex: "Fasad sex",
+    miscCategoryInstaller: "O'rnatuvchilar",
+    miscCategoryWelder: "Payvandchi",
+
     // To'liq statistika (10-band)
     fullStatsTitle: "Statistika (joriy oy)",
     overallRanking: "Umumiy reyting",
@@ -376,6 +384,14 @@ const I18N = {
     miscTaskText: "Текст поручения",
     miscTaskTextPh: "Например: Убрать офис",
     misctaskCreated: "Поручение создано",
+
+    // Категория MISC (Fasad sex TZ, Phase 9)
+    miscCategoryLabel: "Категория",
+    miscCategoryAll: "Все",
+    miscCategoryOffice: "Офисные сотрудники",
+    miscCategoryFasadSex: "Fasad sex",
+    miscCategoryInstaller: "Монтажники",
+    miscCategoryWelder: "Сварщик",
 
     fullStatsTitle: "Статистика (текущий месяц)",
     overallRanking: "Общий рейтинг",

@@ -268,27 +268,45 @@ async function screenWorkerOrders() {
   });
 }
 
-async function screenTaskList(kind) {
+/* Fasad sex TZ, Phase 9: MISC vazifa kategoriyalari — barqaror ichki
+   identifikator, i18n.js'dagi mos "miscCategoryX" kaliti bilan chiqariladi. */
+const MISC_CATEGORIES = ["office", "fasad_sex", "installer", "welder"];
+function miscCategoryKey(v) {
+  return "miscCategory" + v.split("_").map((w) => w[0].toUpperCase() + w.slice(1)).join("");
+}
+
+async function screenTaskList(kind, category) {
   setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
-  const tasks = await api(kind === "order" ? "/tasks" : "/misctasks");
+  const url = kind === "order" ? "/tasks" : `/misctasks${category ? `?category=${encodeURIComponent(category)}` : ""}`;
+  const tasks = await api(url);
+  const filterHtml = kind === "misc" ? `
+    <div class="field"><label>${esc(t("miscCategoryLabel"))}</label>
+      <select id="f-category-filter">
+        <option value="">${esc(t("miscCategoryAll"))}</option>
+        ${MISC_CATEGORIES.map((c) => `<option value="${c}" ${category === c ? "selected" : ""}>${esc(t(miscCategoryKey(c)))}</option>`).join("")}
+      </select>
+    </div>` : "";
   if (!tasks.length) {
-    setScreen(`<p class="page-title">${esc(kind === "order" ? t("myOrders") : t("myTasks"))}</p><p class="empty-state">${esc(kind === "order" ? t("noOrders") : t("noTasks"))}</p>`);
-    return;
+    setScreen(`<p class="page-title">${esc(kind === "order" ? t("myOrders") : t("myTasks"))}</p>${filterHtml}<p class="empty-state">${esc(kind === "order" ? t("noOrders") : t("noTasks"))}</p>`);
+  } else {
+    setScreen(`
+      <p class="page-title">${esc(kind === "order" ? t("myOrders") : t("myTasks"))}</p>
+      ${filterHtml}
+      ${tasks.map((tsk, i) => `
+        <button class="task-card ${statusClass(tsk.status)}" data-i="${i}">
+          <p class="t-title">${esc(tsk.title)}</p>
+          <p class="t-sub">${esc(tsk.department || "")}</p>
+          <span class="t-status">${taskStatusLine(tsk)}</span>
+        </button>
+      `).join("")}
+    `);
+    root.querySelectorAll(".task-card").forEach((el) => {
+      const tsk = tasks[Number(el.dataset.i)];
+      el.onclick = () => show(screenTaskDetail, tsk.id);
+    });
   }
-  setScreen(`
-    <p class="page-title">${esc(kind === "order" ? t("myOrders") : t("myTasks"))}</p>
-    ${tasks.map((tsk, i) => `
-      <button class="task-card ${statusClass(tsk.status)}" data-i="${i}">
-        <p class="t-title">${esc(tsk.title)}</p>
-        <p class="t-sub">${esc(tsk.department || "")}</p>
-        <span class="t-status">${taskStatusLine(tsk)}</span>
-      </button>
-    `).join("")}
-  `);
-  root.querySelectorAll(".task-card").forEach((el) => {
-    const tsk = tasks[Number(el.dataset.i)];
-    el.onclick = () => show(screenTaskDetail, tsk.id);
-  });
+  const filterSel = root.querySelector("#f-category-filter");
+  if (filterSel) filterSel.onchange = () => replaceTop(screenTaskList, kind, filterSel.value || undefined);
 }
 
 function taskStatusLine(tsk) {
@@ -511,6 +529,12 @@ async function screenNewTaskForm(kind) {
     ` : `
       <div class="field"><label>${esc(t("miscTaskText"))}</label><input id="f-text" type="text" placeholder="${esc(t("miscTaskTextPh"))}" /></div>
       <div class="field"><label>${esc(t("deadline"))}</label><input id="f-deadline" type="datetime-local" /></div>
+      <div class="field"><label>${esc(t("miscCategoryLabel"))}</label>
+        <select id="f-category">
+          <option value="">—</option>
+          ${MISC_CATEGORIES.map((c) => `<option value="${c}">${esc(t(miscCategoryKey(c)))}</option>`).join("")}
+        </select>
+      </div>
       <p class="section-lbl">${esc(t("employeesField"))} (≤3)</p>
       ${activeEmployees.map((e) => `
         <label class="check-row"><input type="checkbox" value="${e.id}" class="f-emp" />${esc(e.full_name)} — ${esc(e.role_label)}</label>
@@ -568,9 +592,10 @@ async function screenNewTaskForm(kind) {
       const app = tg();
       app.MainButton.showProgress();
       try {
+        const category = root.querySelector("#f-category").value || null;
         await api("/admin/misctasks", {
           method: "POST",
-          body: JSON.stringify({ text, deadline: new Date(deadlineRaw).toISOString(), employee_ids: empIds }),
+          body: JSON.stringify({ text, deadline: new Date(deadlineRaw).toISOString(), employee_ids: empIds, category }),
         });
         app.HapticFeedback && app.HapticFeedback.notificationOccurred("success");
         await goBack();
