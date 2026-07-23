@@ -117,11 +117,23 @@ ularni taxmin qilmaydi.
   `financial_service.calculate_speed_tier_bonus()` — "taklif qiladi, hech
   qachon ijro etmaydi" pattern (idempotent, tekshirilgan). `kind` ustuni
   yangi qiymat sig'ishi uchun kengaytirildi (mavjud precedent bo'yicha).
-- [ ] **Phase 8 — Kunlik rasm/video hisobot (compliance).** Chat-based FSM
-  (`/mijoz` bilan bir xil sabab). Yangi jadval `daily_report_submissions`.
-  Yangi `employees.daily_report_required: BOOLEAN NOT NULL DEFAULT false`.
-  Yangi `bot/jobs/daily_report_job.py` (`schedule_all` patterni). Jarima
-  YO'Q — faqat kuzatuv.
+- [x] **Phase 8 — Kunlik rasm/video hisobot (compliance).** BAJARILDI
+  (`7aed2f4`, review: Approved). Chat-based, `/mijoz` bilan bir xil sabab —
+  lekin FSM emas: `daily_report_job` (`Bot`dan boshqa hech narsaga, jumladan
+  `Dispatcher`/`storage`ga kirish huquqi yo'q, `reminder_job`/`report_job`
+  bilan bir xil) oddiy matnli so'rov yuboradi, `handlers/common/
+  daily_report.py`dagi HOLAT'siz filter (`F.photo`/`F.video` + DB'dan
+  `daily_report_required=True` tekshiruvi) javobni ushlaydi. Yangi jadval
+  `daily_report_submissions` (`UNIQUE(employee_id, report_date)`, upsert —
+  tekshirilgan: qayta yuborish yangi qator EMAS). Yangi
+  `employees.daily_report_required`, `app_settings.daily_report_time`
+  (`report_time` bilan bir xil naqsh). Jarima YO'Q — `penalty_service.py`ga
+  tegilmadi. Yon-topilma: `main.py`da `common_start_router`ning
+  `StateFilter(None)` catch-all'i ILGARI `common_client_link_router`dan
+  OLDIN ro'yxatdan o'tkazilgan edi — live aiogram repro bilan tasdiqlandi,
+  bu holatda yangi/idle foydalanuvchidan kelgan `/mijoz` catch-all'ga tushib
+  qolib, `client_link_router`ga UMUMAN yetib bormas edi; tartib tuzatildi
+  (`common_start_router` endi eng oxirida).
 - [ ] **Phase 9 — Vazifa buyurish 4 toifasi (MISC kategoriya).** Yangi
   `tasks.misc_category: VARCHAR NULL` + `MiscCategory` enum (4 qiymat).
   `create_misc_task()`ga `category` parametri.
