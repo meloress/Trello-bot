@@ -107,6 +107,15 @@ const I18N = {
     tab_home: "Bosh sahifa", tab_stats: "Statistika", tab_employees: "Xodimlar", tab_financial: "Moliyaviy",
     tab_brigade: "Brigada", tab_leads: "Lidlarim",
 
+    // Modul tanlash (Fasad sex TZ, Phase 0)
+    chooseModuleTitle: "Qaysi tizim?",
+    mebelModuleName: "Mebel ishlab chiqarish",
+    mebelModulePath: "Stolyarka → Shkurka → Kraska → Dostavka",
+    fasadModuleName: "Fasad sex",
+    fasadModulePath: "Kontrol → Stolyarka → Shkurka → Kraska → Montaj",
+    switchModuleLabel: "Tizimni almashtirish",
+    fasadHomeTab: "Bosh sahifa",
+
     // Admin bosh sahifa: kutilayotgan amallar
     pendingSetupAlert: (n) => `Sozlash kutilmoqda (${n})`,
     reassignAlert: (n) => `Ko'rib chiqish kutilmoqda (${n})`,
@@ -309,6 +318,15 @@ const I18N = {
     tab_orders: "Заказы", tab_tasks: "Задачи", tab_score: "Баллы", tab_profile: "Профиль",
     tab_home: "Главная", tab_stats: "Статистика", tab_employees: "Сотрудники", tab_financial: "Финансы",
     tab_brigade: "Бригада", tab_leads: "Мои лиды",
+
+    // Выбор модуля (ТЗ Fasad sex, Phase 0)
+    chooseModuleTitle: "Какая система?",
+    mebelModuleName: "Производство мебели",
+    mebelModulePath: "Столярка → Шкурка → Краска → Доставка",
+    fasadModuleName: "Fasad sex",
+    fasadModulePath: "Контроль → Столярка → Шкурка → Краска → Монтаж",
+    switchModuleLabel: "Сменить систему",
+    fasadHomeTab: "Главная",
 
     pendingSetupAlert: (n) => `Ожидает настройки (${n})`,
     reassignAlert: (n) => `Ожидает рассмотрения (${n})`,

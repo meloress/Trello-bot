@@ -39,6 +39,11 @@ class Department(TimestampedBase):
     # holatda ochiladi (joy tayyor bo'lishini kutish) — task_service.create_task()
     # shu bayroqqa qarab boshlang'ich holatni tanlaydi.
     starts_stopped: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Fasad sex TZ (Phase 0): shu bo'lim qaysi ishlab chiqarish moduliga
+    # tegishli — "mebel" (asosiy, standart) yoki "fasad_sex" (yangi, parallel
+    # zanjir). Oddiy VARCHAR, CHECK/enum emas (CLAUDE.md konvensiyasi) — 3-modul
+    # keyinchalik qo'shilsa, migratsiya kod o'zgarishisiz kengayadi.
+    module: Mapped[str] = mapped_column(String(20), nullable=False, default="mebel")
 
     brigades: Mapped[list["Brigade"]] = relationship(back_populates="department")
     employees: Mapped[list["Employee"]] = relationship(back_populates="department")

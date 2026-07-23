@@ -7,12 +7,22 @@ const API_BASE = "/api/miniapp";
 const root = document.getElementById("app");
 const tabbarRoot = document.getElementById("tabbar");
 const state = { employee: null, lang: "uz" };
-const nav = { stack: [], section: null };
+const nav = { stack: [], section: null, module: null };
 let mainButtonHandler = null;
+const MODULE_STORAGE_KEY = "miniapp_module";
 
 /* Rol bo'yicha pastki tab-bar ta'rifi — har biri {key, icon, label, screen}.
-   Birinchi element doim shu rolning "uy" ekrani (routeHome() shundan foydalanadi). */
-function tabDefsForRole(role) {
+   Birinchi element doim shu rolning "uy" ekrani (routeHome()/screenModuleChooser()
+   shundan foydalanadi). `module`: "fasad_sex" bo'lsa alohida (hozircha
+   placeholder) tab to'plami qaytadi — Fasad sex'ning haqiqiy ekranlari keyingi
+   vazifalarda qo'shiladi. `module` bo'sh/"mebel" bo'lsa — o'zgarishsiz eski xulq. */
+function tabDefsForRole(role, module) {
+  if (module === "fasad_sex") {
+    return [
+      { key: "home", icon: "🏗️", label: "fasadHomeTab", screen: screenAdminHome },
+      { key: "profile", icon: "👤", label: "tab_profile", screen: screenProfile },
+    ];
+  }
   if (role === "worker") {
     return [
       { key: "orders", icon: "📦", label: "tab_orders", screen: screenWorkerOrders },
@@ -52,7 +62,13 @@ function switchTab(tabKey, screenFn) {
 
 function renderTabBar() {
   if (!tabbarRoot) return;
-  const defs = tabDefsForRole(state.employee ? state.employee.role : null);
+  if (!nav.module) {
+    // Modul hali tanlanmagan (screenModuleChooser ekranida) — tab-bar modulga
+    // tegishli, shu sabab modul tanlanmaguncha ko'rsatilmaydi.
+    tabbarRoot.innerHTML = "";
+    return;
+  }
+  const defs = tabDefsForRole(state.employee ? state.employee.role : null, nav.module);
   if (defs.length < 2) {
     tabbarRoot.innerHTML = "";
     return;
@@ -1449,9 +1465,20 @@ async function screenProfile() {
       <p class="section-lbl">${esc(t("management"))}</p>
       <button class="nav-card" id="nav-settings"><span class="ic">⚙️</span><span class="grow">${esc(t("settingsNav"))}</span><span class="chev">›</span></button>
     ` : ""}
+    ${(me.available_modules || []).length > 1 ? `
+      <button class="nav-card" id="nav-switch-module"><span class="ic">🔄</span><span class="grow">${esc(t("switchModuleLabel"))}</span><span class="chev">›</span></button>
+    ` : ""}
   `);
   const settingsBtn = root.querySelector("#nav-settings");
   if (settingsBtn) settingsBtn.onclick = () => show(screenSettings);
+  const switchModuleBtn = root.querySelector("#nav-switch-module");
+  if (switchModuleBtn) {
+    switchModuleBtn.onclick = () => {
+      localStorage.removeItem(MODULE_STORAGE_KEY);
+      nav.module = null;
+      resetTo(screenModuleChooser);
+    };
+  }
   root.querySelectorAll(".lang-pill").forEach((btn) => {
     btn.onclick = async () => {
       const lang = btn.dataset.lang;
@@ -1468,6 +1495,43 @@ async function screenProfile() {
   });
 }
 
+/* ---------- Modul tanlash (Fasad sex TZ, Phase 0) ---------- */
+
+/* "mebel"/"fasad_sex" — bir nechta modulga ega foydalanuvchi (masalan ADMIN)
+   birini tanlaydi, tanlov localStorage'da saqlanadi (theme'ning saqlanish
+   uslubi bilan bir xil kalit nomlash: MODULE_STORAGE_KEY). */
+async function screenModuleChooser() {
+  setScreen(`
+    <p class="page-title">${esc(t("chooseModuleTitle"))}</p>
+    <button class="nav-card" data-module="mebel">
+      <span class="ic">🪑</span>
+      <span class="grow">
+        <span style="display:block">${esc(t("mebelModuleName"))}</span>
+        <span style="display:block;font-size:12px;color:var(--ink-soft)">${esc(t("mebelModulePath"))}</span>
+      </span>
+      <span class="chev">›</span>
+    </button>
+    <button class="nav-card" data-module="fasad_sex">
+      <span class="ic">🏗️</span>
+      <span class="grow">
+        <span style="display:block">${esc(t("fasadModuleName"))}</span>
+        <span style="display:block;font-size:12px;color:var(--ink-soft)">${esc(t("fasadModulePath"))}</span>
+      </span>
+      <span class="chev">›</span>
+    </button>
+  `);
+  root.querySelectorAll("[data-module]").forEach((el) => {
+    el.onclick = () => {
+      const module = el.dataset.module;
+      nav.module = module;
+      localStorage.setItem(MODULE_STORAGE_KEY, module);
+      const defs = tabDefsForRole(state.employee.role, nav.module);
+      nav.section = defs[0].key;
+      resetTo(defs[0].screen);
+    };
+  });
+}
+
 /* ---------- Bootstrap ---------- */
 
 function applyTheme(scheme) {
@@ -1475,7 +1539,7 @@ function applyTheme(scheme) {
 }
 
 function routeHome() {
-  const defs = tabDefsForRole(state.employee.role);
+  const defs = tabDefsForRole(state.employee.role, nav.module);
   nav.section = defs[0].key;
   resetTo(defs[0].screen);
 }
@@ -1506,7 +1570,21 @@ async function bootstrap() {
     return;
   }
 
-  routeHome();
+  const modules = state.employee.available_modules || ["mebel"];
+  if (modules.length === 1) {
+    nav.module = modules[0];
+    routeHome();
+    return;
+  }
+  const saved = localStorage.getItem(MODULE_STORAGE_KEY);
+  if (saved && modules.includes(saved)) {
+    nav.module = saved;
+    routeHome();
+    return;
+  }
+  nav.module = null;
+  nav.section = null;
+  resetTo(screenModuleChooser);
 }
 
 bootstrap();
