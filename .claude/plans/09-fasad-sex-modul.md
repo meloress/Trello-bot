@@ -48,7 +48,10 @@ ularni taxmin qilmaydi.
   `GET /me`ga `available_modules`. Frontend: `screenModuleChooser()`,
   `tabDefsForRole(role, module)` ikkinchi parametr, Profil'da "🔄 Tizimni
   almashtirish". Bitta modulli xodimlar chooser'ni ko'rmaydi.
-- [ ] **Phase 1 — Ikkinchi zavod tegi.** Yangi `departments.factory_name:
+- [x] **Phase 1 — Ikkinchi zavod tegi.** BAJARILDI (`7f0a692`, review:
+  Approved). Minor: bo'sh-satr `?factory_name=` hozircha filtr sifatida
+  o'qiladi (hozircha frontend yo'q, zararsiz — kelajakda UI qo'shilganda
+  `factory_name or None` guard qo'shish kerak). Yangi `departments.factory_name:
   VARCHAR(100) NULL`. `stats_service.py`ga filtr parametri. `GET
   /admin/stats`ga query param. (`module`dan MUSTAQIL o'lchov — factory_name
   bir modul ICHIDAGI jismoniy filial farqi.)
