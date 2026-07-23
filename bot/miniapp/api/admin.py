@@ -800,6 +800,8 @@ async def capacity_stats(request: web.Request) -> web.Response:
         department_id = int(department_id)
     except ValueError:
         return err("department_id noto'g'ri")
+    if not _department_scope_ok(request, department_id):
+        return err("bu bo'lim sizning doirangizda emas", 403)
 
     since_raw = request.query.get("since")
     until_raw = request.query.get("until")

@@ -176,6 +176,10 @@ async def create_task(
                 f"'{department.name}' yo'nalishi uchun Trello ro'yxati (list) sozlanmagan"
             )
         list_id = department.trello_list_id
+        # ponytail note: starts_stopped is only honored here (task creation) —
+        # a stage spawned mid-chain by advance_task_stage()/_spawn_pending_stage()
+        # never checks it, so this only fires when the department is an order's
+        # very first stage, not when placed later in the chain.
         starts_stopped = department.starts_stopped
 
     if starts_stopped and created_by_employee_id is None:
@@ -379,6 +383,13 @@ async def advance_task_stage(completed_task_id: int) -> Task | list[Task] | None
 
     async with async_session() as session:
         if mode == "fork":
+            # Note: a fork-branch department stays at the fork-point's Trello
+            # list until join fires (card never moves on fork). If that branch's
+            # department also has stop_target_list_id set (Phase 5), stopping
+            # and resuming it will move the shared card to the branch's own
+            # list instead — cosmetic Trello-position confusion only, the join
+            # itself is DB-status-based and unaffected. Worth knowing before
+            # enabling both features on the same chain.
             new_tasks = [
                 await _spawn_pending_stage(
                     session,

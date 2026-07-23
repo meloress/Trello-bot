@@ -104,6 +104,7 @@ Fork/join zanjiri uchun (`b7c1e4f9a83d` migratsiyasi). `next_department_id` bitt
 | reassigned_at | TIMESTAMPTZ, NULL | 8.3-band (`470b837c8dae`): rahbar brigadani QO'LDA almashtirgan payt (`task_service.reassign_task_brigade()`). Bo'lsa, `penalty_service.calculate_and_apply_task_penalty()` kechikishni `deadline` o'rniga shu vaqtdan hisoblaydi — eski brigada allaqachon darhol jarimalangan davrni yangi brigadaga qayta hisoblamaslik uchun |
 | trello_checklist_id | VARCHAR(50), NULL | 6.2-band (`470b837c8dae`): kartadagi "Bosqichlar" checklist ID'si — bir xil `trello_card_id`ni bo'lishuvchi barcha bosqich-qatorlariga bir xil qiymat ko'chiriladi (`advance_task_stage()`) |
 | client_id | FK -> clients.id, NULL | 12-band (`b3f7a1c9d204`, 4-bosqich): bosqich o'tganda/"Stop" bosilganda avtomatik xabarnoma yuboriladigan mijoz. MISC vazifada har doim NULL (`create_misc_task()` client_id qabul qilmaydi). `advance_task_stage()` bosqichdan-bosqichga `trello_checklist_id` kabi ko'chiradi |
+| misc_category | VARCHAR(20), NULL | Fasad sex TZ, Phase 9 (`e1a4b8f36c02` migratsiyasi). MISC vazifalar uchun ixtiyoriy kategoriya (ofis/Fasad sex/o'rnatuvchi/payvandchi, `utils/enums.MiscCategory`). ORDER'da har doim NULL — faqat `task_type=MISC` qatorlarida ma'noli, funksiya qo'shilishidan oldingi eski MISC qatorlar ham NULL bo'lishi mumkin |
 | created_at / updated_at | TIMESTAMPTZ | |
 
 **MISC vazifalar KPI/jarima tizimiga ORDER bilan BIR XIL qoidada ta'sir qiladi**
@@ -335,7 +336,7 @@ faqat `GET /admin/daily-reports` orqali muvofiqlik holatini KO'RSATADI.
 |---|---|---|
 | id | PK | |
 | task_id | FK -> tasks.id | qaysi bosqich-qatoriga tegishli |
-| kind | VARCHAR | `wage_deduction` (1-qoida) yoki `advance_waiver` (2-qoida) |
+| kind | VARCHAR | `wage_deduction` (1-qoida), `advance_waiver` (2-qoida) yoki `speed_tier_bonus` (Fasad sex TZ, Phase 7 — `a3f7c9d02b41` migratsiyasi `alter_column` bilan enum ro'yxatini kengaytirdi, VARCHAR uzunligi 14->qiymatga mos avtomatik o'sdi) |
 | status | VARCHAR | doim `pending_manager_review` bilan yaratiladi — tizim hech qachon o'zi `approved`/`rejected` qilmaydi, bu BOSHQA (hali qurilmagan) modul ishi |
 | applicable | BOOLEAN | qoida shu holatga tatbiq etiladimi |
 | stage_duration_days | INTEGER, NULL | `wage_deduction`: bosqich necha kun davom etgani |
@@ -344,6 +345,8 @@ faqat `GET /admin/daily-reports` orqali muvofiqlik holatini KO'RSATADI.
 | advance_percent_paid | INTEGER, NULL | `advance_waiver`: qo'lda kiritilgan avans foizi |
 | order_total_value | FLOAT, NULL | `advance_waiver`: qo'lda kiritilgan buyurtma summasi |
 | waived_amount | FLOAT, NULL | `advance_waiver`: kechiriladigan summa = `order_total_value * (advance_waiver_percent/100)` |
+| speed_tier | VARCHAR(50), NULL | Fasad sex TZ, Phase 7 (`a3f7c9d02b41` migratsiyasi). `speed_tier_bonus`: `app_settings.speed_tier_schedule`dan mos kelgan tezlik darajasi nomi (`financial_service.calculate_speed_tier_bonus()`); mos keladigan daraja topilmasa ham baribir aniqlanadi |
+| suggested_pay_amount | FLOAT, NULL | Fasad sex TZ, Phase 7 (`a3f7c9d02b41` migratsiyasi). `speed_tier_bonus`: taklif qilingan haq = `base_pay_amount * pay_multiplier` — `base_pay_amount` berilmasa (hali qo'lda kiritish yo'q) `NULL` qoladi, faqat `speed_tier`ning o'zi aniqlanadi |
 | created_at / updated_at | TIMESTAMPTZ | |
 
 `f98817708ac9` migratsiyasida yaratilgan. Sof hisoblash `services/financial_service.py`
