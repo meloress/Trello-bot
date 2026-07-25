@@ -31,9 +31,21 @@ from db.repositories import (
 )
 from services import penalty_service
 from trello.client import TrelloClient
-from utils.enums import MiscCategory, TaskStatus, TaskType
+from utils.enums import MiscCategory, Role, TaskStatus, TaskType
 
 logger = logging.getLogger(__name__)
+
+
+async def _trello_writes_disabled(department_id: int | None) -> bool:
+    """Mebel moduli endi bir tomonlama (faqat Trello -> bot): shu bo'limlar
+    uchun karta mutatsiyasi funksiyalari (a'zo qo'shish/olib tashlash,
+    checklist yaratish) hech narsa qilmasligi kerak. `fasad_sex` uchun
+    doim False qaytadi — xatti-harakat o'zgarishsiz qoladi."""
+    if department_id is None:
+        return False
+    async with async_session() as session:
+        department = await DepartmentRepository(session).get_by_id(department_id)
+    return department is not None and department.module == "mebel"
 
 
 class DepartmentNotFoundError(Exception):
@@ -86,9 +98,11 @@ async def _collect_department_chain_names(
     return names
 
 
-async def _add_members_to_card(card_id: str, employee_ids: list[int]) -> None:
+async def _add_members_to_card(card_id: str, employee_ids: list[int], department_id: int | None = None) -> None:
     """6.2-band: karta a'zolari. `trello_member_id` yo'q xodim — faqat
     log (ikkinchi-darajali, asosiy oqimni to'xtatmaydi)."""
+    if await _trello_writes_disabled(department_id):
+        return
     async with async_session() as session:
         employee_repo = EmployeeRepository(session)
         employees = [await employee_repo.get_by_id(eid) for eid in employee_ids]
@@ -111,7 +125,9 @@ async def _add_members_to_card(card_id: str, employee_ids: list[int]) -> None:
                 )
 
 
-async def _remove_members_from_card(card_id: str, employee_ids: list[int]) -> None:
+async def _remove_members_from_card(card_id: str, employee_ids: list[int], department_id: int | None = None) -> None:
+    if await _trello_writes_disabled(department_id):
+        return
     async with async_session() as session:
         employee_repo = EmployeeRepository(session)
         employees = [await employee_repo.get_by_id(eid) for eid in employee_ids]
@@ -131,6 +147,8 @@ async def _remove_members_from_card(card_id: str, employee_ids: list[int]) -> No
 async def _create_stage_checklist(task_id: int, card_id: str, department_id: int) -> None:
     """6.2-band: bo'lim zanjiri bo'yicha checklist — har bosqich (departament)
     uchun bitta punkt. `task.trello_checklist_id`ga yoziladi."""
+    if await _trello_writes_disabled(department_id):
+        return
     async with async_session() as session:
         chain_names = await _collect_department_chain_names(
             DepartmentRepository(session), DepartmentForkTargetRepository(session), department_id
@@ -223,13 +241,109 @@ async def create_task(
         await session.commit()
 
     try:
-        await _add_members_to_card(card["id"], employee_ids)
+        await _add_members_to_card(card["id"], employee_ids, department_id=department_id)
     except Exception:
         logger.exception("Task %s uchun karta a'zolari qo'shilmadi", task.id)
 
     await _create_stage_checklist(task.id, card["id"], department_id)
 
     return task
+
+
+async def sync_trello_card_stage(
+    *,
+    department_id: int,
+    card_id: str,
+    title: str,
+    description: str | None,
+    deadline: datetime,
+    member_trello_ids: list[str],
+    previous_task_id: int | None = None,
+    client_id: int | None = None,
+) -> Task | None:
+    """Mebel moduli: Trello-birinchi kirish nuqtasi (`jobs/trello_ingest_job.py`
+    chaqiradi, keyingi vazifada qo'shiladi). Trello endi yagona manba — bu
+    funksiya HECH QANDAY Trello yozuvi qilmaydi, faqat allaqachon Trello'da
+    mavjud karta holatini bazaga aks ettiradi. Ham yangi buyurtma
+    (`previous_task_id=None`), ham bosqich o'tishi (`previous_task_id`=eski
+    qator) uchun ishlatiladi — ikkalasi ham bir xil "karta + a'zo(lar) +
+    muddat allaqachon ma'lum" holatidan boshlanadi, shuning uchun
+    `PENDING_SETUP` oraliq bosqichi endi kerak emas (solishtiring:
+    `activate_pending_stage()` — u yerda muddat/xodim hali botda qo'lda
+    kiritilishi kerak edi, bu yerda ikkalasi ham Trello kartadan allaqachon
+    ma'lum)."""
+    async with async_session() as session:
+        department = await DepartmentRepository(session).get_by_id(department_id)
+        if department is None:
+            logger.warning("sync_trello_card_stage: bo'lim %s topilmadi (karta %s)", department_id, card_id)
+            return None
+
+        employee_repo = EmployeeRepository(session)
+        resolved = []
+        for trello_member_id in member_trello_ids:
+            employee = await employee_repo.get_by_trello_member_id(trello_member_id)
+            if employee is not None and employee.is_active:
+                resolved.append(employee)
+
+        if not resolved:
+            logger.warning(
+                "sync_trello_card_stage: karta %s uchun hech qanday tanish xodim topilmadi (a'zolar: %s)",
+                card_id, member_trello_ids,
+            )
+            return None
+
+        brigadiers = [e for e in resolved if e.role == Role.BRIGADIER]
+        if len(brigadiers) > 1:
+            logger.warning(
+                "sync_trello_card_stage: karta %s uchun bir nechta brigadir topildi (%s) — birinchisi tanlandi",
+                card_id, [e.id for e in brigadiers],
+            )
+        assignee = brigadiers[0] if brigadiers else resolved[0]
+
+        task_repo = TaskRepository(session)
+        assignment_repo = TaskAssignmentRepository(session)
+
+        task = await task_repo.create(
+            trello_card_id=card_id,
+            task_type=TaskType.ORDER,
+            title=title,
+            description=description,
+            deadline=deadline,
+            status=TaskStatus.ACTIVE,
+            current_department_id=department_id,
+            started_at=datetime.now(timezone.utc),
+            previous_task_id=previous_task_id,
+            client_id=client_id,
+            trello_last_seen_list_id=department.trello_list_id,
+            trello_last_seen_member_ids=list(member_trello_ids),
+            trello_last_polled_at=datetime.now(timezone.utc),
+        )
+        await assignment_repo.create(task_id=task.id, employee_id=assignee.id)
+
+        await session.commit()
+        return task
+
+
+async def set_assignee_from_trello(task_id: int, new_employee_id: int) -> Task:
+    """Mebel moduli: karta a'zosi Trello'da o'zgarganda chaqiriladi
+    (`jobs/trello_ingest_job.py`) — jarima yo'q, Trello yozuvi yo'q, faqat
+    `task_assignments`ni to'liq almashtiradi (`delegate_task()`/
+    `reassign_task_brigade()`dagi bilan bir xil "to'liq almashtirish"
+    qoidasi — qisman birgalikda egalik qilish yo'q)."""
+    async with async_session() as session:
+        task_repo = TaskRepository(session)
+        assignment_repo = TaskAssignmentRepository(session)
+
+        task = await task_repo.get_by_id(task_id)
+        if task is None:
+            raise TaskNotFoundError(f"Task {task_id} topilmadi")
+
+        for assignment in await assignment_repo.list_by_task(task_id):
+            await assignment_repo.delete(assignment)
+        await assignment_repo.create(task_id=task_id, employee_id=new_employee_id)
+
+        await session.commit()
+        return task
 
 
 async def _spawn_pending_stage(
@@ -308,6 +422,7 @@ async def advance_task_stage(completed_task_id: int) -> Task | list[Task] | None
         card_id = completed_task.trello_card_id
         checklist_id = completed_task.trello_checklist_id
         current_department_name = current_department.name
+        current_department_id = current_department.id
         title = completed_task.title
         description = completed_task.description
         client_id = completed_task.client_id
@@ -370,7 +485,7 @@ async def advance_task_stage(completed_task_id: int) -> Task | list[Task] | None
 
         if old_employee_ids:
             try:
-                await _remove_members_from_card(card_id, old_employee_ids)
+                await _remove_members_from_card(card_id, old_employee_ids, department_id=current_department_id)
             except Exception:
                 logger.exception("Task %s: eski bosqich xodimlari kartadan olib tashlanmadi", completed_task_id)
 
@@ -467,10 +582,11 @@ async def activate_pending_stage(task_id: int, *, deadline: datetime, employee_i
 
         await session.commit()
         card_id = task.trello_card_id
+        department_id = task.current_department_id
 
     if card_id:
         try:
-            await _add_members_to_card(card_id, employee_ids)
+            await _add_members_to_card(card_id, employee_ids, department_id=department_id)
         except Exception:
             logger.exception("Task %s: yangi bosqich xodimlari kartaga qo'shilmadi", task_id)
 
@@ -511,14 +627,15 @@ async def delegate_task(task_id: int, *, brigadier_id: int, worker_ids: list[int
 
         await session.commit()
         card_id = task.trello_card_id
+        department_id = task.current_department_id
 
     if card_id:
         try:
-            await _remove_members_from_card(card_id, [brigadier_id])
+            await _remove_members_from_card(card_id, [brigadier_id], department_id=department_id)
         except Exception:
             logger.exception("Task %s: brigadir kartadan olib tashlanmadi", task_id)
         try:
-            await _add_members_to_card(card_id, worker_ids)
+            await _add_members_to_card(card_id, worker_ids, department_id=department_id)
         except Exception:
             logger.exception("Task %s: xodim(lar) kartaga qo'shilmadi", task_id)
 
@@ -584,11 +701,11 @@ async def reassign_task_brigade(task_id: int, new_brigade_id: int) -> Task:
 
     if card_id:
         try:
-            await _remove_members_from_card(card_id, old_employee_ids)
+            await _remove_members_from_card(card_id, old_employee_ids, department_id=department_id)
         except Exception:
             logger.exception("Task %s: eski brigada a'zolari kartadan olib tashlanmadi", task_id)
         try:
-            await _add_members_to_card(card_id, new_employee_ids)
+            await _add_members_to_card(card_id, new_employee_ids, department_id=department_id)
         except Exception:
             logger.exception("Task %s: yangi brigada a'zolari kartaga qo'shilmadi", task_id)
 
