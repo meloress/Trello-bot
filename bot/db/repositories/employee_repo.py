@@ -92,3 +92,13 @@ class EmployeeRepository(BaseRepository[Employee]):
             )
         )
         return list(result.scalars().all())
+
+    async def get_by_trello_member_id(self, trello_member_id: str) -> Employee | None:
+        """Mebel moduli: Trello karta a'zosi (idMember) qaysi xodimga mos
+        kelishini aniqlash uchun (`trello_ingest_job`) — `trello_member_id`
+        xodim yaratishda bir marta yozilgan, bu yerda birinchi marta o'qib
+        qaytariladi."""
+        result = await self.session.execute(
+            select(Employee).where(Employee.trello_member_id == trello_member_id)
+        )
+        return result.scalar_one_or_none()

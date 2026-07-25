@@ -13,6 +13,7 @@ from db.repositories.lead_repo import LeadRepository
 from db.repositories.penalty_rule_repo import PenaltyRuleRepository
 from db.repositories.stop_log_repo import StopLogRepository
 from db.repositories.task_assignment_repo import TaskAssignmentRepository
+from db.repositories.task_claim_repo import TaskClaimRepository
 from db.repositories.task_repo import TaskRepository
 from db.repositories.task_seller_repo import TaskSellerRepository
 
@@ -32,6 +33,7 @@ __all__ = [
     "PenaltyRuleRepository",
     "StopLogRepository",
     "TaskAssignmentRepository",
+    "TaskClaimRepository",
     "TaskRepository",
     "TaskSellerRepository",
 ]

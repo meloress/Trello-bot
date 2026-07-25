@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import DateTime, Enum, ForeignKey, String, Text
+from sqlalchemy import DateTime, Enum, ForeignKey, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from db.base import TimestampedBase
@@ -81,6 +81,15 @@ class Task(TimestampedBase):
         Enum(MiscCategory, name="misc_category", native_enum=False, values_callable=lambda e: [m.value for m in e]),
         nullable=True,
     )
+    # Mebel moduli: Trello kuzatish (ingest) job'i uchun oxirgi ko'rilgan
+    # karta holati — bosqich o'tishi/brigadir almashinuvini aniqlash uchun.
+    # fasad_sex qatorlari uchun har doim NULL, hech qanday mantiqqa ta'sir qilmaydi.
+    trello_last_seen_list_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    trello_last_seen_member_ids: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    trello_last_polled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Karta claim tasdiqlanishidan OLDIN keyingi bo'limga ko'chirilganda
+    # belgilanadi (eski bosqich hali "tasdiqlanmagan" holatda ochiq qoladi).
+    advanced_without_finish_claim_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     current_department: Mapped[Optional["Department"]] = relationship(back_populates="tasks")
     client: Mapped[Optional["Client"]] = relationship()
