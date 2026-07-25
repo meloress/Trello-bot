@@ -62,7 +62,7 @@ async def _move_card_to_stop_list(card_id: str, department_id: int) -> None:
     Trello chaqiruvi qilmaydi — bugungi xatti-harakat o'zgarishsiz qoladi."""
     async with async_session() as session:
         department = await DepartmentRepository(session).get_by_id(department_id)
-    if department is None or not department.stop_target_list_id:
+    if department is None or department.module == "mebel" or not department.stop_target_list_id:
         return
     try:
         async with TrelloClient(settings.trello_api_key, settings.trello_token) as trello:
@@ -81,7 +81,7 @@ async def _move_card_back_from_stop_list(card_id: str, department_id: int) -> No
     yo'q)."""
     async with async_session() as session:
         department = await DepartmentRepository(session).get_by_id(department_id)
-    if department is None or not department.stop_target_list_id or not department.trello_list_id:
+    if department is None or department.module == "mebel" or not department.stop_target_list_id or not department.trello_list_id:
         return
     try:
         async with TrelloClient(settings.trello_api_key, settings.trello_token) as trello:
@@ -92,10 +92,13 @@ async def _move_card_back_from_stop_list(card_id: str, department_id: int) -> No
         )
 
 
-async def stop_task(task_id: int, employee_id: int, reason: str) -> StopLog:
-    """"Stop" tugmasi: faqat faol vazifani to'xtatadi, sabab yozish majburiy (7.5-band)."""
+async def stop_task(task_id: int, employee_id: int, reason: str, stopped_at: datetime | None = None) -> StopLog:
+    """"Stop" tugmasi: faqat faol vazifani to'xtatadi, sabab yozish majburiy (7.5-band).
+    "stopped_at" berilsa (claim tasdiqlash oqimidan chaqirilganda) ishchi haqiqatda tugmani bosgan vaqt sifatida ishlatiladi — berilmasa hozirgi vaqt."""
     if not reason or not reason.strip():
         raise ValueError("Sabab (reason) bo'sh bo'lishi mumkin emas")
+
+    stopped_at = stopped_at or datetime.now(timezone.utc)
 
     async with async_session() as session:
         task_repo = TaskRepository(session)
@@ -118,7 +121,7 @@ async def stop_task(task_id: int, employee_id: int, reason: str) -> StopLog:
             task_id=task.id,
             employee_id=employee_id,
             reason=reason,
-            stopped_at=datetime.now(timezone.utc),
+            stopped_at=stopped_at,
         )
 
         await session.commit()
@@ -176,13 +179,16 @@ async def resume_task(task_id: int, employee_id: int | None = None) -> Task:
     return task
 
 
-async def finish_task(task_id: int, employee_id: int | None = None) -> Task:
+async def finish_task(task_id: int, employee_id: int | None = None, finished_at: datetime | None = None) -> Task:
     """Vazifani yakunlaydi va finished_at'ni belgilaydi. `employee_id` berilsa
     (Mini App'dan chaqirilganda shunday) — faqat shu vazifaga tayinlangan
     xodim yakunlashi mumkin (zaxira tekshiruv). `None` bo'lsa (masalan
     `jobs/daily_sync_job.py`'ning Trello-arxiv orqali avtomatik yopilishi —
     bunda aniq bitta "amal qilayotgan xodim" tushunchasi yo'q) tekshiruv
-    o'tkazib yuboriladi."""
+    o'tkazib yuboriladi.
+    "finished_at" berilsa (claim tasdiqlash oqimidan) ishchi tugmani bosgan ANIQ vaqt sifatida ishlatiladi — bu qiymat penalty_service.calculate_and_apply_task_penalty()ga to'g'ridan-to'g'ri ta'sir qiladi (tasdiqlash kechikishi ballga hech qachon ta'sir qilmasligi kerak). Berilmasa hozirgi vaqt (masalan Trello-arxiv orqali avtomatik yopilish uchun)."""
+    finished_at = finished_at or datetime.now(timezone.utc)
+
     async with async_session() as session:
         task_repo = TaskRepository(session)
         assignment_repo = TaskAssignmentRepository(session)
@@ -197,7 +203,23 @@ async def finish_task(task_id: int, employee_id: int | None = None) -> Task:
             if employee_id not in assigned_ids:
                 raise InvalidTaskStateError(f"Xodim {employee_id} bu vazifaga tayinlanmagan")
 
-        await task_repo.update(task, status=TaskStatus.COMPLETED, finished_at=datetime.now(timezone.utc))
+        await task_repo.update(task, status=TaskStatus.COMPLETED, finished_at=finished_at)
 
         await session.commit()
         return task
+
+
+async def reopen_if_overdue(task_id: int, new_deadline: datetime) -> None:
+    """Mebel moduli: `jobs/trello_ingest_job.py` (keyingi vazifada qo'shiladi)
+    Trello kartadan yangilangan (kechroq) muddat o'qiganda chaqiradi. Agar
+    vazifa eski muddat asosida allaqachon OVERDUE deb belgilangan bo'lsa,
+    lekin yangi muddat hali kelmagan bo'lsa — ACTIVE'ga qaytaradi (haqiqatda
+    kechikmagan bo'lishi mumkin, deadline uzaytirilgan)."""
+    async with async_session() as session:
+        task_repo = TaskRepository(session)
+        task = await task_repo.get_by_id(task_id)
+        if task is None:
+            return
+        if task.status == TaskStatus.OVERDUE and new_deadline > datetime.now(timezone.utc):
+            await task_repo.update(task, status=TaskStatus.ACTIVE)
+            await session.commit()
