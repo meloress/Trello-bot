@@ -561,6 +561,10 @@ async function screenNewTaskForm(kind) {
       <div id="brigadier-picker"><p class="hint">${esc(t("pickDepartmentFirst"))}</p></div>
       <div class="field"><label>${esc(t("clientName"))}</label><input id="f-client-name" type="text" /></div>
       <div class="field"><label>${esc(t("clientPhone"))}</label><input id="f-client-phone" type="text" inputmode="tel" /></div>
+      <p class="section-lbl">${esc(t("sellersField"))} (≤3)</p>
+      ${activeEmployees.filter((e) => e.role === "seller").map((e) => `
+        <label class="check-row"><input type="checkbox" value="${e.id}" class="f-seller" />${esc(e.full_name)}</label>
+      `).join("") || `<p class="hint">${esc(t("noSellers"))}</p>`}
     ` : `
       <div class="field"><label>${esc(t("miscTaskText"))}</label><input id="f-text" type="text" placeholder="${esc(t("miscTaskTextPh"))}" /></div>
       <div class="field"><label>${esc(t("deadline"))}</label><input id="f-deadline" type="datetime-local" /></div>
@@ -592,6 +596,11 @@ async function screenNewTaskForm(kind) {
         showError(`${t("title")}, ${t("departmentField")}, ${t("deadline")}, ${t("brigadierField")}`);
         return;
       }
+      const sellerIds = Array.from(root.querySelectorAll(".f-seller:checked")).map((el) => Number(el.value));
+      if (sellerIds.length > 3) {
+        showError(t("sellersField"));
+        return;
+      }
       const app = tg();
       app.MainButton.showProgress();
       try {
@@ -605,6 +614,7 @@ async function screenNewTaskForm(kind) {
             brigadier_id: selectedBrigadierId,
             client_full_name: root.querySelector("#f-client-name").value.trim(),
             client_phone: root.querySelector("#f-client-phone").value.trim(),
+            seller_ids: sellerIds,
           }),
         });
         app.HapticFeedback && app.HapticFeedback.notificationOccurred("success");
@@ -1130,18 +1140,104 @@ async function screenDepartments() {
   setScreen(`
     <p class="page-title">${esc(t("departmentsNav"))}</p>
     <button class="nav-card accent" id="nav-material-template"><span class="ic">🧵</span><span class="grow">${esc(t("addMaterialTemplateNav"))}</span><span class="chev">›</span></button>
-    ${departments.length ? departments.map((d) => `
-      <div class="fin-card">
-        <div class="top"><span class="task">${esc(d.name)}</span></div>
+    ${departments.length ? departments.map((d, i) => `
+      <button class="fin-card" data-i="${i}" style="cursor:pointer;text-align:left;font:inherit;color:inherit;">
+        <div class="top"><span class="task">${esc(d.name)}</span><span class="chev">›</span></div>
         <div class="amount-row">
           <span class="status-pill ${d.auto_reassign_after_48h ? "positive" : "neutral"}">${esc(t("autoreassignNav"))}: ${d.auto_reassign_after_48h ? "ON" : "OFF"}</span>
           <span class="status-pill ${d.starts_stopped ? "positive" : "neutral"}">${esc(t("startsStoppedField"))}: ${d.starts_stopped ? "ON" : "OFF"}</span>
         </div>
-      </div>
+      </button>
     `).join("") : `<p class="empty-state">${esc(t("noDepartments"))}</p>`}
   `);
   root.querySelector("#nav-material-template").onclick = () => show(screenAddMaterialTemplate);
+  root.querySelectorAll(".fin-card").forEach((el) => {
+    const dept = departments[Number(el.dataset.i)];
+    el.onclick = () => show(screenDepartmentEdit, dept, departments);
+  });
   setMainButton(`➕ ${t("addDepartmentBtn")}`, () => show(screenAddDepartment), "#2f6f62");
+}
+
+async function screenDepartmentEdit(department, allDepartments) {
+  setScreen(`
+    <p class="page-title">${esc(department.name)}</p>
+    <div class="field"><label>${esc(t("departmentNameField"))}</label><input id="f-name" type="text" value="${esc(department.name)}" /></div>
+    <div class="field"><label>${esc(t("trelloListIdField"))}</label><input id="f-trello-list" type="text" value="${esc(department.trello_list_id || "")}" /></div>
+    <label class="check-row"><input type="checkbox" id="f-autoreassign" ${department.auto_reassign_after_48h ? "checked" : ""} />${esc(t("autoreassignNav"))}</label>
+    <label class="check-row"><input type="checkbox" id="f-starts-stopped" ${department.starts_stopped ? "checked" : ""} />${esc(t("startsStoppedField"))}</label>
+    <div class="field"><label>${esc(t("autoResumeHoursField"))}</label><input id="f-auto-resume" type="number" min="1" value="${department.stopped_auto_resume_after_hours ?? ""}" /></div>
+    <label class="check-row"><input type="checkbox" id="f-requires-join" ${department.requires_join ? "checked" : ""} />${esc(t("requiresJoinField"))}</label>
+    <div class="field"><label>${esc(t("factoryNameField"))}</label><input id="f-factory" type="text" value="${esc(department.factory_name || "")}" /></div>
+    <div class="field"><label>${esc(t("stopTargetListField"))}</label><input id="f-stop-target" type="text" value="${esc(department.stop_target_list_id || "")}" /></div>
+    <p class="section-lbl">${esc(t("departmentAdvancedSection"))}</p>
+    <button class="nav-card" id="nav-dept-chain"><span class="ic">🔗</span><span class="grow">${esc(t("departmentChainNav"))}</span><span class="chev">›</span></button>
+    <button class="nav-card" id="nav-dept-fork"><span class="ic">🌿</span><span class="grow">${esc(t("forkTargetsNav"))}</span><span class="chev">›</span></button>
+  `);
+  root.querySelector("#nav-dept-chain").onclick = () => show(screenDepartmentChainEdit, department, allDepartments);
+  root.querySelector("#nav-dept-fork").onclick = () => show(screenDepartmentForkTargets, department, allDepartments);
+
+  setMainButton(`💾 ${t("saveChanges")}`, async () => {
+    const name = root.querySelector("#f-name").value.trim();
+    if (!name) {
+      showError(t("departmentNameField"));
+      return;
+    }
+    const autoResumeRaw = root.querySelector("#f-auto-resume").value.trim();
+    const app = tg();
+    app.MainButton.showProgress();
+    try {
+      await api(`/admin/departments/${department.id}`, {
+        method: "POST",
+        body: JSON.stringify({
+          name,
+          trello_list_id: root.querySelector("#f-trello-list").value.trim() || null,
+          auto_reassign_after_48h: root.querySelector("#f-autoreassign").checked,
+          starts_stopped: root.querySelector("#f-starts-stopped").checked,
+          stopped_auto_resume_after_hours: autoResumeRaw ? Number(autoResumeRaw) : null,
+          requires_join: root.querySelector("#f-requires-join").checked,
+          factory_name: root.querySelector("#f-factory").value.trim() || null,
+          stop_target_list_id: root.querySelector("#f-stop-target").value.trim() || null,
+        }),
+      });
+      app.HapticFeedback && app.HapticFeedback.notificationOccurred("success");
+      await goBack();
+    } catch (e) {
+      showError(e.message);
+    } finally {
+      app.MainButton.hideProgress();
+    }
+  }, "#2f6f62");
+}
+
+async function screenDepartmentForkTargets(department, allDepartments) {
+  setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
+  const current = await api(`/admin/departments/${department.id}/fork-targets`);
+  const selectedIds = new Set(current.map((c) => c.target_department_id));
+  const options = allDepartments.filter((d) => d.id !== department.id);
+  setScreen(`
+    <p class="page-title">${esc(department.name)}</p>
+    <p class="page-sub">${esc(t("forkTargetsPick"))}</p>
+    ${options.length ? options.map((d) => `
+      <label class="check-row"><input type="checkbox" value="${d.id}" class="f-target" ${selectedIds.has(d.id) ? "checked" : ""} />${esc(d.name)}</label>
+    `).join("") : `<p class="empty-state">${esc(t("noDepartments"))}</p>`}
+  `);
+  setMainButton(`💾 ${t("saveChanges")}`, async () => {
+    const targetIds = Array.from(root.querySelectorAll(".f-target:checked")).map((el) => Number(el.value));
+    const app = tg();
+    app.MainButton.showProgress();
+    try {
+      await api(`/admin/departments/${department.id}/fork-targets`, {
+        method: "POST",
+        body: JSON.stringify({ target_department_ids: targetIds }),
+      });
+      app.HapticFeedback && app.HapticFeedback.notificationOccurred("success");
+      await goBack();
+    } catch (e) {
+      showError(e.message);
+    } finally {
+      app.MainButton.hideProgress();
+    }
+  }, "#2f6f62");
 }
 
 async function screenAddDepartment() {

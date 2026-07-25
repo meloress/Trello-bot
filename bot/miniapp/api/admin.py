@@ -103,9 +103,11 @@ async def list_departments(request: web.Request) -> web.Response:
             {
                 "id": d.id,
                 "name": d.name,
+                "trello_list_id": d.trello_list_id,
                 "next_department_id": d.next_department_id,
                 "auto_reassign_after_48h": d.auto_reassign_after_48h,
                 "starts_stopped": d.starts_stopped,
+                "stopped_auto_resume_after_hours": d.stopped_auto_resume_after_hours,
                 "requires_join": d.requires_join,
                 "factory_name": d.factory_name,
                 "stop_target_list_id": d.stop_target_list_id,
@@ -160,6 +162,7 @@ DEPARTMENT_UPDATABLE_FIELDS = (
     "factory_name",
     "requires_join",
     "stop_target_list_id",
+    "stopped_auto_resume_after_hours",
 )
 
 
@@ -168,6 +171,8 @@ async def update_department(request: web.Request) -> web.Response:
     """Qisman yangilash: so'rov tanasida FAQAT kelgan maydonlar yoziladi
     (`toggle_autoreassign` bilan bir xil session/commit naqshi)."""
     department_id = int(request.match_info["department_id"])
+    if not _department_scope_ok(request, department_id):
+        return err("bu bo'lim sizning doirangizda emas", 403)
     body = await request.json()
 
     updates = {}
@@ -190,9 +195,11 @@ async def update_department(request: web.Request) -> web.Response:
         {
             "id": department.id,
             "name": department.name,
+            "trello_list_id": department.trello_list_id,
             "next_department_id": department.next_department_id,
             "auto_reassign_after_48h": department.auto_reassign_after_48h,
             "starts_stopped": department.starts_stopped,
+            "stopped_auto_resume_after_hours": department.stopped_auto_resume_after_hours,
             "requires_join": department.requires_join,
             "factory_name": department.factory_name,
             "stop_target_list_id": department.stop_target_list_id,

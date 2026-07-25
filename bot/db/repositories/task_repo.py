@@ -129,6 +129,21 @@ class TaskRepository(BaseRepository[Task]):
         )
         return list(result.scalars().all())
 
+    async def list_stopped_for_auto_resume(self) -> list[Task]:
+        """Fasad sex TZ (Sklad): STOPPED bosqichlar, bo'limida
+        `stopped_auto_resume_after_hours` sozlangan bo'lsa — aniq necha soat
+        o'tganini `overdue_watch_job` o'zi `StopLogRepository.get_active_stop()`
+        orqali tekshiradi (bu yerda faqat nomzodlar ro'yxati)."""
+        result = await self.session.execute(
+            select(Task)
+            .join(Department, Task.current_department_id == Department.id)
+            .where(
+                Task.status == TaskStatus.STOPPED,
+                Department.stopped_auto_resume_after_hours.isnot(None),
+            )
+        )
+        return list(result.scalars().all())
+
     async def list_long_running_stages(self, *, threshold_days: int, now: datetime) -> list[Task]:
         """8.6-band 1-qoida: hozirgi bosqichda (`started_at`dan hisoblab)
         `threshold_days`dan ORTIQ (qat'iy >) turib qolgan, hali yakunlanmagan

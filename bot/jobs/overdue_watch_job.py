@@ -10,13 +10,13 @@ tushganda takrorlanmaydi.
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot
 
 from core.database import async_session
-from db.repositories import TaskRepository
-from services import financial_service, notification_service, settings_service
+from db.repositories import DepartmentRepository, StopLogRepository, TaskRepository
+from services import financial_service, notification_service, settings_service, timer_service
 from utils.enums import TaskStatus
 
 logger = logging.getLogger(__name__)
@@ -117,6 +117,38 @@ async def _process_financial_flags(bot: Bot, now: datetime) -> int:
     return len(suggestion_ids)
 
 
+async def _process_stopped_auto_resume(now: datetime) -> int:
+    """Fasad sex TZ (Sklad): bo'limida `stopped_auto_resume_after_hours`
+    sozlangan STOPPED bosqichlar — faol Stop shu necha soatdan ortiq
+    davom etsa, muammo signali kelmagan deb hisoblanib avtomatik davom
+    ettiriladi (`timer_service.resume_task`, xodim tekshiruvisiz —
+    `employee_id=None`, avtomatik job chaqiruvi)."""
+    async with async_session() as session:
+        candidates = await TaskRepository(session).list_stopped_for_auto_resume()
+        department_repo = DepartmentRepository(session)
+        stop_repo = StopLogRepository(session)
+
+        resume_task_ids = []
+        for task in candidates:
+            department = await department_repo.get_by_id(task.current_department_id)
+            if department is None or department.stopped_auto_resume_after_hours is None:
+                continue
+            active_stop = await stop_repo.get_active_stop(task.id)
+            if active_stop is None:
+                continue
+            threshold = active_stop.stopped_at + timedelta(hours=department.stopped_auto_resume_after_hours)
+            if now >= threshold:
+                resume_task_ids.append(task.id)
+
+    for task_id in resume_task_ids:
+        try:
+            await timer_service.resume_task(task_id, employee_id=None)
+        except Exception:
+            logger.exception("overdue_watch_job: stopped-auto-resume xatosi (task_id=%s)", task_id)
+
+    return len(resume_task_ids)
+
+
 async def run(bot: Bot) -> None:
     now = datetime.now(timezone.utc)
 
@@ -144,8 +176,14 @@ async def run(bot: Bot) -> None:
         logger.exception("overdue_watch_job: moliyaviy bayroqlash bosqichida xatolik")
         financial_flags = 0
 
+    try:
+        auto_resumed = await _process_stopped_auto_resume(now)
+    except Exception:
+        logger.exception("overdue_watch_job: stopped-auto-resume bosqichida xatolik")
+        auto_resumed = 0
+
     logger.info(
         "overdue_watch_job yakunlandi: %s ta '1 kun qoldi', %s ta yangi OVERDUE, "
-        "%s ta reassignment signali, %s ta moliyaviy bayroq",
-        approaching, overdue, reassignment, financial_flags,
+        "%s ta reassignment signali, %s ta moliyaviy bayroq, %s ta avto-resume",
+        approaching, overdue, reassignment, financial_flags, auto_resumed,
     )

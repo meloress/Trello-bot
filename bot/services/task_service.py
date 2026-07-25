@@ -176,10 +176,6 @@ async def create_task(
                 f"'{department.name}' yo'nalishi uchun Trello ro'yxati (list) sozlanmagan"
             )
         list_id = department.trello_list_id
-        # ponytail note: starts_stopped is only honored here (task creation) —
-        # a stage spawned mid-chain by advance_task_stage()/_spawn_pending_stage()
-        # never checks it, so this only fires when the department is an order's
-        # very first stage, not when placed later in the chain.
         starts_stopped = department.starts_stopped
 
     if starts_stopped and created_by_employee_id is None:
@@ -443,9 +439,31 @@ async def activate_pending_stage(task_id: int, *, deadline: datetime, employee_i
                 f"Task {task_id} sozlashni kutmayapti (joriy holat: {task.status})"
             )
 
-        await task_repo.update(task, deadline=deadline, status=TaskStatus.ACTIVE)
+        # ponytail: mirrors create_task()'s starts_stopped block above — a
+        # mid-chain department (e.g. Sklad) can ALSO open its stage STOPPED,
+        # unlike the "only honored at creation" note that used to apply here.
+        department = (
+            await DepartmentRepository(session).get_by_id(task.current_department_id)
+            if task.current_department_id
+            else None
+        )
+        starts_stopped = department is not None and department.starts_stopped
+
+        await task_repo.update(
+            task,
+            deadline=deadline,
+            status=TaskStatus.STOPPED if starts_stopped else TaskStatus.ACTIVE,
+        )
         for employee_id in employee_ids:
             await assignment_repo.create(task_id=task.id, employee_id=employee_id)
+
+        if starts_stopped:
+            await StopLogRepository(session).create(
+                task_id=task.id,
+                employee_id=employee_ids[0],
+                reason="Bosqich boshlandi — joy tayyor bo'lishini kutmoqda",
+                stopped_at=datetime.now(timezone.utc),
+            )
 
         await session.commit()
         card_id = task.trello_card_id

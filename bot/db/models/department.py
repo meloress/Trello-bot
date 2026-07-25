@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Boolean, ForeignKey, String
+from sqlalchemy import Boolean, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from db.base import TimestampedBase
@@ -39,6 +39,12 @@ class Department(TimestampedBase):
     # holatda ochiladi (joy tayyor bo'lishini kutish) — task_service.create_task()
     # shu bayroqqa qarab boshlang'ich holatni tanlaydi.
     starts_stopped: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Fasad sex TZ: ba'zi starts_stopped bo'limlar (masalan Sklad) muammo
+    # signali bo'lmasa BELGILANGAN soatdan keyin o'zi davom etadi — boshqalari
+    # (masalan "Zakaz tushdi") haqiqiy qo'lda signalni cheksiz kutadi. NULL =
+    # avtomatik davom etish yo'q (standart, qo'lda resume). Faqat
+    # `jobs/overdue_watch_job.py`da o'qiladi.
+    stopped_auto_resume_after_hours: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     # Fasad sex TZ (Phase 3): konvergensiya (join) bo'limi — bir nechta parallel
     # tarmoq shu bo'limga qaytib qo'shiladi. True bo'lsa,
     # task_service.advance_task_stage() bu bo'limga o'tishdan oldin BARCHA
