@@ -16,12 +16,14 @@ from db.repositories import (
     EmployeeRepository,
     FinancialSuggestionRepository,
     TaskAssignmentRepository,
+    TaskClaimRepository,
     TaskRepository,
 )
 from config import settings
 from jobs import daily_report_job, reminder_job, report_job
 from miniapp.util import err
 from services import (
+    claim_service,
     client_service,
     daily_report_service,
     employee_service,
@@ -348,6 +350,11 @@ async def create_task(request: web.Request) -> web.Response:
         return err("title, department_id, brigadier_id majburiy")
     if not _department_scope_ok(request, int(department_id)):
         return err("bu bo'lim sizning doirangizda emas", 403)
+
+    async with async_session() as session:
+        target_department = await DepartmentRepository(session).get_by_id(int(department_id))
+    if target_department is not None and target_department.module == "mebel":
+        return err("Bu bo'lim uchun buyurtmalar endi faqat Trello orqali yaratiladi", 409)
 
     try:
         deadline = datetime.fromisoformat(body["deadline"])
@@ -1200,3 +1207,87 @@ async def reassign_task(request: web.Request) -> web.Response:
         logger.exception("notify_task_reassigned xatosi (task_id=%s)", task_id)
 
     return web.json_response({"id": task_id, "status": "reassigned"})
+
+
+@routes.get("/pending-claims")
+async def list_pending_claims(request: web.Request) -> web.Response:
+    """Mebel moduli: ishchilarning Pauza/Yakunlash so'rovlari, tasdiqlashni
+    kutmoqda. Doirasi `claim_service.list_pending_claims_for_supervisor()`
+    ichida hal qilinadi (ADMIN/bo'limsiz SUPERVISOR — hammasi, boshqa
+    SUPERVISOR — faqat o'z bo'limi)."""
+    employee = request["employee"]
+    claims = await claim_service.list_pending_claims_for_supervisor(employee.id)
+
+    async with async_session() as session:
+        task_repo = TaskRepository(session)
+        employee_repo = EmployeeRepository(session)
+        department_repo = DepartmentRepository(session)
+
+        items = []
+        for claim in claims:
+            task = await task_repo.get_by_id(claim.task_id)
+            claimant = await employee_repo.get_by_id(claim.employee_id)
+            department = (
+                await department_repo.get_by_id(task.current_department_id)
+                if task is not None and task.current_department_id is not None
+                else None
+            )
+            items.append(
+                {
+                    "id": claim.id,
+                    "task_id": claim.task_id,
+                    "task_title": task.title if task is not None else None,
+                    "department": department.name if department else None,
+                    "action_type": claim.action_type.value,
+                    "claimed_at": claim.claimed_at.isoformat(),
+                    "employee_name": claimant.full_name if claimant is not None else None,
+                    "reason": claim.reason,
+                }
+            )
+    return web.json_response(items)
+
+
+@routes.post("/claims/{claim_id}/approve")
+async def approve_claim(request: web.Request) -> web.Response:
+    claim_id = int(request.match_info["claim_id"])
+    employee = request["employee"]
+
+    try:
+        claim = await claim_service.approve_claim(claim_id, employee.id)
+    except claim_service.ClaimNotFoundError:
+        return err("not_found", 404)
+    except claim_service.InvalidClaimStateError as exc:
+        return err(str(exc), 409)
+    except claim_service.NotAuthorizedToReviewError as exc:
+        return err(str(exc), 403)
+
+    try:
+        await notification_service.notify_claim_approved(request.config_dict["bot"], claim.id)
+    except Exception:
+        logger.exception("notify_claim_approved xatosi (claim_id=%s)", claim.id)
+
+    return web.json_response({"id": claim.id, "status": claim.status.value})
+
+
+@routes.post("/claims/{claim_id}/reject")
+async def reject_claim(request: web.Request) -> web.Response:
+    claim_id = int(request.match_info["claim_id"])
+    employee = request["employee"]
+    body = await request.json()
+    note = (body.get("note") or "").strip() or None
+
+    try:
+        claim = await claim_service.reject_claim(claim_id, employee.id, note=note)
+    except claim_service.ClaimNotFoundError:
+        return err("not_found", 404)
+    except claim_service.InvalidClaimStateError as exc:
+        return err(str(exc), 409)
+    except claim_service.NotAuthorizedToReviewError as exc:
+        return err(str(exc), 403)
+
+    try:
+        await notification_service.notify_claim_rejected(request.config_dict["bot"], claim.id)
+    except Exception:
+        logger.exception("notify_claim_rejected xatosi (claim_id=%s)", claim.id)
+
+    return web.json_response({"id": claim.id, "status": claim.status.value})
