@@ -30,6 +30,17 @@ uchun haqiqiy Trello a'zoligi kerak, buni skript o'zi taxmin qila olmaydi):
   ADMIN doim `claim_service._reviewer_in_scope()` doirasida, bo'lim
   cheklovisiz).
 
+MUHIM (real KPI ta'siri): `member_employee` yuqoridagi shartdan REAL,
+ishlab chiqarishdagi xodim (yangi soxta xodim yaratib bo'lmaydi). Shu sabab
+4/5-qadamdagi tasdiqlash stsenariysi ATAYLAB `claimed_at == deadline`
+(delta_seconds == 0) tanlaydi — `penalty_service.calculate_and_apply_task_
+penalty()` bu holatda darhol bo'sh ro'yxat qaytaradi, hech qanday `KpiLog`
+yozuvi yaratilmaydi. `KpiLog`da `task_id` ustuni umuman yo'q (bu haqiqiy
+bir bo'limi, `db/models/kpi_log.py`ga qarang) — shuning uchun bu skript
+yaratgan har qanday plus-ball/jarima yozuvini keyinroq topib o'chirishning
+ILOJI yo'q; muddatidan oldin/kech tugatish stsenariysini ATAYLAB
+sinamaymiz, faqat "aniq muddatida" holatini.
+
 Ishga tushirish:
     cd bot && .venv\\Scripts\\python _smoke_mebel_claim_flow.py
 """
@@ -98,7 +109,21 @@ async def main() -> None:
         print(f"2. Vaqtinchalik mebel bo'limlari: #{dept1_id} -> #{dept2_id}")
 
         # 3. Yangi buyurtma: Trello kartadan avtomatik yaratilish.
-        due1 = datetime.now(timezone.utc) + timedelta(days=2)
+        # MUHIM: due1 keyinroq (4/5-qadam) claimed_at_1 sifatida QAYTA
+        # ishlatiladi (aynan bir xil qiymat) — bu qasddan, tasodifiy emas:
+        # `member_employee` REAL, ishlab chiqarishdagi xodim (yangi xodim
+        # yaratib bo'lmaydi, chunki haqiqiy trello_member_id kerak), shuning
+        # uchun `finished_at - deadline == 0` (delta_seconds == 0) bo'lishi
+        # kerak — `penalty_service.calculate_and_apply_task_penalty()` shu
+        # holatda darhol `return []` qiladi (172-qatordan boshlab), hech
+        # qanday KpiLog yozuvi yaratilmaydi. `microsecond=0` — Trello'ning
+        # `due`ni soniya aniqligida saqlashi/qaytarishi mumkinligidan (sub-
+        # soniya farq) delta_seconds'ni noldan uzoqlashtirmaslik uchun;
+        # hatto bir necha soniyalik siljish bo'lsa ham (hours_early=0 yoki
+        # hours_late=0), ikkala tomon ham hali nol-yozuvli filiallarga tushadi
+        # (`calculate_plus_ball(0) == 0`, `hours_late < 24` grace period) —
+        # faqat 24 soatlik farq xavfli bo'lardi, bu yerda unga yaqin ham emas.
+        due1 = (datetime.now(timezone.utc) + timedelta(days=2)).replace(microsecond=0)
         async with TrelloClient(settings.trello_api_key, settings.trello_token) as trello:
             card1 = await trello.create_card(list1["id"], "Smoke test buyurtma #1", due=due1)
             await trello.add_member_to_card(card1["id"], member_employee.trello_member_id)
@@ -119,7 +144,9 @@ async def main() -> None:
         print(f"3. Trello kartadan yangi buyurtma: task #{task1.id}, ACTIVE, xodim #{member_employee.id}ga tayinlangan")
 
         # 4. "Yakunlash" claim yuboriladi — vazifaning o'ziga hali tegmaydi.
-        claimed_at_1 = datetime.now(timezone.utc) - timedelta(hours=3)
+        # claimed_at_1 == due1 (yuqoridagi izohga qarang): "aniq muddatida
+        # tugatish", real KPI ta'siri yo'q.
+        claimed_at_1 = due1
         claim1 = await claim_service.submit_claim(
             task1.id, member_employee.id, ClaimActionType.FINISH, claimed_at=claimed_at_1
         )
