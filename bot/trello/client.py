@@ -90,6 +90,16 @@ class TrelloClient:
             "GET", f"/cards/{card_id}", params={"fields": "name,closed,due,idBoard,idLabels,idList"}
         )
 
+    async def list_cards_in_list(self, list_id: str) -> list[dict]:
+        """Mebel moduli: `jobs/trello_ingest_job.py` shu orqali bitta
+        bo'limning Trello ro'yxatidagi barcha (ochiq) kartalarni o'qiydi —
+        `get_card()` bitta karta uchun ishlaydigan bo'lsa, bu butun
+        ro'yxatni bir so'rovda oladi."""
+        return await self._request(
+            "GET", f"/lists/{list_id}/cards",
+            params={"fields": "name,desc,due,idList,idMembers,closed"},
+        )
+
     async def list_board_labels(self, board_id: str) -> list[dict]:
         """Board'dagi barcha labellarni oladi (`id`, `name`, `color`)."""
         return await self._request(

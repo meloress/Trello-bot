@@ -9,7 +9,15 @@ from core.scheduler import scheduler
 from handlers.common.client_link import router as common_client_link_router
 from handlers.common.daily_report import router as common_daily_report_router
 from handlers.common.start import router as common_start_router
-from jobs import daily_report_job, daily_sync_job, lead_follow_up_job, overdue_watch_job, reminder_job, report_job
+from jobs import (
+    daily_report_job,
+    daily_sync_job,
+    lead_follow_up_job,
+    overdue_watch_job,
+    reminder_job,
+    report_job,
+    trello_ingest_job,
+)
 from miniapp.server import run as run_miniapp_server
 from services import settings_service
 
@@ -66,6 +74,9 @@ async def main() -> None:
     )
     scheduler.add_job(
         lead_follow_up_job.run, "cron", hour=10, minute=0, args=[bot], id="lead_follow_up_job"
+    )
+    scheduler.add_job(
+        trello_ingest_job.run, "interval", minutes=5, args=[bot], id="trello_ingest_job"
     )
 
     scheduler.start()

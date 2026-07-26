@@ -659,3 +659,43 @@ async def notify_claim_reminder(bot: Bot, claim_id: int, stage: int) -> None:
     text = template.format(title=task.title, hours=hours)
     for telegram_id in recipients.values():
         await _send(bot, telegram_id, text)
+
+
+async def notify_reconciliation_needed(bot: Bot, task_id: int) -> None:
+    """Mebel moduli: `jobs/trello_ingest_job.py` kartani keyingi bo'limga
+    ko'chirilganini aniqlaganda, lekin eski bosqich hali COMPLETED
+    bo'lmasa (masalan ishchi hali "Yakunlash" tugmasini bosmagan yoki
+    bosgan-u lekin rahbar hali tasdiqlamagan) — bir martalik xabar
+    (`tasks.advanced_without_finish_claim_at` shu chaqiruv bilan bir vaqtda
+    birinchi marta belgilanganda, chaqiruvchida)."""
+    async with async_session() as session:
+        task = await TaskRepository(session).get_by_id(task_id)
+        if task is None:
+            logger.warning("notify_reconciliation_needed: task %s topilmadi", task_id)
+            return
+
+        employee_repo = EmployeeRepository(session)
+        recipients = await _collect_assignees(session, task_id)
+
+        for assignee_id in list(recipients):
+            assignee = await employee_repo.get_by_id(assignee_id)
+            if assignee is not None and assignee.brigade_id is not None:
+                brigade = await BrigadeRepository(session).get_by_id(assignee.brigade_id)
+                if brigade is not None and brigade.brigadier_id is not None:
+                    brigadier = await employee_repo.get_by_id(brigade.brigadier_id)
+                    if brigadier is not None:
+                        recipients[brigadier.id] = brigadier.telegram_id
+
+        if task.current_department_id is not None:
+            for employee in await employee_repo.list_by_department(task.current_department_id):
+                if employee.role == Role.SUPERVISOR:
+                    recipients[employee.id] = employee.telegram_id
+        for admin in await employee_repo.list_by_role(Role.ADMIN):
+            recipients[admin.id] = admin.telegram_id
+
+    text = (
+        f"⚠️ \"{task.title}\" kartasi keyingi bo'limga ko'chirildi, lekin oldingi bosqich "
+        "hali \"Yakunlash\" tasdig'idan o'tmagan. Iltimos qo'lda tekshiring."
+    )
+    for telegram_id in recipients.values():
+        await _send(bot, telegram_id, text)
