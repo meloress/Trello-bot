@@ -10,6 +10,7 @@ import logging
 from datetime import datetime, timezone
 
 from aiohttp import web
+from sqlalchemy.exc import IntegrityError
 
 from core.database import async_session
 from db.repositories import (
@@ -44,6 +45,20 @@ async def _is_assigned(task_id: int, employee_id: int) -> bool:
     async with async_session() as session:
         assignments = await TaskAssignmentRepository(session).list_by_task(task_id)
     return any(a.employee_id == employee_id for a in assignments)
+
+
+async def _is_mebel_task(task_id: int) -> bool:
+    """Mebel moduli: Pauza/Yakunlash endi to'g'ridan-to'g'ri ishlamaydi —
+    bu tekshiruv `/stop`/`/finish`ni to'g'ridan-to'g'ri chaqirishdan himoya
+    qiladi (haqiqiy amal faqat claim-tasdiqlash oqimi orqali). `admin.py`ning
+    `create_task` guard'i bilan bir xil qoida: department topilmasa (yoki
+    task hali department'ga bog'lanmagan bo'lsa) bloklanmaydi."""
+    async with async_session() as session:
+        task = await TaskRepository(session).get_by_id(task_id)
+        if task is None or task.current_department_id is None:
+            return False
+        department = await DepartmentRepository(session).get_by_id(task.current_department_id)
+    return department is not None and department.module == "mebel"
 
 
 async def _list_my_tasks(employee_id: int, task_type: TaskType, category: str | None = None) -> list[dict]:
@@ -159,6 +174,12 @@ async def stop_task(request: web.Request) -> web.Response:
     task_id = int(request.match_info["task_id"])
     if not await _is_assigned(task_id, employee.id):
         return err("not_found", 404)
+    if await _is_mebel_task(task_id):
+        return err(
+            "Bu bo'lim uchun to'g'ridan-to'g'ri amal endi ishlamaydi — Mini App orqali so'rov yuboring "
+            "(Pauza/Yakunlash tugmalari).",
+            409,
+        )
     body = await request.json()
     reason = (body.get("reason") or "").strip()
 
@@ -206,6 +227,12 @@ async def finish_task(request: web.Request) -> web.Response:
     task_id = int(request.match_info["task_id"])
     if not await _is_assigned(task_id, employee.id):
         return err("not_found", 404)
+    if await _is_mebel_task(task_id):
+        return err(
+            "Bu bo'lim uchun to'g'ridan-to'g'ri amal endi ishlamaydi — Mini App orqali so'rov yuboring "
+            "(Pauza/Yakunlash tugmalari).",
+            409,
+        )
     try:
         task = await timer_service.finish_task(task_id, employee.id)
     except timer_service.TaskNotFoundError:
@@ -302,6 +329,11 @@ async def submit_pause_claim(request: web.Request) -> web.Response:
         )
     except claim_service.ClaimAlreadyPendingError as exc:
         return err(str(exc), 409)
+    except IntegrityError:
+        # Check-then-create race: two near-simultaneous requests both pass the
+        # ClaimAlreadyPendingError check above, second insert hits the partial
+        # unique index — same 409 outcome as the check catching it cleanly.
+        return err("Bu vazifa uchun allaqachon so'rov yuborilgan", 409)
     except ValueError as exc:
         return err(str(exc))
 
@@ -329,6 +361,11 @@ async def submit_finish_claim(request: web.Request) -> web.Response:
         )
     except claim_service.ClaimAlreadyPendingError as exc:
         return err(str(exc), 409)
+    except IntegrityError:
+        # Check-then-create race: two near-simultaneous requests both pass the
+        # ClaimAlreadyPendingError check above, second insert hits the partial
+        # unique index — same 409 outcome as the check catching it cleanly.
+        return err("Bu vazifa uchun allaqachon so'rov yuborilgan", 409)
 
     try:
         await notification_service.notify_claim_submitted(request.config_dict["bot"], claim.id)

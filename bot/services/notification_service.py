@@ -608,10 +608,7 @@ async def notify_claim_rejected(bot: Bot, claim_id: int) -> None:
 _CLAIM_REMINDER_TEXTS = {
     1: "⏰ Eslatma: \"{title}\" bo'yicha so'rov hali ko'rib chiqilmagan.",
     2: "⚠️ DIQQAT: \"{title}\" bo'yicha so'rov {hours} soatdan beri kutmoqda — iltimos hoziroq ko'rib chiqing.",
-    3: (
-        "🔴 QAT'IY OGOHLANTIRISH: \"{title}\" kartasi allaqachon keyingi bo'limga o'tgan, "
-        "lekin oldingi bosqich hali tasdiqlanmagan ({hours} soat). Zudlik bilan hal qiling."
-    ),
+    3: "🔴 QAT'IY OGOHLANTIRISH: \"{title}\" bo'yicha so'rov {hours} soatdan beri tasdiqlanmagan — zudlik bilan hal qiling.",
 }
 
 

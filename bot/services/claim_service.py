@@ -15,7 +15,7 @@ from core.database import async_session
 from db.models.task_claim import TaskClaim
 from db.repositories import EmployeeRepository, TaskClaimRepository, TaskRepository
 from services import penalty_service, timer_service
-from utils.enums import ClaimActionType, ClaimStatus, Role
+from utils.enums import ClaimActionType, ClaimStatus, Role, TaskStatus
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +85,11 @@ async def list_pending_claims_for_supervisor(employee_id: int) -> list[TaskClaim
     """Rahbar/admin ko'rish ro'yxati — `miniapp/api/admin.py`'ning
     `GET /pending-claims` shu funksiyani chaqiradi. ADMIN yoki bo'limsiz
     SUPERVISOR — hammasi; boshqa SUPERVISOR — faqat o'z bo'limidagi
-    vazifalarga tegishli so'rovlar."""
+    vazifalarga tegishli so'rovlar. Har ikkala tarmoqda ham task allaqachon
+    COMPLETED bo'lgan (yoki umuman topilmagan) claim'lar chetlab o'tiladi —
+    bunday claim `approve_claim()`da hech qachon muvaffaqiyatli
+    qo'llanolmaydi (task holati allaqachon o'zgargan), shu sabab uni
+    ko'rib-chiqish navbatida ko'rsatishning ma'nosi yo'q."""
     async with async_session() as session:
         employee = await EmployeeRepository(session).get_by_id(employee_id)
         if employee is None:
@@ -95,13 +99,14 @@ async def list_pending_claims_for_supervisor(employee_id: int) -> list[TaskClaim
         task_repo = TaskRepository(session)
         claims = await claim_repo.list_pending()
 
-        if employee.role == Role.ADMIN or employee.department_id is None:
-            return claims
+        unrestricted = employee.role == Role.ADMIN or employee.department_id is None
 
         scoped = []
         for claim in claims:
             task = await task_repo.get_by_id(claim.task_id)
-            if task is not None and task.current_department_id == employee.department_id:
+            if task is None or task.status == TaskStatus.COMPLETED:
+                continue
+            if unrestricted or task.current_department_id == employee.department_id:
                 scoped.append(claim)
         return scoped
 
@@ -134,11 +139,26 @@ async def approve_claim(claim_id: int, reviewer_employee_id: int) -> TaskClaim:
         claimed_at = claim.claimed_at
         reason = claim.reason
 
-    if action_type == ClaimActionType.FINISH:
-        await timer_service.finish_task(task_id, employee_id=employee_id, finished_at=claimed_at)
-        await penalty_service.calculate_and_apply_task_penalty(task_id)
-    else:
-        await timer_service.stop_task(task_id, employee_id, reason or "", stopped_at=claimed_at)
+    try:
+        if action_type == ClaimActionType.FINISH:
+            await timer_service.finish_task(task_id, employee_id=employee_id, finished_at=claimed_at)
+            await penalty_service.calculate_and_apply_task_penalty(task_id)
+        else:
+            await timer_service.stop_task(task_id, employee_id, reason or "", stopped_at=claimed_at)
+    except (timer_service.InvalidTaskStateError, timer_service.TaskNotFoundError) as exc:
+        # Claim soatlab PENDING turgan bo'lishi mumkin (eskalatsiya +24 soatgacha),
+        # shu orada task mustaqil ravishda holat almashtirgan bo'lishi mumkin
+        # (masalan `trello_ingest_job.finalize_task_and_apply_penalty` karta
+        # arxivlanganda, yoki `overdue_watch_job` ACTIVE->OVERDUE). Bunday holda
+        # rahbarning tasdig'i baribir HISOBGA OLINADI (claim APPROVED bo'ladi) —
+        # lekin mutatsiyani qayta ijro etib bo'lmaydi, shu sabab faqat log qilib
+        # o'tkazib yuboriladi (rahbarga xato ko'rsatib, claim'ni abadiy PENDING
+        # holatda qoldirish o'rniga).
+        logger.warning(
+            "approve_claim: task holati o'zgargan, mutatsiya qayta ijro etilmadi "
+            "(claim_id=%s, task_id=%s, action_type=%s): %s",
+            claim_id, task_id, action_type, exc,
+        )
 
     async with async_session() as session:
         claim_repo = TaskClaimRepository(session)

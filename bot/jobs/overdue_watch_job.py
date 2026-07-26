@@ -170,7 +170,7 @@ async def _process_stale_claims(bot: Bot, now: datetime) -> int:
         due_reminders: list[tuple[int, int]] = []  # (claim_id, stage)
         for claim in await claim_repo.list_pending():
             task = await task_repo.get_by_id(claim.task_id)
-            if task is None or task.current_department_id is None:
+            if task is None or task.current_department_id is None or task.status == TaskStatus.COMPLETED:
                 continue
             department = await department_repo.get_by_id(task.current_department_id)
             if department is None or department.module != "mebel":
