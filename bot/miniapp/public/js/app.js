@@ -325,6 +325,8 @@ function taskStatusLine(tsk) {
 async function screenTaskDetail(taskId) {
   setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
   const tsk = await api(`/tasks/${taskId}`);
+  const isMebel = tsk.module === "mebel";
+  const pending = isMebel && tsk.status === "active" ? (await api(`/tasks/${taskId}/claim-status`)).pending_claim : null;
   const pillClass = tsk.status === "overdue" ? "critical" : tsk.status === "stopped" ? "neutral" : "positive";
 
   setScreen(`
@@ -336,18 +338,22 @@ async function screenTaskDetail(taskId) {
       <div class="kv-row"><span class="k">${esc(t("department"))}</span><span class="v">${esc(tsk.department || "—")}</span></div>
       ${tsk.client_name ? `<div class="kv-row"><span class="k">${esc(t("client"))}</span><span class="v">${esc(tsk.client_name)}</span></div>` : ""}
     </div>
-    ${tsk.status === "active" ? `<button class="btn" id="btn-stop">🛑 ${esc(t("stop"))}</button>` : ""}
+    ${pending ? `
+      <div class="alert-card"><span class="ic">⏳</span><span class="grow">${esc(t(pending.action_type === "pause" ? "claimPendingPause" : "claimPendingFinish"))}</span></div>
+    ` : tsk.status === "active" ? `<button class="btn" id="btn-stop">🛑 ${esc(t("stop"))}</button>` : ""}
   `);
 
+  if (pending) return;
+
   const stopBtn = root.querySelector("#btn-stop");
-  if (stopBtn) stopBtn.onclick = () => show(screenStopTask, taskId);
+  if (stopBtn) stopBtn.onclick = () => show(screenStopTask, taskId, isMebel);
 
   if (tsk.status === "active") {
     setMainButton(`✅ ${t("finish")}`, async () => {
       const app = tg();
       app.MainButton.showProgress();
       try {
-        await api(`/tasks/${taskId}/finish`, { method: "POST" });
+        await api(`/tasks/${taskId}/${isMebel ? "finish-claim" : "finish"}`, { method: "POST" });
         await replaceTop(screenTaskDetail, taskId);
       } catch (e) {
         showError(e.message);
@@ -374,7 +380,7 @@ async function screenTaskDetail(taskId) {
   }
 }
 
-async function screenStopTask(taskId) {
+async function screenStopTask(taskId, isMebel) {
   setScreen(`
     <p class="page-title">${esc(t("stopReasonPrompt"))}</p>
     <div class="field"><textarea id="reason" placeholder="${esc(t("stopReasonPlaceholder"))}"></textarea></div>
@@ -388,7 +394,7 @@ async function screenStopTask(taskId) {
     const app = tg();
     app.MainButton.showProgress();
     try {
-      await api(`/tasks/${taskId}/stop`, { method: "POST", body: JSON.stringify({ reason }) });
+      await api(`/tasks/${taskId}/${isMebel ? "pause-claim" : "stop"}`, { method: "POST", body: JSON.stringify({ reason }) });
       await goBack();
     } catch (e) {
       showError(e.message);
@@ -429,8 +435,8 @@ async function screenWorkerScore() {
 
 async function screenAdminHome() {
   setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
-  const [d, pendingSetup, reassignCandidates] = await Promise.all([
-    api("/admin/dashboard"), api("/admin/pending-setup"), api("/admin/reassign-candidates"),
+  const [d, pendingSetup, reassignCandidates, pendingClaims] = await Promise.all([
+    api("/admin/dashboard"), api("/admin/pending-setup"), api("/admin/reassign-candidates"), api("/admin/pending-claims"),
   ]);
   setScreen(`
     <p class="page-title">${esc(t("dashboard"))}</p>
@@ -445,6 +451,7 @@ async function screenAdminHome() {
     <button class="nav-card accent" id="nav-newtask"><span class="ic">➕</span><span class="grow">${esc(t("newTaskCta"))}</span><span class="chev">›</span></button>
     ${pendingSetup.length ? `<button class="alert-card" id="nav-pending-setup"><span class="ic">⏳</span><span class="grow">${esc(t("pendingSetupAlert", pendingSetup.length))}</span><span class="chev">›</span></button>` : ""}
     ${reassignCandidates.length ? `<button class="alert-card" id="nav-reassign"><span class="ic">🔁</span><span class="grow">${esc(t("reassignAlert", reassignCandidates.length))}</span><span class="chev">›</span></button>` : ""}
+    ${pendingClaims.length ? `<button class="alert-card" id="nav-pending-claims"><span class="ic">📋</span><span class="grow">${esc(t("pendingClaimsAlert", pendingClaims.length))}</span><span class="chev">›</span></button>` : ""}
     <button class="nav-card" id="nav-daily-reports"><span class="ic">📸</span><span class="grow">${esc(t("dailyReportsNav"))}</span><span class="chev">›</span></button>
     <button class="nav-card" id="nav-misctasks"><span class="ic">🗂️</span><span class="grow">${esc(t("miscTasksNav"))}</span><span class="chev">›</span></button>
   `);
@@ -453,6 +460,8 @@ async function screenAdminHome() {
   if (pendingBtn) pendingBtn.onclick = () => show(screenPendingSetup);
   const reassignBtn = root.querySelector("#nav-reassign");
   if (reassignBtn) reassignBtn.onclick = () => show(screenReassignList);
+  const claimsBtn = root.querySelector("#nav-pending-claims");
+  if (claimsBtn) claimsBtn.onclick = () => show(screenPendingClaims);
   root.querySelector("#nav-daily-reports").onclick = () => show(screenDailyReports);
   root.querySelector("#nav-misctasks").onclick = () => show(screenAdminMiscTasks);
 }
@@ -555,7 +564,7 @@ async function screenNewTaskForm(kind) {
       <div class="field"><label>${esc(t("description"))}</label><textarea id="f-desc"></textarea></div>
       <div class="field"><label>${esc(t("deadline"))}</label><input id="f-deadline" type="datetime-local" /></div>
       <div class="field"><label>${esc(t("departmentField"))}</label>
-        <select id="f-dept"><option value="">—</option>${departments.map((d) => `<option value="${d.id}">${esc(d.name)}</option>`).join("")}</select>
+        <select id="f-dept"><option value="">—</option>${departments.filter((d) => d.module !== "mebel").map((d) => `<option value="${d.id}">${esc(d.name)}</option>`).join("")}</select>
       </div>
       <p class="section-lbl">${esc(t("brigadierField"))}</p>
       <div id="brigadier-picker"><p class="hint">${esc(t("pickDepartmentFirst"))}</p></div>
@@ -864,6 +873,52 @@ async function screenFinancial() {
         try {
           await api(`/admin/financial/${item.id}/pay-amount`, { method: "POST", body: JSON.stringify({ amount: Number(value) }) });
           await replaceTop(screenFinancial);
+        } catch (e) {
+          showError(e.message);
+        }
+      };
+    }
+  });
+}
+
+async function screenPendingClaims() {
+  setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
+  const claims = await api("/admin/pending-claims");
+  setScreen(`
+    <p class="page-title">${esc(t("pendingClaimsTitle"))}</p>
+    ${claims.length ? claims.map((c, i) => `
+      <div class="fin-card" data-i="${i}">
+        <div class="top">
+          <span class="task">${esc(c.employee_name || "—")} — ${esc(c.task_title || "")}</span>
+          <span class="status-pill warn">${esc(t(c.action_type === "pause" ? "claimActionPause" : "claimActionFinish"))}</span>
+        </div>
+        <p class="desc">${esc(formatDt(c.claimed_at))}${c.reason ? " · " + esc(c.reason) : ""}</p>
+        <div class="amount-row">
+          <button class="btn primary f-approve">✅ ${esc(t("approveClaimBtn"))}</button>
+          <button class="btn danger f-reject">❌ ${esc(t("rejectClaimBtn"))}</button>
+        </div>
+      </div>
+    `).join("") : `<p class="empty-state">${esc(t("noPendingClaims"))}</p>`}
+  `);
+  root.querySelectorAll(".fin-card").forEach((card) => {
+    const item = claims[Number(card.dataset.i)];
+    const approveBtn = card.querySelector(".f-approve");
+    if (approveBtn) {
+      approveBtn.onclick = async () => {
+        try {
+          await api(`/admin/claims/${item.id}/approve`, { method: "POST" });
+          await replaceTop(screenPendingClaims);
+        } catch (e) {
+          showError(e.message);
+        }
+      };
+    }
+    const rejectBtn = card.querySelector(".f-reject");
+    if (rejectBtn) {
+      rejectBtn.onclick = async () => {
+        try {
+          await api(`/admin/claims/${item.id}/reject`, { method: "POST", body: JSON.stringify({}) });
+          await replaceTop(screenPendingClaims);
         } catch (e) {
           showError(e.message);
         }

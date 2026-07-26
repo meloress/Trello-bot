@@ -36,6 +36,8 @@ const I18N = {
     finish: "Yakunlash",
     stopReasonPrompt: "To'xtatish sababi:",
     stopReasonPlaceholder: "Sababni yozing...",
+    claimPendingPause: "⏳ Sizning pauza so'rovingiz ko'rib chiqilmoqda",
+    claimPendingFinish: "⏳ Sizning yakunlash so'rovingiz ko'rib chiqilmoqda",
     currentMonth: "Joriy oy",
     details: "Tafsilot",
     noScoreYet: "Bu oy hali ball yozilmagan.",
@@ -122,6 +124,13 @@ const I18N = {
     // Admin bosh sahifa: kutilayotgan amallar
     pendingSetupAlert: (n) => `Sozlash kutilmoqda (${n})`,
     reassignAlert: (n) => `Ko'rib chiqish kutilmoqda (${n})`,
+    pendingClaimsAlert: (n) => `Tasdiqlash kutilmoqda (${n})`,
+    pendingClaimsTitle: "Tasdiqlash kutilmoqda",
+    noPendingClaims: "Hozircha yo'q.",
+    claimActionPause: "Pauza",
+    claimActionFinish: "Yakunlash",
+    approveClaimBtn: "Tasdiqlash",
+    rejectClaimBtn: "Rad etish",
     newTaskCta: "Yangi vazifa",
 
     // Yangi vazifa: Buyurtma/Maxsus almashtirgich (9-band)
@@ -304,6 +313,8 @@ const I18N = {
     finish: "Завершить",
     stopReasonPrompt: "Причина остановки:",
     stopReasonPlaceholder: "Напишите причину...",
+    claimPendingPause: "⏳ Ваш запрос на паузу рассматривается",
+    claimPendingFinish: "⏳ Ваш запрос на завершение рассматривается",
     currentMonth: "Текущий месяц",
     details: "Подробности",
     noScoreYet: "В этом месяце баллов ещё нет.",
@@ -388,6 +399,13 @@ const I18N = {
 
     pendingSetupAlert: (n) => `Ожидает настройки (${n})`,
     reassignAlert: (n) => `Ожидает рассмотрения (${n})`,
+    pendingClaimsAlert: (n) => `Ожидает подтверждения (${n})`,
+    pendingClaimsTitle: "Ожидает подтверждения",
+    noPendingClaims: "Пока пусто.",
+    claimActionPause: "Пауза",
+    claimActionFinish: "Завершение",
+    approveClaimBtn: "Подтвердить",
+    rejectClaimBtn: "Отклонить",
     newTaskCta: "Новая задача",
 
     orderType: "📦 Заказ",

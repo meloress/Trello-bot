@@ -106,6 +106,7 @@ async def list_departments(request: web.Request) -> web.Response:
                 "id": d.id,
                 "name": d.name,
                 "trello_list_id": d.trello_list_id,
+                "module": d.module,
                 "next_department_id": d.next_department_id,
                 "auto_reassign_after_48h": d.auto_reassign_after_48h,
                 "starts_stopped": d.starts_stopped,
