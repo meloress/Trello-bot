@@ -156,6 +156,25 @@ class TaskRepository(BaseRepository[Task]):
         )
         return list(result.scalars().all())
 
+    async def list_open_orders_excluding_module(self, excluded_module: str) -> list[Task]:
+        """`daily_sync_job` uchun: ochiq (COMPLETED/PENDING_SETUP emas) ORDER
+        vazifalar, lekin berilgan modulga (masalan "mebel") tegishli bo'lim
+        chiqarib tashlanadi — bu modul endi Trello'ni bevosita, yuqori
+        chastotali `jobs/trello_ingest_job.py` orqali kuzatadi. `current_
+        department_id IS NULL` bo'lgan qatorlar (nazariy jihatdan bo'lmasligi
+        kerak ORDER uchun, lekin himoya sifatida) chiqarib tashlanmaydi —
+        modul tekshiruvi faqat bo'lim aniq bo'lganda qo'llaniladi."""
+        result = await self.session.execute(
+            select(Task)
+            .join(Department, Task.current_department_id == Department.id, isouter=True)
+            .where(
+                Task.status.notin_([TaskStatus.COMPLETED, TaskStatus.PENDING_SETUP]),
+                Task.task_type == TaskType.ORDER,
+                (Department.module != excluded_module) | (Task.current_department_id.is_(None)),
+            )
+        )
+        return list(result.scalars().all())
+
     async def list_long_running_stages(self, *, threshold_days: int, now: datetime) -> list[Task]:
         """8.6-band 1-qoida: hozirgi bosqichda (`started_at`dan hisoblab)
         `threshold_days`dan ORTIQ (qat'iy >) turib qolgan, hali yakunlanmagan
