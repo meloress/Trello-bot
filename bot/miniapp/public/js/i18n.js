@@ -13,11 +13,13 @@ const I18N = {
     greeting: "Assalomu alaykum,",
     sections: "Bo'limlar",
     myOrders: "Mening buyurtmalarim",
+    myStages: "Mening bosqichlarim",
     myTasks: "Mening vazifalarim",
     myScore: "Ball tarixim",
     currentMonthScore: "joriy oy ball",
     nearestDeadline: "eng yaqin muddat",
     noOrders: "Sizga biriktirilgan faol buyurtmalar yo'q.",
+    noStages: "Sizga biriktirilgan faol bosqichlar yo'q.",
     noTasks: "Sizga biriktirilgan faol vazifalar yo'q.",
     deadline: "Muddat",
     lateness: "Kechikish",
@@ -106,18 +108,17 @@ const I18N = {
     language: "Til",
 
     // Pastki tab-bar qisqa nomlari
-    tab_orders: "Buyurtmalar", tab_tasks: "Vazifalar", tab_score: "Ball", tab_profile: "Profil",
+    tab_orders: "Buyurtmalar", tab_stages: "Bosqichlar", tab_tasks: "Vazifalar", tab_score: "Ball", tab_profile: "Profil",
     tab_home: "Bosh sahifa", tab_stats: "Statistika", tab_employees: "Xodimlar", tab_financial: "Moliyaviy",
     tab_brigade: "Brigada", tab_leads: "Lidlarim",
 
     // Modul tanlash (Fasad sex TZ, Phase 0)
     chooseModuleTitle: "Qaysi tizim?",
-    mebelModuleName: "Mebel ishlab chiqarish",
+    mebelModuleName: "Fasad seh",
     mebelModulePath: "Stolyarka → Shkurka → Kraska → Dostavka",
-    fasadModuleName: "Fasad sex",
+    fasadModuleName: "Nazorat Trello",
     fasadModulePath: "Kontrol → Stolyarka → Shkurka → Kraska → Montaj",
     switchModuleLabel: "Tizimni almashtirish",
-    fasadHomeTab: "Bosh sahifa",
 
     // Admin bosh sahifa: kutilayotgan amallar
     pendingSetupAlert: (n) => `Sozlash kutilmoqda (${n})`,
@@ -281,11 +282,13 @@ const I18N = {
     greeting: "Здравствуйте,",
     sections: "Разделы",
     myOrders: "Мои заказы",
+    myStages: "Мои этапы",
     myTasks: "Мои задачи",
     myScore: "История баллов",
     currentMonthScore: "баллов за месяц",
     nearestDeadline: "ближайший срок",
     noOrders: "Нет активных заказов, назначенных вам.",
+    noStages: "Нет активных этапов, назначенных вам.",
     noTasks: "Нет активных задач, назначенных вам.",
     deadline: "Срок",
     lateness: "Опоздание",
@@ -373,18 +376,17 @@ const I18N = {
     other: "Другое",
     language: "Язык",
 
-    tab_orders: "Заказы", tab_tasks: "Задачи", tab_score: "Баллы", tab_profile: "Профиль",
+    tab_orders: "Заказы", tab_stages: "Этапы", tab_tasks: "Задачи", tab_score: "Баллы", tab_profile: "Профиль",
     tab_home: "Главная", tab_stats: "Статистика", tab_employees: "Сотрудники", tab_financial: "Финансы",
     tab_brigade: "Бригада", tab_leads: "Мои лиды",
 
     // Выбор модуля (ТЗ Fasad sex, Phase 0)
     chooseModuleTitle: "Какая система?",
-    mebelModuleName: "Производство мебели",
+    mebelModuleName: "Fasad seh",
     mebelModulePath: "Столярка → Шкурка → Краска → Доставка",
-    fasadModuleName: "Fasad sex",
+    fasadModuleName: "Nazorat Trello",
     fasadModulePath: "Контроль → Столярка → Шкурка → Краска → Монтаж",
     switchModuleLabel: "Сменить систему",
-    fasadHomeTab: "Главная",
 
     pendingSetupAlert: (n) => `Ожидает настройки (${n})`,
     reassignAlert: (n) => `Ожидает рассмотрения (${n})`,

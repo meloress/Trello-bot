@@ -1,5 +1,42 @@
 # 3. Fasad sex modulining haqiqiy ekranlari (hozir placeholder)
 
+## ✅ 2026-07-27: bajarildi
+
+Tekshiruvda ma'lum bo'ldiki, worker/brigadier/seller uchun mavjud ekranlar
+(`screenWorkerOrders`, `screenTaskList("misc")`, `screenWorkerScore`,
+`screenBrigadierHome`, `screenSellerHome`) — hech biri modulga (mebel/
+fasad_sex) qarab backend'da filtrlanmaydi: ular xodimning o'z tayinlovi
+(`task_assignments`/`brigade_id`) bo'yicha ishlaydi, bo'lim qaysi modulga
+tegishli ekanidan qat'iy nazar to'g'ri ma'lumot qaytaradi. Ya'ni "haqiqiy
+ekranlar" allaqachon bor edi — BLOKLOVCHI muammo faqat **frontend
+marshrutlashda** edi: `tabDefsForRole()` `module === "fasad_sex"` bo'lganda
+ROLdan qat'iy nazar hammaga `screenAdminHome`ni qaytarardi, shu sabab
+worker/brigadir shu bo'limga tushib ADMIN-only endpoint'ga urilib 403
+ko'rardi.
+
+Tuzatish: `tabDefsForRole()`dagi modul-bo'yicha-hammasini-almashtirish bloki
+olib tashlandi — endi tab to'plami faqat ROLga qarab tanlanadi (avvalgidek),
+`module` esa faqat worker'ning "Buyurtmalar" tab yorlig'ini Fasad sex uchun
+"Bosqichlar"ga almashtirish uchun ishlatiladi (`screenWorkerOrders`dagi
+bo'lim sarlavhasi ham xuddi shunday). Natijada:
+
+- **Worker/brigadier/seller**: o'z rolining odatdagi ekranlarini ko'radi
+  (Fasad sex bo'limiga tayinlangan bo'lsa ham) — hech qanday yangi ekran
+  yozishga hojat qolmadi, chunki mavjudlari allaqachon modul-agnostik edi.
+- **Admin/supervisor**: avval fasad_sex tanlanganda faqat Bosh sahifa+Profil
+  ko'rar edi (Statistika/Xodimlar/Moliyaviy yo'qolib qolardi) — endi ikkala
+  modulda ham to'liq 5 tabni ko'radi (bu ekranlar ham modulga qarab
+  filtrlanmaydi, shu sabab qisqartirishning hech qanday asosi yo'q edi).
+
+Kod: `bot/miniapp/public/js/app.js` (`tabDefsForRole`, `screenWorkerOrders`),
+`bot/miniapp/public/js/i18n.js` (`tab_stages`/`myStages`/`noStages` qo'shildi,
+ishlatilmay qolgan `fasadHomeTab` olib tashlandi). Backend'da o'zgarish
+kerak bo'lmadi.
+
+---
+
+**Original muammo tavsifi (tarixiy kontekst uchun saqlanadi):**
+
 ## Muammo
 
 Phase 0'da Mini App'ga "qaysi tizim" tanlash ekrani qo'shilganda,

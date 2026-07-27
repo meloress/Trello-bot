@@ -13,7 +13,7 @@ liniyasi ishlashi uchun quyidagi ishlar hali kerak.
 |---|---|---|---|
 | 1 | [01-haqiqiy-zanjir-yaratish.md](01-haqiqiy-zanjir-yaratish.md) | ✅ 2026-07-24: asosiy 17-bosqichli zanjir yaratildi (yangi Trello board, DB'da to'liq fork/join). Ochiq qoldi: material turlari (1.3), 2-zavod (1.4), xodim biriktirish (1.5, #3ga bog'liq) | ✅ ASOSIY QISM BAJARILDI |
 | 2 | [02-frontend-boshqaruv-tugmalari.md](02-frontend-boshqaruv-tugmalari.md) | ✅ 2026-07-24: bo'lim tahrirlash ekrani, fork-target tanlagich, sotuvchi multi-select qo'shildi (2.1/chain va material-shablon aslida allaqachon bor ekan — hujjat eskirgan edi) | ✅ BAJARILDI |
-| 3 | [03-fasad-sex-real-ekranlari.md](03-fasad-sex-real-ekranlari.md) | Fasad sex modulining haqiqiy bosh sahifa/tab ekranlari (hozir placeholder) | BLOKLOVCHI — ishchi/brigadir tayinlashdan OLDIN shart |
+| 3 | [03-fasad-sex-real-ekranlari.md](03-fasad-sex-real-ekranlari.md) | ✅ 2026-07-27: root cause frontend marshrutlashda edi (`tabDefsForRole` hamma rolni `screenAdminHome`ga yo'naltirardi) — tuzatildi, endi ROL bo'yicha odatdagi ekranlar ishlaydi | ✅ BAJARILDI |
 | 4 | [04-texnik-qarz-topilmalar.md](04-texnik-qarz-topilmalar.md) | Review'lardan qolgan kichik (Minor) topilmalar — texnik qarz ro'yxati | O'RTA — hozircha xavfsiz, lekin yig'ilib qolmasin |
 | 5 | [05-tz-ochiq-savollar.md](05-tz-ochiq-savollar.md) | TZning o'z ochiq savollari (rahbardan javob kutilmoqda) — `09z-fasad-sex-ochiq-savollar.md`ga havola | O'ZGARUVCHAN — javob kelgach kod bo'shashadi |
 | 6 | [06-production-tayyorgarlik.md](06-production-tayyorgarlik.md) | Deploy/keshlash/test — jonli tizimni ishonchli qilish uchun qolgan ishlar | O'RTA |
@@ -28,10 +28,16 @@ liniyasi ishlashi uchun quyidagi ishlar hali kerak.
 - Haqiqiy Fasad sex zanjiri: **✅ asosiy qismi yaratildi** (17 department,
   yangi Trello board). Ochiq qoldi: material turlari shabloni, ikkinchi
   zavod (kerak bo'lsa), xodimlarni bog'lash (#3ga bog'liq).
-- Mini App'da "Fasad sex" tugmasini bosganda endi zanjir DB'da mavjud —
-  lekin #3 (real ekranlar) hal qilinmaguncha, va xodimlar hali
-  biriktirilmagani sabab, worker/brigadir darajasida hamon ishlatib
-  bo'lmaydi. #3 shu sabab endi navbatdagi ENG MUHIM ish.
+- Mini App'da "Fasad sex" tugmasini bosganda endi zanjir DB'da mavjud, va
+  #3 ham 2026-07-27'da bajarildi: muammo aslida "ekranlar yo'q" emas,
+  frontend marshrutlash xatosi edi (`tabDefsForRole` fasad_sex modulida
+  ROLdan qat'iy nazar hamma uchun ADMIN-only `screenAdminHome`ni
+  qaytarardi) — mavjud worker/brigadier/seller ekranlari allaqachon
+  modul-agnostik ekan, shu sabab yangi ekran yozishga hojat bo'lmadi, faqat
+  marshrutlash tuzatildi. Endi worker/brigadier xodim shu bo'limga
+  tayinlansa, 403 ko'rmaydi. Qolgan yagona ochiq band — #1'dagi xodim
+  biriktirishning o'zi (1.5), bu endi kod jihatidan bloklanmagan, faqat
+  amaliy qadam.
 - #2 (frontend boshqaruv) ham shu sessiyada bajarildi: bo'lim
   ro'yxatidagi har bir qator endi bosiladi va to'liq tahrirlash ekranini
   ochadi (nom, Trello list ID, auto-reassign, starts_stopped,

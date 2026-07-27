@@ -13,19 +13,16 @@ const MODULE_STORAGE_KEY = "miniapp_module";
 
 /* Rol bo'yicha pastki tab-bar ta'rifi — har biri {key, icon, label, screen}.
    Birinchi element doim shu rolning "uy" ekrani (routeHome()/screenModuleChooser()
-   shundan foydalanadi). `module`: "fasad_sex" bo'lsa alohida (hozircha
-   placeholder) tab to'plami qaytadi — Fasad sex'ning haqiqiy ekranlari keyingi
-   vazifalarda qo'shiladi. `module` bo'sh/"mebel" bo'lsa — o'zgarishsiz eski xulq. */
+   shundan foydalanadi). Ekranlar/backend endpointlar modulga (mebel/fasad_sex)
+   qarab filtrlanmaydi — xodimning o'z tayinlovlari (task_assignments/brigade_id)
+   allaqachon qaysi bo'lim ekanidan qat'iy nazar to'g'ri ma'lumot qaytaradi, shu
+   sabab tab to'plami faqat ROLga qarab tanlanadi. `module` faqat ishchining
+   "Buyurtmalar" tab yorlig'ini Fasad sex uchun "Bosqichlar"ga almashtirish
+   uchun ishlatiladi (pastda screenWorkerOrders). */
 function tabDefsForRole(role, module) {
-  if (module === "fasad_sex") {
-    return [
-      { key: "home", icon: "🏗️", label: "fasadHomeTab", screen: screenAdminHome },
-      { key: "profile", icon: "👤", label: "tab_profile", screen: screenProfile },
-    ];
-  }
   if (role === "worker") {
     return [
-      { key: "orders", icon: "📦", label: "tab_orders", screen: screenWorkerOrders },
+      { key: "orders", icon: "📦", label: module === "fasad_sex" ? "tab_stages" : "tab_orders", screen: screenWorkerOrders },
       { key: "tasks", icon: "📋", label: "tab_tasks", screen: () => screenTaskList("misc") },
       { key: "score", icon: "⭐", label: "tab_score", screen: screenWorkerScore },
       { key: "profile", icon: "👤", label: "tab_profile", screen: screenProfile },
@@ -253,14 +250,14 @@ async function screenWorkerOrders() {
       <div class="hero-tile ${score.total >= 0 ? "positive" : ""}"><span class="num">${score.total > 0 ? "+" : ""}${score.total}</span><span class="lbl">${esc(t("currentMonthScore"))}</span></div>
       <div class="hero-tile ${nearestDays !== null && nearestDays <= 1 ? "warn" : ""}"><span class="num">${nearestDays === null ? "—" : nearestDays <= 0 ? "⚠️" : nearestDays + "d"}</span><span class="lbl">${esc(t("nearestDeadline"))}</span></div>
     </div>
-    <p class="section-lbl">${esc(t("myOrders"))}</p>
+    <p class="section-lbl">${esc(t(nav.module === "fasad_sex" ? "myStages" : "myOrders"))}</p>
     ${orders.length ? orders.map((tsk, i) => `
       <button class="task-card ${statusClass(tsk.status)}" data-i="${i}">
         <p class="t-title">${esc(tsk.title)}</p>
         <p class="t-sub">${esc(tsk.department || "")}</p>
         <span class="t-status">${taskStatusLine(tsk)}</span>
       </button>
-    `).join("") : `<p class="empty-state">${esc(t("noOrders"))}</p>`}
+    `).join("") : `<p class="empty-state">${esc(t(nav.module === "fasad_sex" ? "noStages" : "noOrders"))}</p>`}
   `);
   root.querySelectorAll(".task-card").forEach((el) => {
     const tsk = orders[Number(el.dataset.i)];
