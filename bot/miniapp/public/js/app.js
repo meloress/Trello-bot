@@ -433,6 +433,11 @@ async function screenWorkerScore() {
 /* ---------- Rahbar/Nazoratchi ekranlari ---------- */
 
 async function screenAdminHome() {
+  // Mebel ("Fasad seh"): Kunlik hisobot va "barcha vazifalar" ko'rish endi
+  // faqat Nazorat Trello (fasad_sex) uchun — bu ikkala nav-card mebel
+  // kontekstida umuman ko'rsatilmaydi. Maxsus topshiriq YARATISH ("Yangi
+  // vazifa" tugmasi) esa ikkala modulda ham qoladi.
+  const mebelOnly = nav.module === "mebel";
   setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
   const [d, pendingSetup, reassignCandidates, pendingClaims] = await Promise.all([
     api("/admin/dashboard"), api("/admin/pending-setup"), api("/admin/reassign-candidates"), api("/admin/pending-claims"),
@@ -451,8 +456,8 @@ async function screenAdminHome() {
     ${pendingSetup.length ? `<button class="alert-card" id="nav-pending-setup"><span class="ic">⏳</span><span class="grow">${esc(t("pendingSetupAlert", pendingSetup.length))}</span><span class="chev">›</span></button>` : ""}
     ${reassignCandidates.length ? `<button class="alert-card" id="nav-reassign"><span class="ic">🔁</span><span class="grow">${esc(t("reassignAlert", reassignCandidates.length))}</span><span class="chev">›</span></button>` : ""}
     ${pendingClaims.length ? `<button class="alert-card" id="nav-pending-claims"><span class="ic">📋</span><span class="grow">${esc(t("pendingClaimsAlert", pendingClaims.length))}</span><span class="chev">›</span></button>` : ""}
-    <button class="nav-card" id="nav-daily-reports"><span class="ic">📸</span><span class="grow">${esc(t("dailyReportsNav"))}</span><span class="chev">›</span></button>
-    <button class="nav-card" id="nav-misctasks"><span class="ic">🗂️</span><span class="grow">${esc(t("miscTasksNav"))}</span><span class="chev">›</span></button>
+    ${mebelOnly ? "" : `<button class="nav-card" id="nav-daily-reports"><span class="ic">📸</span><span class="grow">${esc(t("dailyReportsNav"))}</span><span class="chev">›</span></button>`}
+    ${mebelOnly ? "" : `<button class="nav-card" id="nav-misctasks"><span class="ic">🗂️</span><span class="grow">${esc(t("miscTasksNav"))}</span><span class="chev">›</span></button>`}
   `);
   root.querySelector("#nav-newtask").onclick = () => show(screenNewTaskForm);
   const pendingBtn = root.querySelector("#nav-pending-setup");
@@ -461,8 +466,10 @@ async function screenAdminHome() {
   if (reassignBtn) reassignBtn.onclick = () => show(screenReassignList);
   const claimsBtn = root.querySelector("#nav-pending-claims");
   if (claimsBtn) claimsBtn.onclick = () => show(screenPendingClaims);
-  root.querySelector("#nav-daily-reports").onclick = () => show(screenDailyReports);
-  root.querySelector("#nav-misctasks").onclick = () => show(screenAdminMiscTasks);
+  const dailyReportsBtn = root.querySelector("#nav-daily-reports");
+  if (dailyReportsBtn) dailyReportsBtn.onclick = () => show(screenDailyReports);
+  const miscTasksBtn = root.querySelector("#nav-misctasks");
+  if (miscTasksBtn) miscTasksBtn.onclick = () => show(screenAdminMiscTasks);
 }
 
 async function screenAdminMiscTasks(category) {
@@ -518,10 +525,14 @@ async function screenDailyReports() {
 }
 
 async function screenNewTaskForm(kind) {
-  kind = kind || "order";
+  // Mebel ("Fasad seh"): buyurtmalar endi faqat Trello orqali yaratiladi
+  // (`trello_ingest_job`) — bu ekranda Buyurtma varianti umuman ko'rsatilmaydi,
+  // faqat Maxsus topshiriq (misc) qoladi.
+  const mebelOnly = nav.module === "mebel";
+  kind = mebelOnly ? "misc" : (kind || "order");
   setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
   const [departments, employees] = await Promise.all([
-    api("/admin/departments"), api("/admin/employees"),
+    mebelOnly ? Promise.resolve([]) : api("/admin/departments"), api("/admin/employees"),
   ]);
   const activeEmployees = employees.filter((e) => e.is_active);
   let selectedBrigadierId = null;
@@ -554,10 +565,12 @@ async function screenNewTaskForm(kind) {
 
   setScreen(`
     <p class="page-title">${esc(t("newTask"))}</p>
+    ${mebelOnly ? "" : `
     <div class="segmented" id="type-toggle">
       <button data-kind="order" aria-selected="${kind === "order"}">${esc(t("orderType"))}</button>
       <button data-kind="misc" aria-selected="${kind === "misc"}">${esc(t("miscType"))}</button>
     </div>
+    `}
     ${kind === "order" ? `
       <div class="field"><label>${esc(t("title"))}</label><input id="f-title" type="text" /></div>
       <div class="field"><label>${esc(t("description"))}</label><textarea id="f-desc"></textarea></div>
@@ -724,6 +737,10 @@ async function screenEmployeeDetail(employeeId) {
     );
   }
   const brigadeOptions = await renderBrigadeOptions(employee.department_id, employee.brigade_id);
+  // Mebel ("Fasad seh"): kunlik hisobot faqat Nazorat Trello (fasad_sex)
+  // uchun qoldi — mebel bo'limidagi xodim uchun bu bayroq umuman ko'rsatilmaydi.
+  const employeeDepartment = departments.find((d) => d.id === employee.department_id);
+  const hideDailyReport = employeeDepartment && employeeDepartment.module === "mebel";
 
   setScreen(`
     <p class="page-title">${esc(employee.full_name)}</p>
@@ -736,7 +753,7 @@ async function screenEmployeeDetail(employeeId) {
       <select id="f-dept"><option value="">—</option>${departments.map((d) => `<option value="${d.id}" ${d.id === employee.department_id ? "selected" : ""}>${esc(d.name)}</option>`).join("")}</select>
     </div>
     <div class="field"><label>${esc(t("brigade"))}</label><select id="f-brigade">${brigadeOptions}</select></div>
-    <label class="check-row"><input type="checkbox" id="f-daily-report" ${employee.daily_report_required ? "checked" : ""} />${esc(t("dailyReportRequiredField"))}</label>
+    ${hideDailyReport ? "" : `<label class="check-row"><input type="checkbox" id="f-daily-report" ${employee.daily_report_required ? "checked" : ""} />${esc(t("dailyReportRequiredField"))}</label>`}
     <button class="btn ${employee.is_active ? "danger" : "primary"}" id="btn-toggle">${employee.is_active ? esc(t("deactivate")) : esc(t("activate"))}</button>
   `);
 
@@ -760,18 +777,17 @@ async function screenEmployeeDetail(employeeId) {
     try {
       const deptVal = root.querySelector("#f-dept").value;
       const brigadeVal = root.querySelector("#f-brigade").value;
-      await api(`/admin/employees/${employeeId}`, {
-        method: "POST",
-        body: JSON.stringify({
-          full_name: root.querySelector("#f-name").value.trim(),
-          phone_number: root.querySelector("#f-phone").value.trim(),
-          trello_username: root.querySelector("#f-trello").value.trim(),
-          role: root.querySelector("#f-role").value,
-          department_id: deptVal ? Number(deptVal) : null,
-          brigade_id: brigadeVal ? Number(brigadeVal) : null,
-          daily_report_required: root.querySelector("#f-daily-report").checked,
-        }),
-      });
+      const dailyReportEl = root.querySelector("#f-daily-report");
+      const body = {
+        full_name: root.querySelector("#f-name").value.trim(),
+        phone_number: root.querySelector("#f-phone").value.trim(),
+        trello_username: root.querySelector("#f-trello").value.trim(),
+        role: root.querySelector("#f-role").value,
+        department_id: deptVal ? Number(deptVal) : null,
+        brigade_id: brigadeVal ? Number(brigadeVal) : null,
+      };
+      if (dailyReportEl) body.daily_report_required = dailyReportEl.checked;
+      await api(`/admin/employees/${employeeId}`, { method: "POST", body: JSON.stringify(body) });
       app.HapticFeedback && app.HapticFeedback.notificationOccurred("success");
       await goBack();
     } catch (e) {

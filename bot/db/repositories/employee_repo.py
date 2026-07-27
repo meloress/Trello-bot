@@ -1,5 +1,6 @@
 from sqlalchemy import select
 
+from db.models.department import Department
 from db.models.employee import Employee
 from db.repositories.base import BaseRepository
 from utils.enums import Role
@@ -85,10 +86,18 @@ class EmployeeRepository(BaseRepository[Employee]):
     async def list_daily_report_required(self) -> list[Employee]:
         """Fasad sex TZ, Phase 8: kunlik rasm/video hisobot ro'yxatidagi
         FAOL xodimlar (`daily_report_job`/`daily_report_service` shundan
-        foydalanadi)."""
+        foydalanadi). Mebel ("Fasad seh") uchun bu funksiya butunlay olib
+        tashlangan (Mini App'da so'ralmaydi/ko'rsatilmaydi) — shu bir
+        so'rov ustidan chetlab o'tiladi, shu sabab mebel bo'limidagi xodim
+        bu bayrog'i qandaydir eski/qo'lda yo'l bilan yoqilgan bo'lsa ham
+        hech qachon so'rov olmaydi."""
         result = await self.session.execute(
-            select(Employee).where(
-                Employee.daily_report_required.is_(True), Employee.is_active.is_(True)
+            select(Employee)
+            .join(Department, Employee.department_id == Department.id, isouter=True)
+            .where(
+                Employee.daily_report_required.is_(True),
+                Employee.is_active.is_(True),
+                (Department.module != "mebel") | (Employee.department_id.is_(None)),
             )
         )
         return list(result.scalars().all())
