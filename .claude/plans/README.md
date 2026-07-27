@@ -36,6 +36,7 @@ bajarilmagan qismini aniqladi. Quyidagi hujjatlar shularning har biri uchun.
 | 8 | [08-saas-tayyorgarlik.md](08-saas-tayyorgarlik.md) | 15 (6-bosqich, B/C/D-qism) | Ping billing / multi-tenant / video darslar | BLOKLANGAN (Ping shartnomasi kutilmoqda) |
 | 9 | [09-fasad-sex-modul.md](09-fasad-sex-modul.md) | yangi TZ (`Nazorat_Trello_Bot_TZ_v1.2`) | Ikkinchi, parallel ishlab chiqarish moduli (Fasad sex) — 10 bosqich (Phase 0-9) | BOSHLANDI — `feature/fasad-sex-module` branch'da, hujjat ichidagi checklist'ga qarang |
 | 9z | [09z-fasad-sex-ochiq-savollar.md](09z-fasad-sex-ochiq-savollar.md) | yangi TZ §13-14 | Fasad sex TZ'ning o'z ochiq savollari | KUZATUV RO'YXATI |
+| 10 | [10-miniapp-qayta-dizayn.md](10-miniapp-qayta-dizayn.md) | TZ talabi emas — foydalanuvchi so'rovi | Mini App vizual qayta dizayni (premium-minimal, indigo urg'u), barcha rol/modul | KOD TAYYOR (3 bosqich ham), real Telegram WebView'da tekshirish qoldi |
 
 ## Ishlash tartibi
 
@@ -46,7 +47,8 @@ bog'liq emas, faqat "hammasi tugagach yakuniy E2E test" degan tavsiya bor).
 7 — kod emas, kuzatuv. 8 — hozircha tegilmaydi (tashqi blokerga bog'liq).
 9/9z — mavjud mebel-ishlab-chiqarish ishidan MUSTAQIL, alohida branch'da
 olib boriladi (ichki bosqich tartibi hujjatning o'z "Ishlash tartibi"
-bo'limida).
+bo'limida). 10 — boshqalardan MUSTAQIL (faqat CSS/JS taqdimot qatlami,
+hech qanday servis/DB'ga bog'liq emas), o'z ichidagi 3 bosqichli tartibda.
 
 Har bir hujjat tugagach: shu jadvaldagi holat yangilanadi, `shared/db-schema.md`
 (agar sxema o'zgargan bo'lsa) yangilanadi, va **hujjatning o'zi bu papkadan

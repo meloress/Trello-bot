@@ -7,7 +7,7 @@ const API_BASE = "/api/miniapp";
 const root = document.getElementById("app");
 const tabbarRoot = document.getElementById("tabbar");
 const state = { employee: null, lang: "uz" };
-const nav = { stack: [], section: null, module: null };
+const nav = { stack: [], section: null, module: null, transition: null };
 let mainButtonHandler = null;
 const MODULE_STORAGE_KEY = "miniapp_module";
 
@@ -22,33 +22,33 @@ const MODULE_STORAGE_KEY = "miniapp_module";
 function tabDefsForRole(role, module) {
   if (role === "worker") {
     return [
-      { key: "orders", icon: "📦", label: module === "fasad_sex" ? "tab_stages" : "tab_orders", screen: screenWorkerOrders },
-      { key: "tasks", icon: "📋", label: "tab_tasks", screen: () => screenTaskList("misc") },
-      { key: "score", icon: "⭐", label: "tab_score", screen: screenWorkerScore },
-      { key: "profile", icon: "👤", label: "tab_profile", screen: screenProfile },
+      { key: "orders", icon: icon("box"), label: module === "fasad_sex" ? "tab_stages" : "tab_orders", screen: screenWorkerOrders },
+      { key: "tasks", icon: icon("list"), label: "tab_tasks", screen: () => screenTaskList("misc") },
+      { key: "score", icon: icon("star"), label: "tab_score", screen: screenWorkerScore },
+      { key: "profile", icon: icon("user"), label: "tab_profile", screen: screenProfile },
     ];
   }
   if (role === "admin" || role === "supervisor") {
     return [
-      { key: "home", icon: "🏠", label: "tab_home", screen: screenAdminHome },
-      { key: "stats", icon: "📊", label: "tab_stats", screen: screenFullStats },
-      { key: "employees", icon: "👥", label: "tab_employees", screen: screenEmployees },
-      { key: "profile", icon: "👤", label: "tab_profile", screen: screenProfile },
+      { key: "home", icon: icon("home"), label: "tab_home", screen: screenAdminHome },
+      { key: "stats", icon: icon("chart"), label: "tab_stats", screen: screenFullStats },
+      { key: "employees", icon: icon("users"), label: "tab_employees", screen: screenEmployees },
+      { key: "profile", icon: icon("user"), label: "tab_profile", screen: screenProfile },
     ];
   }
   if (role === "brigadier") {
     return [
-      { key: "brigade", icon: "👥", label: "tab_brigade", screen: screenBrigadierHome },
-      { key: "profile", icon: "👤", label: "tab_profile", screen: screenProfile },
+      { key: "brigade", icon: icon("users"), label: "tab_brigade", screen: screenBrigadierHome },
+      { key: "profile", icon: icon("user"), label: "tab_profile", screen: screenProfile },
     ];
   }
   if (role === "seller") {
     return [
-      { key: "leads", icon: "💼", label: "tab_leads", screen: () => screenSellerHome() },
-      { key: "profile", icon: "👤", label: "tab_profile", screen: screenProfile },
+      { key: "leads", icon: icon("briefcase"), label: "tab_leads", screen: () => screenSellerHome() },
+      { key: "profile", icon: icon("user"), label: "tab_profile", screen: screenProfile },
     ];
   }
-  return [{ key: "profile", icon: "👤", label: "tab_profile", screen: screenProfile }];
+  return [{ key: "profile", icon: icon("user"), label: "tab_profile", screen: screenProfile }];
 }
 
 function switchTab(tabKey, screenFn) {
@@ -71,6 +71,7 @@ function renderTabBar() {
   }
   tabbarRoot.innerHTML = `
     <nav class="tab-bar">
+      <div class="pill-bg" id="tab-pill"></div>
       ${defs.map((d) => `
         <button class="tab-item" data-key="${d.key}" aria-selected="${d.key === nav.section}">
           <span class="tab-ic">${d.icon}</span><span class="tab-lbl">${esc(t(d.label))}</span>
@@ -81,7 +82,21 @@ function renderTabBar() {
   defs.forEach((d) => {
     tabbarRoot.querySelector(`[data-key="${d.key}"]`).onclick = () => switchTab(d.key, d.screen);
   });
+  positionTabPill();
 }
+
+/* Aktiv tab tugmasi ustida sirg'anib yuruvchi fon — offsetLeft/offsetWidth
+   orqali o'lchab joylashtiriladi (CSS Grid emas, tugmalar flex:1 bo'lgani
+   uchun kengliklari teng, lekin haqiqiy piksel o'lchash oyna kengligidan
+   qat'iy nazar to'g'ri ishlashini kafolatlaydi). */
+function positionTabPill() {
+  const pill = tabbarRoot.querySelector("#tab-pill");
+  const active = tabbarRoot.querySelector('.tab-item[aria-selected="true"]');
+  if (!pill || !active) return;
+  pill.style.left = `${active.offsetLeft}px`;
+  pill.style.width = `${active.offsetWidth}px`;
+}
+window.addEventListener("resize", () => positionTabPill());
 
 const ROLE_LABELS = {
   uz: {
@@ -93,6 +108,12 @@ const ROLE_LABELS = {
     admin: "👔 Руководитель", observer: "👀 Наблюдатель", seller: "💼 Продавец",
   },
 };
+
+/* Chiziq-uslubidagi SVG ikon — index.html'dagi <symbol id="ic-*"> sprite'idan
+   <use> orqali chizadi (emoji glyflar o'rniga, .claude/plans/10-miniapp-qayta-dizayn.md). */
+function icon(name) {
+  return `<svg class="ic-svg"><use href="#ic-${name}"></use></svg>`;
+}
 
 function esc(value) {
   if (value === null || value === undefined) return "";
@@ -189,18 +210,21 @@ function setMainButton(text, onClick, color) {
 
 async function show(renderFn, ...args) {
   nav.stack.push([renderFn, args]);
+  nav.transition = "fwd";
   await renderCurrent();
 }
 
 async function goBack() {
   if (nav.stack.length > 1) {
     nav.stack.pop();
+    nav.transition = "back";
     await renderCurrent();
   }
 }
 
 async function resetTo(renderFn, ...args) {
   nav.stack = [[renderFn, args]];
+  nav.transition = "fade";
   await renderCurrent();
 }
 
@@ -228,7 +252,52 @@ async function renderCurrent() {
     setScreen(`<p class="error-banner">${esc(e.message || t("error_generic"))}</p><button class="btn" id="btn-retry">${esc(t("retry"))}</button>`);
     root.querySelector("#btn-retry").onclick = renderCurrent;
   }
+  applyStagger();
+  animateNumbers();
+  if (nav.transition) {
+    root.classList.remove("enter-fwd", "enter-back", "enter-fade");
+    void root.offsetWidth; // reflow — animatsiyani qayta ishga tushirish uchun
+    root.classList.add("enter-" + nav.transition);
+    nav.transition = null;
+  }
   renderTabBar();
+}
+
+/* Har bir ekran render bo'lgach avtomatik ishga tushadi — screen funksiyalarining
+   HTML shablonlarini o'zgartirmasdan, kartochka ro'yxatlarga ketma-ket kirish
+   animatsiyasini (stagger) qo'shadi. Kamayish (prefers-reduced-motion) CSS'ning
+   o'zida hal qilinadi. */
+const STAGGER_SELECTOR = ".nav-card, .task-card, .hero-tile, .member-card, .stat-row, " +
+  ".emp-row, .lead-card, .alert-card, .fin-card, .kpi-list-item, .settings-row, .toggle-row, .radio-row";
+function applyStagger() {
+  root.querySelectorAll(STAGGER_SELECTOR).forEach((el, i) => {
+    el.classList.add("stagger");
+    el.style.setProperty("--i", i);
+  });
+}
+
+/* Hero-tile va ball raqamlarini 0'dan yakuniy qiymatgacha sanaydi. Matnning
+   raqam bo'lmagan qismini (belgi, qo'shimcha matn) o'zgarishsiz qoldiradi;
+   raqam ko'rinishida bo'lmagan qiymatlarni (masalan "—", "⚠️", xodim ismi)
+   butunlay o'tkazib yuboradi. */
+function animateNumbers() {
+  if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  root.querySelectorAll(".hero-tile .num, .chart-head .big").forEach((el) => {
+    const m = el.textContent.match(/^([+-]?)(\d+)(.*)$/);
+    if (!m) return;
+    const [, sign, digits, suffix] = m;
+    const target = Number(digits);
+    if (!target) return;
+    const start = performance.now();
+    const dur = 650;
+    const step = (now) => {
+      const p = Math.min(1, (now - start) / dur);
+      const eased = 1 - Math.pow(1 - p, 3);
+      el.textContent = `${sign}${Math.round(target * eased)}${suffix}`;
+      if (p < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
 }
 
 /* ---------- Ishchi ekranlari ---------- */
@@ -306,14 +375,14 @@ async function screenTaskList(kind, category) {
 }
 
 function taskStatusLine(tsk) {
-  if (tsk.status === "stopped") return `🛑 ${esc(t("statusStopped"))}`;
+  if (tsk.status === "stopped") return `${icon("stop")} ${esc(t("statusStopped"))}`;
   if (tsk.status === "overdue") {
     const days = tsk.deadline ? daysLate(tsk.deadline) : null;
-    return `⚠ ${days ? esc(t("daysLate", days)) : esc(t("statusOverdue"))}`;
+    return `${icon("alert")} ${days ? esc(t("daysLate", days)) : esc(t("statusOverdue"))}`;
   }
   if (tsk.status === "active" && tsk.deadline) {
     const days = daysUntil(tsk.deadline);
-    return `⏱ ${esc(t("daysLeft", days))}`;
+    return `${icon("clock")} ${esc(t("daysLeft", days))}`;
   }
   return esc(statusLabel(tsk.status));
 }
@@ -335,8 +404,8 @@ async function screenTaskDetail(taskId) {
       ${tsk.client_name ? `<div class="kv-row"><span class="k">${esc(t("client"))}</span><span class="v">${esc(tsk.client_name)}</span></div>` : ""}
     </div>
     ${pending ? `
-      <div class="alert-card"><span class="ic">⏳</span><span class="grow">${esc(t(pending.action_type === "pause" ? "claimPendingPause" : "claimPendingFinish"))}</span></div>
-    ` : !isMebel && (tsk.status === "active" || tsk.status === "overdue") ? `<button class="btn" id="btn-stop">🛑 ${esc(t("stop"))}</button>` : ""}
+      <div class="alert-card"><span class="ic">${icon("clock")}</span><span class="grow">${esc(t(pending.action_type === "pause" ? "claimPendingPause" : "claimPendingFinish"))}</span></div>
+    ` : !isMebel && (tsk.status === "active" || tsk.status === "overdue") ? `<button class="btn" id="btn-stop">${icon("stop")} ${esc(t("stop"))}</button>` : ""}
   `);
 
   // Mebel: ishchi profilida Pauza/Yakunlash tugmasi umuman yo'q — faqat
@@ -359,7 +428,7 @@ async function screenTaskDetail(taskId) {
       } finally {
         app.MainButton.hideProgress();
       }
-    }, "#008300");
+    }, "#158f5c");
   } else if (tsk.status === "stopped") {
     setMainButton(`▶️ ${t("resume")}`, async () => {
       const app = tg();
@@ -400,7 +469,7 @@ async function screenStopTask(taskId) {
     } finally {
       app.MainButton.hideProgress();
     }
-  }, "#e34948");
+  }, "#d63356");
 }
 
 async function screenWorkerScore() {
@@ -452,12 +521,12 @@ async function screenAdminHome() {
       <div class="hero-tile ${d.avg_score >= 0 ? "positive" : ""}"><span class="num">${d.avg_score > 0 ? "+" : ""}${d.avg_score}</span><span class="lbl">${esc(t("avgScore"))}</span></div>
       <div class="hero-tile"><span class="num" style="font-size:15px">${esc(d.top_performer || "—")}</span><span class="lbl">${esc(t("topPerformer"))}</span></div>
     </div>
-    <button class="nav-card accent" id="nav-newtask"><span class="ic">➕</span><span class="grow">${esc(t("newTaskCta"))}</span><span class="chev">›</span></button>
-    ${pendingSetup.length ? `<button class="alert-card" id="nav-pending-setup"><span class="ic">⏳</span><span class="grow">${esc(t("pendingSetupAlert", pendingSetup.length))}</span><span class="chev">›</span></button>` : ""}
-    ${reassignCandidates.length ? `<button class="alert-card" id="nav-reassign"><span class="ic">🔁</span><span class="grow">${esc(t("reassignAlert", reassignCandidates.length))}</span><span class="chev">›</span></button>` : ""}
-    ${pendingClaims.length ? `<button class="alert-card" id="nav-pending-claims"><span class="ic">📋</span><span class="grow">${esc(t("pendingClaimsAlert", pendingClaims.length))}</span><span class="chev">›</span></button>` : ""}
-    ${mebelOnly ? "" : `<button class="nav-card" id="nav-daily-reports"><span class="ic">📸</span><span class="grow">${esc(t("dailyReportsNav"))}</span><span class="chev">›</span></button>`}
-    ${mebelOnly ? "" : `<button class="nav-card" id="nav-misctasks"><span class="ic">🗂️</span><span class="grow">${esc(t("miscTasksNav"))}</span><span class="chev">›</span></button>`}
+    <button class="nav-card accent" id="nav-newtask"><span class="ic">${icon("plus")}</span><span class="grow">${esc(t("newTaskCta"))}</span><span class="chev">›</span></button>
+    ${pendingSetup.length ? `<button class="alert-card" id="nav-pending-setup"><span class="ic">${icon("clock")}</span><span class="grow">${esc(t("pendingSetupAlert", pendingSetup.length))}</span><span class="chev">›</span></button>` : ""}
+    ${reassignCandidates.length ? `<button class="alert-card" id="nav-reassign"><span class="ic">${icon("repeat")}</span><span class="grow">${esc(t("reassignAlert", reassignCandidates.length))}</span><span class="chev">›</span></button>` : ""}
+    ${pendingClaims.length ? `<button class="alert-card" id="nav-pending-claims"><span class="ic">${icon("list")}</span><span class="grow">${esc(t("pendingClaimsAlert", pendingClaims.length))}</span><span class="chev">›</span></button>` : ""}
+    ${mebelOnly ? "" : `<button class="nav-card" id="nav-daily-reports"><span class="ic">${icon("camera")}</span><span class="grow">${esc(t("dailyReportsNav"))}</span><span class="chev">›</span></button>`}
+    ${mebelOnly ? "" : `<button class="nav-card" id="nav-misctasks"><span class="ic">${icon("folder")}</span><span class="grow">${esc(t("miscTasksNav"))}</span><span class="chev">›</span></button>`}
   `);
   root.querySelector("#nav-newtask").onclick = () => show(screenNewTaskForm);
   const pendingBtn = root.querySelector("#nav-pending-setup");
@@ -514,11 +583,11 @@ async function screenDailyReports() {
     ${!data.submitted.length && !data.missing.length ? `<p class="empty-state">${esc(t("noDailyReportEmployees"))}</p>` : `
       <p class="section-lbl">${esc(t("submittedLabel"))} (${data.submitted.length})</p>
       ${data.submitted.map((e) => `
-        <div class="stat-row"><span class="rank">✅</span><span class="nm">${esc(e.full_name)}</span><span class="score"></span></div>
+        <div class="stat-row"><span class="rank">${icon("check")}</span><span class="nm">${esc(e.full_name)}</span><span class="score"></span></div>
       `).join("")}
       <p class="section-lbl">${esc(t("missingLabel"))} (${data.missing.length})</p>
       ${data.missing.map((e) => `
-        <div class="stat-row"><span class="rank">❌</span><span class="nm">${esc(e.full_name)}</span><span class="score"></span></div>
+        <div class="stat-row"><span class="rank">${icon("x")}</span><span class="nm">${esc(e.full_name)}</span><span class="score"></span></div>
       `).join("")}
     `}
   `);
@@ -645,7 +714,7 @@ async function screenNewTaskForm(kind) {
       } finally {
         app.MainButton.hideProgress();
       }
-    }, "#2f6f62");
+    }, "#4f3ff0");
   } else {
     setMainButton(`➕ ${t("create")}`, async () => {
       const text = root.querySelector("#f-text").value.trim();
@@ -670,7 +739,7 @@ async function screenNewTaskForm(kind) {
       } finally {
         app.MainButton.hideProgress();
       }
-    }, "#2f6f62");
+    }, "#4f3ff0");
   }
 }
 
@@ -696,7 +765,7 @@ async function screenEmployees() {
   root.querySelectorAll(".nav-card").forEach((el) => {
     el.onclick = () => show(screenEmployeesByRole, el.dataset.role);
   });
-  setMainButton(`➕ ${t("addEmployee")}`, () => show(screenAddEmployee), "#2f6f62");
+  setMainButton(`➕ ${t("addEmployee")}`, () => show(screenAddEmployee), "#4f3ff0");
 }
 
 async function screenEmployeesByRole(role) {
@@ -795,7 +864,7 @@ async function screenEmployeeDetail(employeeId) {
     } finally {
       app.MainButton.hideProgress();
     }
-  }, "#2f6f62");
+  }, "#4f3ff0");
 }
 
 async function screenAddEmployee() {
@@ -845,7 +914,7 @@ async function screenAddEmployee() {
     } finally {
       app.MainButton.hideProgress();
     }
-  }, "#2f6f62");
+  }, "#4f3ff0");
 }
 
 async function screenPendingClaims() {
@@ -861,8 +930,8 @@ async function screenPendingClaims() {
         </div>
         <p class="desc">${esc(formatDt(c.claimed_at))}${c.reason ? " · " + esc(c.reason) : ""}</p>
         <div class="amount-row">
-          <button class="btn primary f-approve">✅ ${esc(t("approveClaimBtn"))}</button>
-          <button class="btn danger f-reject">❌ ${esc(t("rejectClaimBtn"))}</button>
+          <button class="btn primary f-approve">${icon("check")} ${esc(t("approveClaimBtn"))}</button>
+          <button class="btn danger f-reject">${icon("x")} ${esc(t("rejectClaimBtn"))}</button>
         </div>
       </div>
     `).join("") : `<p class="empty-state">${esc(t("noPendingClaims"))}</p>`}
@@ -931,7 +1000,7 @@ async function screenFullStats() {
         </button>
       `;
     }).join("") : ""}
-    ${mebelOnly ? "" : `<button class="nav-card" id="nav-capacity"><span class="ic">📐</span><span class="grow">${esc(t("capacityStatsNav"))}</span><span class="chev">›</span></button>`}
+    ${mebelOnly ? "" : `<button class="nav-card" id="nav-capacity"><span class="ic">${icon("ruler")}</span><span class="grow">${esc(t("capacityStatsNav"))}</span><span class="chev">›</span></button>`}
     <p class="section-lbl">${esc(t("overallRanking"))}</p>
     ${statRowsHtml(stats)}
   `);
@@ -958,7 +1027,7 @@ async function screenCapacityDepartmentPicker() {
     <p class="page-title">${esc(t("capacityStatsTitle"))}</p>
     <p class="page-sub">${esc(t("capacityPickDepartment"))}</p>
     ${departments.map((d, i) => `
-      <button class="nav-card" data-i="${i}"><span class="ic">🏭</span><span class="grow">${esc(d.name)}</span><span class="chev">›</span></button>
+      <button class="nav-card" data-i="${i}"><span class="ic">${icon("factory")}</span><span class="grow">${esc(d.name)}</span><span class="chev">›</span></button>
     `).join("")}
   `);
   root.querySelectorAll(".nav-card").forEach((el) => {
@@ -1002,10 +1071,10 @@ async function screenSettings() {
       </button>
     `).join("")}
     <p class="section-lbl">${esc(t("management"))}</p>
-    <button class="nav-card" id="nav-chain"><span class="ic">🔗</span><span class="grow">${esc(t("departmentChainNav"))}</span><span class="chev">›</span></button>
-    <button class="nav-card" id="nav-autoreassign"><span class="ic">🔁</span><span class="grow">${esc(t("autoreassignNav"))}</span><span class="chev">›</span></button>
-    <button class="nav-card" id="nav-reminders"><span class="ic">🕗</span><span class="grow">${esc(t("remindersNav"))}</span><span class="chev">›</span></button>
-    <button class="nav-card" id="nav-departments"><span class="ic">🏭</span><span class="grow">${esc(t("departmentsNav"))}</span><span class="chev">›</span></button>
+    <button class="nav-card" id="nav-chain"><span class="ic">${icon("link")}</span><span class="grow">${esc(t("departmentChainNav"))}</span><span class="chev">›</span></button>
+    <button class="nav-card" id="nav-autoreassign"><span class="ic">${icon("repeat")}</span><span class="grow">${esc(t("autoreassignNav"))}</span><span class="chev">›</span></button>
+    <button class="nav-card" id="nav-reminders"><span class="ic">${icon("clock")}</span><span class="grow">${esc(t("remindersNav"))}</span><span class="chev">›</span></button>
+    <button class="nav-card" id="nav-departments"><span class="ic">${icon("factory")}</span><span class="grow">${esc(t("departmentsNav"))}</span><span class="chev">›</span></button>
   `);
   root.querySelectorAll(".settings-row").forEach((el) => {
     el.onclick = () => show(screenEditSetting, el.dataset.field, snapshot[el.dataset.field]);
@@ -1033,7 +1102,7 @@ async function screenEditSetting(field, currentValue) {
     } finally {
       app.MainButton.hideProgress();
     }
-  }, "#2f6f62");
+  }, "#4f3ff0");
 }
 
 async function screenDepartmentChain() {
@@ -1112,7 +1181,7 @@ async function screenDepartments() {
   const departments = await api("/admin/departments");
   setScreen(`
     <p class="page-title">${esc(t("departmentsNav"))}</p>
-    <button class="nav-card accent" id="nav-material-template"><span class="ic">🧵</span><span class="grow">${esc(t("addMaterialTemplateNav"))}</span><span class="chev">›</span></button>
+    <button class="nav-card accent" id="nav-material-template"><span class="ic">${icon("material")}</span><span class="grow">${esc(t("addMaterialTemplateNav"))}</span><span class="chev">›</span></button>
     ${departments.length ? departments.map((d, i) => `
       <button class="fin-card" data-i="${i}" style="cursor:pointer;text-align:left;font:inherit;color:inherit;">
         <div class="top"><span class="task">${esc(d.name)}</span><span class="chev">›</span></div>
@@ -1128,7 +1197,7 @@ async function screenDepartments() {
     const dept = departments[Number(el.dataset.i)];
     el.onclick = () => show(screenDepartmentEdit, dept, departments);
   });
-  setMainButton(`➕ ${t("addDepartmentBtn")}`, () => show(screenAddDepartment), "#2f6f62");
+  setMainButton(`➕ ${t("addDepartmentBtn")}`, () => show(screenAddDepartment), "#4f3ff0");
 }
 
 async function screenDepartmentEdit(department, allDepartments) {
@@ -1143,8 +1212,8 @@ async function screenDepartmentEdit(department, allDepartments) {
     <div class="field"><label>${esc(t("factoryNameField"))}</label><input id="f-factory" type="text" value="${esc(department.factory_name || "")}" /></div>
     <div class="field"><label>${esc(t("stopTargetListField"))}</label><input id="f-stop-target" type="text" value="${esc(department.stop_target_list_id || "")}" /></div>
     <p class="section-lbl">${esc(t("departmentAdvancedSection"))}</p>
-    <button class="nav-card" id="nav-dept-chain"><span class="ic">🔗</span><span class="grow">${esc(t("departmentChainNav"))}</span><span class="chev">›</span></button>
-    <button class="nav-card" id="nav-dept-fork"><span class="ic">🌿</span><span class="grow">${esc(t("forkTargetsNav"))}</span><span class="chev">›</span></button>
+    <button class="nav-card" id="nav-dept-chain"><span class="ic">${icon("link")}</span><span class="grow">${esc(t("departmentChainNav"))}</span><span class="chev">›</span></button>
+    <button class="nav-card" id="nav-dept-fork"><span class="ic">${icon("branch")}</span><span class="grow">${esc(t("forkTargetsNav"))}</span><span class="chev">›</span></button>
   `);
   root.querySelector("#nav-dept-chain").onclick = () => show(screenDepartmentChainEdit, department, allDepartments);
   root.querySelector("#nav-dept-fork").onclick = () => show(screenDepartmentForkTargets, department, allDepartments);
@@ -1179,7 +1248,7 @@ async function screenDepartmentEdit(department, allDepartments) {
     } finally {
       app.MainButton.hideProgress();
     }
-  }, "#2f6f62");
+  }, "#4f3ff0");
 }
 
 async function screenDepartmentForkTargets(department, allDepartments) {
@@ -1210,7 +1279,7 @@ async function screenDepartmentForkTargets(department, allDepartments) {
     } finally {
       app.MainButton.hideProgress();
     }
-  }, "#2f6f62");
+  }, "#4f3ff0");
 }
 
 async function screenAddDepartment() {
@@ -1246,7 +1315,7 @@ async function screenAddDepartment() {
     } finally {
       app.MainButton.hideProgress();
     }
-  }, "#2f6f62");
+  }, "#4f3ff0");
 }
 
 async function screenAddMaterialTemplate() {
@@ -1289,7 +1358,7 @@ async function screenAddMaterialTemplate() {
     } finally {
       app.MainButton.hideProgress();
     }
-  }, "#2f6f62");
+  }, "#4f3ff0");
 }
 
 async function screenReminders() {
@@ -1299,7 +1368,7 @@ async function screenReminders() {
     <p class="page-title">${esc(t("remindersTitle"))}</p>
     ${schedule.map((entry, i) => `
       <div class="fin-card" data-i="${i}">
-        <div class="top"><span class="task">🕗 ${esc(entry.time)}</span><span class="status-pill warn">${esc(t("urgency_" + entry.urgency))}</span></div>
+        <div class="top"><span class="task">${icon("clock")} ${esc(entry.time)}</span><span class="status-pill warn">${esc(t("urgency_" + entry.urgency))}</span></div>
         <div class="amount-row">
           <button class="btn f-edit">${esc(t("edit"))}</button>
           <button class="btn danger f-delete">${esc(t("deleteBtn"))}</button>
@@ -1320,7 +1389,7 @@ async function screenReminders() {
       }
     };
   });
-  setMainButton(t("addReminderBtn"), () => show(screenReminderForm, "add", null, null), "#2f6f62");
+  setMainButton(t("addReminderBtn"), () => show(screenReminderForm, "add", null, null), "#4f3ff0");
 }
 
 async function screenReminderForm(mode, index, entry) {
@@ -1362,7 +1431,7 @@ async function screenReminderForm(mode, index, entry) {
     } finally {
       app.MainButton.hideProgress();
     }
-  }, "#2f6f62");
+  }, "#4f3ff0");
 }
 
 /* ---------- 6.1/7.4-band: Sozlash kutilayotgan bosqichlar ---------- */
@@ -1377,7 +1446,7 @@ async function screenPendingSetup() {
   setScreen(`
     <p class="page-title">${esc(t("pendingSetupTitle"))}</p>
     ${items.map((task, i) => `
-      <button class="nav-card" data-i="${i}"><span class="ic">⏳</span><span class="grow">${esc(task.title)}<div class="t-sub">${esc(task.department || "")}</div></span><span class="chev">›</span></button>
+      <button class="nav-card" data-i="${i}"><span class="ic">${icon("clock")}</span><span class="grow">${esc(task.title)}<div class="t-sub">${esc(task.department || "")}</div></span><span class="chev">›</span></button>
     `).join("")}
   `);
   root.querySelectorAll(".nav-card").forEach((el) => {
@@ -1425,7 +1494,7 @@ async function screenActivateStage(task) {
     } finally {
       app.MainButton.hideProgress();
     }
-  }, "#2f6f62");
+  }, "#4f3ff0");
 }
 
 /* ---------- 8.3-band: brigadaga o'tkazishni ko'rib chiqish ---------- */
@@ -1440,7 +1509,7 @@ async function screenReassignList() {
   setScreen(`
     <p class="page-title">${esc(t("reassignTitle"))}</p>
     ${items.map((task, i) => `
-      <button class="nav-card" data-i="${i}"><span class="ic">🔁</span><span class="grow">${esc(task.title)}<div class="t-sub">${esc(task.department || "")}</div></span><span class="chev">›</span></button>
+      <button class="nav-card" data-i="${i}"><span class="ic">${icon("repeat")}</span><span class="grow">${esc(task.title)}<div class="t-sub">${esc(task.department || "")}</div></span><span class="chev">›</span></button>
     `).join("")}
   `);
   root.querySelectorAll(".nav-card").forEach((el) => {
@@ -1501,7 +1570,7 @@ async function screenBrigadierHome() {
     ${workers.length ? workers.map((m, i) => `
       <div class="member-card ${m.total_score < 0 ? "low" : m.total_score > 0 ? "high" : ""}" data-i="${i}">
         <div class="member-top"><span class="nm">${esc(m.full_name)}</span><span class="score ${m.total_score > 0 ? "pos" : m.total_score < 0 ? "neg" : "zero"}">${m.total_score > 0 ? "+" : ""}${m.total_score} ${state.lang === "ru" ? "б." : "ball"}</span></div>
-        <div class="member-actions"><button class="btn-report">📅 ${esc(t("weeklyReport"))}</button><button class="btn-tasks">📋 ${esc(t("currentTasks"))}</button></div>
+        <div class="member-actions"><button class="btn-report">${icon("calendar")} ${esc(t("weeklyReport"))}</button><button class="btn-tasks">${icon("list")} ${esc(t("currentTasks"))}</button></div>
       </div>
     `).join("") : `<p class="empty-state">${esc(t("noBrigadeMembers"))}</p>`}
   `);
@@ -1579,7 +1648,7 @@ async function screenDelegateTask(task) {
     } finally {
       app.MainButton.hideProgress();
     }
-  }, "#2f6f62");
+  }, "#4f3ff0");
 }
 
 async function screenMemberTasks(employeeId, fullName) {
@@ -1624,8 +1693,8 @@ async function screenMemberTaskDetail(employeeId, fullName, taskId) {
       <div class="kv-row"><span class="k">${esc(t("department"))}</span><span class="v">${esc(tsk.department || "—")}</span></div>
     </div>
     ${pending ? `
-      <div class="alert-card"><span class="ic">⏳</span><span class="grow">${esc(t(pending.action_type === "pause" ? "claimPendingPause" : "claimPendingFinish"))}</span></div>
-    ` : isMebel && (tsk.status === "active" || tsk.status === "overdue") ? `<button class="btn" id="btn-stop">🛑 ${esc(t("stop"))}</button>` : ""}
+      <div class="alert-card"><span class="ic">${icon("clock")}</span><span class="grow">${esc(t(pending.action_type === "pause" ? "claimPendingPause" : "claimPendingFinish"))}</span></div>
+    ` : isMebel && (tsk.status === "active" || tsk.status === "overdue") ? `<button class="btn" id="btn-stop">${icon("stop")} ${esc(t("stop"))}</button>` : ""}
   `);
 
   if (!isMebel || pending) return;
@@ -1645,7 +1714,7 @@ async function screenMemberTaskDetail(employeeId, fullName, taskId) {
       } finally {
         app.MainButton.hideProgress();
       }
-    }, "#008300");
+    }, "#158f5c");
   } else if (tsk.status === "stopped") {
     // Resume claim-gated emas (rahbar tasdig'i shart emas) — davom
     // ettirilgach rahbarga shunchaki xabar ketadi (notify_task_resumed).
@@ -1685,7 +1754,7 @@ async function screenMemberPauseClaim(employeeId, fullName, taskId) {
     } finally {
       app.MainButton.hideProgress();
     }
-  }, "#e34948");
+  }, "#d63356");
 }
 
 /* ---------- Sotuvchi ekranlari ---------- */
@@ -1728,8 +1797,8 @@ async function screenLeadDetail(leadId) {
       <div class="kv-row"><span class="k">${esc(t("phone"))}</span><span class="v">${esc(lead.client_phone || "—")}</span></div>
       <div class="kv-row"><span class="k">${esc(t("lastContact"))}</span><span class="v">${lead.last_contacted_at ? esc(t("daysAgo", Math.max(0, -daysUntil(lead.last_contacted_at)))) : "—"}</span></div>
     </div>
-    <button class="btn" id="btn-call">📞 ${esc(t("addCall"))}</button>
-    ${isOpen ? `<button class="btn danger" id="btn-close-lost">❌ ${esc(t("closeLost"))}</button><button class="btn primary" id="btn-close-won">✅ ${esc(t("closeWon"))}</button>` : ""}
+    <button class="btn" id="btn-call">${icon("phone")} ${esc(t("addCall"))}</button>
+    ${isOpen ? `<button class="btn danger" id="btn-close-lost">${icon("x")} ${esc(t("closeLost"))}</button><button class="btn primary" id="btn-close-won">${icon("check")} ${esc(t("closeWon"))}</button>` : ""}
   `);
   root.querySelector("#btn-call").onclick = () => show(screenAddCall, leadId);
   if (isOpen) {
@@ -1783,7 +1852,7 @@ async function screenAddCall(leadId) {
     } finally {
       app.MainButton.hideProgress();
     }
-  }, "#2f6f62");
+  }, "#4f3ff0");
 }
 
 /* ---------- Profil (barcha rollar) ---------- */
@@ -1809,10 +1878,10 @@ async function screenProfile() {
     </div>
     ${me.role === "admin" || me.role === "supervisor" ? `
       <p class="section-lbl">${esc(t("management"))}</p>
-      <button class="nav-card" id="nav-settings"><span class="ic">⚙️</span><span class="grow">${esc(t("settingsNav"))}</span><span class="chev">›</span></button>
+      <button class="nav-card" id="nav-settings"><span class="ic">${icon("settings")}</span><span class="grow">${esc(t("settingsNav"))}</span><span class="chev">›</span></button>
     ` : ""}
     ${(me.available_modules || []).length > 1 ? `
-      <button class="nav-card" id="nav-switch-module"><span class="ic">🔄</span><span class="grow">${esc(t("switchModuleLabel"))}</span><span class="chev">›</span></button>
+      <button class="nav-card" id="nav-switch-module"><span class="ic">${icon("repeat")}</span><span class="grow">${esc(t("switchModuleLabel"))}</span><span class="chev">›</span></button>
     ` : ""}
   `);
   const settingsBtn = root.querySelector("#nav-settings");
@@ -1850,7 +1919,7 @@ async function screenModuleChooser() {
   setScreen(`
     <p class="page-title">${esc(t("chooseModuleTitle"))}</p>
     <button class="nav-card" data-module="mebel">
-      <span class="ic">🪑</span>
+      <span class="ic">${icon("chair")}</span>
       <span class="grow">
         <span style="display:block">${esc(t("mebelModuleName"))}</span>
         <span style="display:block;font-size:12px;color:var(--ink-soft)">${esc(t("mebelModulePath"))}</span>
@@ -1858,7 +1927,7 @@ async function screenModuleChooser() {
       <span class="chev">›</span>
     </button>
     <button class="nav-card" data-module="fasad_sex">
-      <span class="ic">🏗️</span>
+      <span class="ic">${icon("building")}</span>
       <span class="grow">
         <span style="display:block">${esc(t("fasadModuleName"))}</span>
         <span style="display:block;font-size:12px;color:var(--ink-soft)">${esc(t("fasadModulePath"))}</span>
