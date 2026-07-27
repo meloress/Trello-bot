@@ -35,7 +35,7 @@ from aiogram import Bot
 
 from config import settings
 from core.database import async_session
-from db.repositories import DepartmentRepository, EmployeeRepository, TaskRepository
+from db.repositories import DepartmentRepository, EmployeeRepository, TaskAssignmentRepository, TaskRepository
 from services import notification_service, penalty_service, task_service, timer_service
 from trello.client import TrelloClient
 from utils.enums import TaskStatus
@@ -146,6 +146,7 @@ async def _handle_open_task(bot: Bot, department, card: dict, latest) -> None:
     deadline = _parse_due(card)
 
     reassign_to: int | None = None
+    previous_assignee_ids: list[int] = []
     deadline_changed = False
 
     async with async_session() as session:
@@ -163,6 +164,11 @@ async def _handle_open_task(bot: Bot, department, card: dict, latest) -> None:
                 if employee is not None and employee.is_active:
                     reassign_to = employee.id
                     break
+            if reassign_to is not None:
+                previous_assignee_ids = [
+                    a.employee_id for a in await TaskAssignmentRepository(session).list_by_task(latest.id)
+                    if a.employee_id != reassign_to
+                ]
 
         if deadline is not None and task.deadline != deadline:
             await task_repo.update(task, deadline=deadline)
@@ -177,7 +183,23 @@ async def _handle_open_task(bot: Bot, department, card: dict, latest) -> None:
         await session.commit()
 
     if reassign_to is not None:
+        # Brigadir ishchini kartaga Trello'da a'zo qilib qo'shishi — "botdan
+        # turib topshirmasin, Trello orqali qilsin" talabining o'zi. Yangi
+        # a'zoga odatdagi "yangi vazifa" xabari, eski a'zo(lar)ga (brigadir)
+        # esa "Trello amalingiz qabul qilindi" tasdig'i boradi.
         await task_service.set_assignee_from_trello(latest.id, reassign_to)
+        try:
+            await notification_service.notify_task_started(bot, latest.id)
+        except Exception:
+            logger.exception("trello_ingest_job: notify_task_started xatosi (task_id=%s)", latest.id)
+        for old_employee_id in previous_assignee_ids:
+            try:
+                await notification_service.notify_task_delegated_via_trello(bot, latest.id, old_employee_id)
+            except Exception:
+                logger.exception(
+                    "trello_ingest_job: notify_task_delegated_via_trello xatosi (task_id=%s, brigadier_id=%s)",
+                    latest.id, old_employee_id,
+                )
     if deadline is not None and deadline_changed:
         await timer_service.reopen_if_overdue(latest.id, deadline)
 

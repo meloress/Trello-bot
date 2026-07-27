@@ -21,7 +21,7 @@ from db.repositories import (
     TaskClaimRepository,
     TaskRepository,
 )
-from miniapp.util import err
+from miniapp.util import err, is_mebel_task as _is_mebel_task
 from services import (
     claim_service,
     financial_service,
@@ -47,18 +47,6 @@ async def _is_assigned(task_id: int, employee_id: int) -> bool:
     return any(a.employee_id == employee_id for a in assignments)
 
 
-async def _is_mebel_task(task_id: int) -> bool:
-    """Mebel moduli: Pauza/Yakunlash endi to'g'ridan-to'g'ri ishlamaydi —
-    bu tekshiruv `/stop`/`/finish`ni to'g'ridan-to'g'ri chaqirishdan himoya
-    qiladi (haqiqiy amal faqat claim-tasdiqlash oqimi orqali). `admin.py`ning
-    `create_task` guard'i bilan bir xil qoida: department topilmasa (yoki
-    task hali department'ga bog'lanmagan bo'lsa) bloklanmaydi."""
-    async with async_session() as session:
-        task = await TaskRepository(session).get_by_id(task_id)
-        if task is None or task.current_department_id is None:
-            return False
-        department = await DepartmentRepository(session).get_by_id(task.current_department_id)
-    return department is not None and department.module == "mebel"
 
 
 async def _list_my_tasks(employee_id: int, task_type: TaskType, category: str | None = None) -> list[dict]:
@@ -320,6 +308,10 @@ async def submit_pause_claim(request: web.Request) -> web.Response:
     task_id = int(request.match_info["task_id"])
     if not await _is_assigned(task_id, employee.id):
         return err("not_found", 404)
+    if await _is_mebel_task(task_id):
+        return err(
+            "Mebel bo'limida Pauza/Yakunlash endi faqat brigadir orqali yuboriladi.", 409,
+        )
     body = await request.json()
     reason = (body.get("reason") or "").strip()
 
@@ -354,6 +346,10 @@ async def submit_finish_claim(request: web.Request) -> web.Response:
     task_id = int(request.match_info["task_id"])
     if not await _is_assigned(task_id, employee.id):
         return err("not_found", 404)
+    if await _is_mebel_task(task_id):
+        return err(
+            "Mebel bo'limida Pauza/Yakunlash endi faqat brigadir orqali yuboriladi.", 409,
+        )
 
     try:
         claim = await claim_service.submit_claim(

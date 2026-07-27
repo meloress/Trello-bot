@@ -7,14 +7,23 @@ parametri orqali (o'z bo'limidagi yoki barcha) brigadalardan birini tanlaydi.
 """
 
 import logging
+from datetime import datetime, timezone
 
 from aiohttp import web
+from sqlalchemy.exc import IntegrityError
 
 from core.database import async_session
-from db.repositories import BrigadeRepository, EmployeeRepository, TaskAssignmentRepository, TaskRepository
-from miniapp.util import err
-from services import notification_service, stats_service, task_service
-from utils.enums import Role, TaskStatus, TaskType
+from db.repositories import (
+    BrigadeRepository,
+    DepartmentRepository,
+    EmployeeRepository,
+    TaskAssignmentRepository,
+    TaskClaimRepository,
+    TaskRepository,
+)
+from miniapp.util import err, is_mebel_task
+from services import claim_service, notification_service, stats_service, task_service
+from utils.enums import ClaimActionType, Role, TaskStatus, TaskType
 
 routes = web.RouteTableDef()
 logger = logging.getLogger(__name__)
@@ -128,6 +137,7 @@ async def list_pending_delegation(request: web.Request) -> web.Response:
     async with async_session() as session:
         assignment_repo = TaskAssignmentRepository(session)
         task_repo = TaskRepository(session)
+        department_repo = DepartmentRepository(session)
 
         assignments = await assignment_repo.list_by_employee(employee.id)
         items = []
@@ -135,11 +145,16 @@ async def list_pending_delegation(request: web.Request) -> web.Response:
             task = await task_repo.get_by_id(assignment.task_id)
             if task is None or task.task_type != TaskType.ORDER or task.status == TaskStatus.COMPLETED:
                 continue
+            module = None
+            if task.current_department_id is not None:
+                department = await department_repo.get_by_id(task.current_department_id)
+                module = department.module if department else None
             items.append(
                 {
                     "id": task.id,
                     "title": task.title,
                     "deadline": task.deadline.isoformat() if task.deadline else None,
+                    "module": module,
                 }
             )
     return web.json_response(items)
@@ -164,6 +179,12 @@ async def delegate_task(request: web.Request) -> web.Response:
     worker_ids = [int(e) for e in (body.get("employee_ids") or [])]
     if not worker_ids:
         return err("employee_ids majburiy")
+
+    if await is_mebel_task(task_id):
+        return err(
+            "Mebel bo'limida vazifani botdan turib topshirib bo'lmaydi — ishchini Trello kartaga a'zo qiling.",
+            409,
+        )
 
     brigade = await _resolve_brigade(request)
     if brigade is None:
@@ -196,18 +217,150 @@ async def member_tasks(request: web.Request) -> web.Response:
     async with async_session() as session:
         assignment_repo = TaskAssignmentRepository(session)
         task_repo = TaskRepository(session)
+        department_repo = DepartmentRepository(session)
 
         assignments = await assignment_repo.list_by_employee(employee_id)
         items = []
         for assignment in assignments:
             task = await task_repo.get_by_id(assignment.task_id)
             if task is not None and task.status != TaskStatus.COMPLETED:
+                module = None
+                if task.current_department_id is not None:
+                    department = await department_repo.get_by_id(task.current_department_id)
+                    module = department.module if department else None
                 items.append(
                     {
                         "id": task.id,
                         "title": task.title,
                         "status": task.status.value,
                         "deadline": task.deadline.isoformat() if task.deadline else None,
+                        "module": module,
                     }
                 )
     return web.json_response(items)
+
+
+async def _is_member_assigned(task_id: int, employee_id: int) -> bool:
+    async with async_session() as session:
+        assignments = await TaskAssignmentRepository(session).list_by_task(task_id)
+    return any(a.employee_id == employee_id for a in assignments)
+
+
+@routes.get("/members/{employee_id}/tasks/{task_id}")
+async def member_task_detail(request: web.Request) -> web.Response:
+    """`miniapp/api/worker.py`'ning `GET /tasks/{id}`siga o'xshash, lekin
+    brigadir o'zining bir a'zosi uchun ochadi — mebel'da ishchi profilida
+    Pauza/Yakunlash yo'qligi sabab, shu ekran o'sha amallarni ko'rsatadi."""
+    employee_id = int(request.match_info["employee_id"])
+    task_id = int(request.match_info["task_id"])
+    if not await _employee_in_scope(request, employee_id):
+        return err("xodim topilmadi", 404)
+    if not await _is_member_assigned(task_id, employee_id):
+        return err("not_found", 404)
+
+    async with async_session() as session:
+        task = await TaskRepository(session).get_by_id(task_id)
+        if task is None:
+            return err("not_found", 404)
+        module = None
+        department_name = None
+        if task.current_department_id is not None:
+            department = await DepartmentRepository(session).get_by_id(task.current_department_id)
+            module = department.module if department else None
+            department_name = department.name if department else None
+
+    return web.json_response(
+        {
+            "id": task.id,
+            "title": task.title,
+            "status": task.status.value,
+            "deadline": task.deadline.isoformat() if task.deadline else None,
+            "department": department_name,
+            "module": module,
+        }
+    )
+
+
+@routes.post("/members/{employee_id}/tasks/{task_id}/pause-claim")
+async def submit_member_pause_claim(request: web.Request) -> web.Response:
+    """Mebel moduli: ishchi profilida Pauza/Yakunlash tugmasi yo'q — brigadir
+    o'z brigadasidagi ishchining vazifasini shu yerdan (ishchi tafsiloti
+    ekranidan) turib pauza/yakunlashga so'rov yuboradi. Claim'ning o'zi
+    baribir ISHCHI nomidan yoziladi (`employee_id`) — bu brigadirning UI
+    orqali qilgan amali, ishning egasi hamon ishchi (`claim_service`dagi
+    "kim bosdi" emas, "kimning ishi" tushunchasi)."""
+    employee_id = int(request.match_info["employee_id"])
+    task_id = int(request.match_info["task_id"])
+    if not await _employee_in_scope(request, employee_id):
+        return err("xodim topilmadi", 404)
+    if not await _is_member_assigned(task_id, employee_id):
+        return err("not_found", 404)
+    if not await is_mebel_task(task_id):
+        return err("Bu funksiya faqat mebel moduli uchun", 409)
+    body = await request.json()
+    reason = (body.get("reason") or "").strip()
+
+    try:
+        claim = await claim_service.submit_claim(
+            task_id, employee_id, ClaimActionType.PAUSE, datetime.now(timezone.utc), reason=reason,
+        )
+    except claim_service.ClaimAlreadyPendingError as exc:
+        return err(str(exc), 409)
+    except IntegrityError:
+        return err("Bu vazifa uchun allaqachon so'rov yuborilgan", 409)
+    except ValueError as exc:
+        return err(str(exc))
+
+    try:
+        await notification_service.notify_claim_submitted(request.config_dict["bot"], claim.id)
+    except Exception:
+        logger.exception("notify_claim_submitted xatosi (claim_id=%s)", claim.id)
+
+    return web.json_response({"id": claim.id, "status": claim.status.value})
+
+
+@routes.post("/members/{employee_id}/tasks/{task_id}/finish-claim")
+async def submit_member_finish_claim(request: web.Request) -> web.Response:
+    employee_id = int(request.match_info["employee_id"])
+    task_id = int(request.match_info["task_id"])
+    if not await _employee_in_scope(request, employee_id):
+        return err("xodim topilmadi", 404)
+    if not await _is_member_assigned(task_id, employee_id):
+        return err("not_found", 404)
+    if not await is_mebel_task(task_id):
+        return err("Bu funksiya faqat mebel moduli uchun", 409)
+
+    try:
+        claim = await claim_service.submit_claim(
+            task_id, employee_id, ClaimActionType.FINISH, datetime.now(timezone.utc),
+        )
+    except claim_service.ClaimAlreadyPendingError as exc:
+        return err(str(exc), 409)
+    except IntegrityError:
+        return err("Bu vazifa uchun allaqachon so'rov yuborilgan", 409)
+
+    try:
+        await notification_service.notify_claim_submitted(request.config_dict["bot"], claim.id)
+    except Exception:
+        logger.exception("notify_claim_submitted xatosi (claim_id=%s)", claim.id)
+
+    return web.json_response({"id": claim.id, "status": claim.status.value})
+
+
+@routes.get("/members/{employee_id}/tasks/{task_id}/claim-status")
+async def member_claim_status(request: web.Request) -> web.Response:
+    employee_id = int(request.match_info["employee_id"])
+    task_id = int(request.match_info["task_id"])
+    if not await _employee_in_scope(request, employee_id):
+        return err("xodim topilmadi", 404)
+    if not await _is_member_assigned(task_id, employee_id):
+        return err("not_found", 404)
+
+    async with async_session() as session:
+        claim = await TaskClaimRepository(session).get_pending_for_task(task_id)
+
+    if claim is None:
+        return web.json_response({"pending_claim": None})
+    return web.json_response(
+        {"pending_claim": {"id": claim.id, "action_type": claim.action_type.value, "claimed_at": claim.claimed_at.isoformat()}}
+    )

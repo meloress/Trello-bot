@@ -337,20 +337,23 @@ async function screenTaskDetail(taskId) {
     </div>
     ${pending ? `
       <div class="alert-card"><span class="ic">⏳</span><span class="grow">${esc(t(pending.action_type === "pause" ? "claimPendingPause" : "claimPendingFinish"))}</span></div>
-    ` : tsk.status === "active" || tsk.status === "overdue" ? `<button class="btn" id="btn-stop">🛑 ${esc(t("stop"))}</button>` : ""}
+    ` : !isMebel && (tsk.status === "active" || tsk.status === "overdue") ? `<button class="btn" id="btn-stop">🛑 ${esc(t("stop"))}</button>` : ""}
   `);
 
-  if (pending) return;
+  // Mebel: ishchi profilida Pauza/Yakunlash tugmasi umuman yo'q — faqat
+  // kelgan ish ma'lumoti (va tepadagi pending-claim holati, bo'lsa) ko'rinadi.
+  // Amalni endi faqat brigadir o'zining "Brigada" ekranidan turib bosadi.
+  if (isMebel || pending) return;
 
   const stopBtn = root.querySelector("#btn-stop");
-  if (stopBtn) stopBtn.onclick = () => show(screenStopTask, taskId, isMebel);
+  if (stopBtn) stopBtn.onclick = () => show(screenStopTask, taskId);
 
   if (tsk.status === "active" || tsk.status === "overdue") {
     setMainButton(`✅ ${t("finish")}`, async () => {
       const app = tg();
       app.MainButton.showProgress();
       try {
-        await api(`/tasks/${taskId}/${isMebel ? "finish-claim" : "finish"}`, { method: "POST" });
+        await api(`/tasks/${taskId}/finish`, { method: "POST" });
         await replaceTop(screenTaskDetail, taskId);
       } catch (e) {
         showError(e.message);
@@ -377,7 +380,7 @@ async function screenTaskDetail(taskId) {
   }
 }
 
-async function screenStopTask(taskId, isMebel) {
+async function screenStopTask(taskId) {
   setScreen(`
     <p class="page-title">${esc(t("stopReasonPrompt"))}</p>
     <div class="field"><textarea id="reason" placeholder="${esc(t("stopReasonPlaceholder"))}"></textarea></div>
@@ -391,7 +394,7 @@ async function screenStopTask(taskId, isMebel) {
     const app = tg();
     app.MainButton.showProgress();
     try {
-      await api(`/tasks/${taskId}/${isMebel ? "pause-claim" : "stop"}`, { method: "POST", body: JSON.stringify({ reason }) });
+      await api(`/tasks/${taskId}/stop`, { method: "POST", body: JSON.stringify({ reason }) });
       await goBack();
     } catch (e) {
       showError(e.message);
@@ -1681,11 +1684,13 @@ async function screenNewWork() {
   }
   setScreen(`
     <p class="page-title">${esc(t("newWorkTitle"))}</p>
-    ${items.map((tsk, i) => `
+    ${items.map((tsk, i) => tsk.module === "mebel" ? `
+      <div class="nav-card" data-i="${i}"><span class="ic">🆕</span><span class="grow">${esc(tsk.title)}<div class="t-sub">${esc(t("deadline"))}: ${esc(formatDt(tsk.deadline))}</div><div class="t-sub">${esc(t("assignViaTrelloHint"))}</div></span></div>
+    ` : `
       <button class="nav-card accent" data-i="${i}"><span class="ic">🆕</span><span class="grow">${esc(tsk.title)}<div class="t-sub">${esc(t("deadline"))}: ${esc(formatDt(tsk.deadline))}</div></span><span class="chev">›</span></button>
     `).join("")}
   `);
-  root.querySelectorAll(".nav-card").forEach((el) => {
+  root.querySelectorAll("button.nav-card").forEach((el) => {
     const tsk = items[Number(el.dataset.i)];
     el.onclick = () => show(screenDelegateTask, tsk);
   });
@@ -1733,13 +1738,90 @@ async function screenMemberTasks(employeeId, fullName) {
   const tasks = await api(`/brigadier/members/${employeeId}/tasks`);
   setScreen(`
     <p class="page-title">${esc(fullName)}</p>
-    ${tasks.length ? tasks.map((tsk) => `
-      <div class="task-card ${statusClass(tsk.status)}">
+    ${tasks.length ? tasks.map((tsk, i) => `
+      <button class="task-card ${statusClass(tsk.status)}" data-i="${i}">
         <p class="t-title">${esc(tsk.title)}</p>
         <span class="t-status">${taskStatusLine(tsk)}</span>
-      </div>
+      </button>
     `).join("") : `<p class="empty-state">${esc(t("noTasks"))}</p>`}
   `);
+  root.querySelectorAll(".task-card").forEach((el) => {
+    const tsk = tasks[Number(el.dataset.i)];
+    el.onclick = () => show(screenMemberTaskDetail, employeeId, fullName, tsk.id);
+  });
+}
+
+/* Brigadir o'z brigadasidagi bitta ishchining bitta vazifasini ko'radi —
+   mebel uchun bu yerda Pauza/Yakunlash (claim) tugmalari bor, chunki ishchi
+   profilida ular endi umuman yo'q (`screenTaskDetail`ga qarang). Fasad sex
+   uchun bu ekran faqat ma'lumot — amal ishchining o'z profilida qoladi
+   (u yerda odatdagidek ishchi o'zi boshqaradi). */
+async function screenMemberTaskDetail(employeeId, fullName, taskId) {
+  setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
+  const tsk = await api(`/brigadier/members/${employeeId}/tasks/${taskId}`);
+  const isMebel = tsk.module === "mebel";
+  const pending = isMebel && (tsk.status === "active" || tsk.status === "overdue")
+    ? (await api(`/brigadier/members/${employeeId}/tasks/${taskId}/claim-status`)).pending_claim
+    : null;
+  const pillClass = tsk.status === "overdue" ? "critical" : tsk.status === "stopped" ? "neutral" : "positive";
+
+  setScreen(`
+    <p class="page-title">${esc(fullName)}</p>
+    <p class="t-sub" style="margin-top:-8px">${esc(tsk.title)}</p>
+    <span class="status-pill ${pillClass}">${esc(statusLabel(tsk.status))}</span>
+    <div class="panel">
+      <div class="kv-row"><span class="k">${esc(t("deadline"))}</span><span class="v">${esc(formatDt(tsk.deadline))}</span></div>
+      ${tsk.status === "overdue" && tsk.deadline ? `<div class="kv-row"><span class="k">${esc(t("lateness"))}</span><span class="v">${esc(t("daysLate", daysLate(tsk.deadline)))}</span></div>` : ""}
+      <div class="kv-row"><span class="k">${esc(t("department"))}</span><span class="v">${esc(tsk.department || "—")}</span></div>
+    </div>
+    ${pending ? `
+      <div class="alert-card"><span class="ic">⏳</span><span class="grow">${esc(t(pending.action_type === "pause" ? "claimPendingPause" : "claimPendingFinish"))}</span></div>
+    ` : isMebel && (tsk.status === "active" || tsk.status === "overdue") ? `<button class="btn" id="btn-stop">🛑 ${esc(t("stop"))}</button>` : ""}
+  `);
+
+  if (!isMebel || pending) return;
+
+  const stopBtn = root.querySelector("#btn-stop");
+  if (stopBtn) stopBtn.onclick = () => show(screenMemberPauseClaim, employeeId, fullName, taskId);
+
+  if (tsk.status === "active" || tsk.status === "overdue") {
+    setMainButton(`✅ ${t("finish")}`, async () => {
+      const app = tg();
+      app.MainButton.showProgress();
+      try {
+        await api(`/brigadier/members/${employeeId}/tasks/${taskId}/finish-claim`, { method: "POST" });
+        await replaceTop(screenMemberTaskDetail, employeeId, fullName, taskId);
+      } catch (e) {
+        showError(e.message);
+      } finally {
+        app.MainButton.hideProgress();
+      }
+    }, "#008300");
+  }
+}
+
+async function screenMemberPauseClaim(employeeId, fullName, taskId) {
+  setScreen(`
+    <p class="page-title">${esc(t("stopReasonPrompt"))}</p>
+    <div class="field"><textarea id="reason" placeholder="${esc(t("stopReasonPlaceholder"))}"></textarea></div>
+  `);
+  setMainButton(`🛑 ${t("stop")}`, async () => {
+    const reason = root.querySelector("#reason").value.trim();
+    if (!reason) {
+      showError(t("stopReasonPlaceholder"));
+      return;
+    }
+    const app = tg();
+    app.MainButton.showProgress();
+    try {
+      await api(`/brigadier/members/${employeeId}/tasks/${taskId}/pause-claim`, { method: "POST", body: JSON.stringify({ reason }) });
+      await goBack();
+    } catch (e) {
+      showError(e.message);
+    } finally {
+      app.MainButton.hideProgress();
+    }
+  }, "#e34948");
 }
 
 /* ---------- Sotuvchi ekranlari ---------- */

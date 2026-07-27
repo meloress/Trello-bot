@@ -76,6 +76,32 @@ async def notify_task_started(bot: Bot, task_id: int) -> None:
         await _send(bot, employee.telegram_id, text, reply_markup=keyboard)
 
 
+async def notify_task_delegated_via_trello(bot: Bot, task_id: int, brigadier_id: int) -> None:
+    """Mebel moduli: brigadir ishchini Trello kartaga a'zo qilib qo'shganda
+    (`jobs/trello_ingest_job.py`ning `_handle_open_task` a'zo-o'zgarishi
+    aniqlashi orqali) — ishga endi biriktirilgan ishchiga `notify_task_started`
+    alohida yuboriladi (chaqiruvchi tarafda), bu funksiya esa faqat
+    BRIGADIRga o'z Trello amali qabul qilinganini tasdiqlaydi."""
+    async with async_session() as session:
+        task = await TaskRepository(session).get_by_id(task_id)
+        brigadier = await EmployeeRepository(session).get_by_id(brigadier_id)
+    if task is None or brigadier is None or brigadier.telegram_id is None:
+        return
+
+    assignee_name = "—"
+    async with async_session() as session:
+        assignments = await TaskAssignmentRepository(session).list_by_task(task_id)
+        employee_repo = EmployeeRepository(session)
+        for assignment in assignments:
+            employee = await employee_repo.get_by_id(assignment.employee_id)
+            if employee is not None:
+                assignee_name = employee.full_name
+                break
+
+    text = f"✅ \"{task.title}\" Trello orqali {assignee_name}ga topshirildi."
+    await _send(bot, brigadier.telegram_id, text)
+
+
 async def notify_task_stopped(bot: Bot, stop_log_id: int) -> None:
     """7.5-band: "Stop" bosilganda to'xtatgan xodimga, uning brigadiriga, shu
     yo'nalishdagi nazoratchi/adminlarga VA buyurtmaga biriktirilgan barcha
