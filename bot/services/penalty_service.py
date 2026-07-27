@@ -28,7 +28,7 @@ from db.repositories import (
     TaskAssignmentRepository,
     TaskRepository,
 )
-from services import settings_service
+from services import notification_service, settings_service, timer_service
 from utils.enums import Role
 
 logger = logging.getLogger(__name__)
@@ -216,6 +216,45 @@ async def calculate_and_apply_task_penalty(task_id: int) -> list[KpiLog]:
         hours_late=hours_late,
         reason_label="Kechikish",
     )
+
+
+async def finalize_task_and_apply_penalty(bot, task_id: int, *, finished_at: datetime | None = None) -> list[KpiLog]:
+    """Vazifani yakunlaydi (agar hali yakunlanmagan bo'lsa) va kechikish
+    tekshiruvini ishga tushiradi, so'ng har bir KPI yozuvi uchun ishchiga
+    bildirishnoma yuboradi. `jobs/daily_sync_job.py` (Trello-arxiv orqali
+    avtomatik yopish, fasad_sex) va mebel moduli uchun yangi
+    `jobs/trello_ingest_job.py` (karta arxivlanganda) ikkalasi ham shu umumiy
+    yo'ldan foydalanadi — ikkalasida ham inson to'g'ridan-to'g'ri Trello'da
+    arxivlagan (ishchi claim'i emas), shuning uchun `finished_at` odatda
+    `None` (hozirgi vaqt) bilan chaqiriladi; parametr shunga qaramay mavjud,
+    chunki kelajakda kerak bo'lishi mumkin."""
+    try:
+        await timer_service.finish_task(task_id, finished_at=finished_at)
+    except timer_service.InvalidTaskStateError:
+        return []  # allaqachon boshqa yo'l bilan yopilgan (race condition)
+    except timer_service.TaskNotFoundError:
+        logger.warning("finalize_task_and_apply_penalty: task %s topilmadi", task_id)
+        return []
+
+    try:
+        kpi_logs = await calculate_and_apply_task_penalty(task_id)
+    except PenaltyRuleNotConfiguredError:
+        logger.warning(
+            "finalize_task_and_apply_penalty: task %s uchun kechikish qoidasi topilmadi (penalty_rules'ga qo'shish kerak)",
+            task_id,
+        )
+        kpi_logs = []
+    except Exception:
+        logger.exception("finalize_task_and_apply_penalty: calculate_and_apply_task_penalty xatosi (task_id=%s)", task_id)
+        kpi_logs = []
+
+    for kpi_log in kpi_logs:
+        try:
+            await notification_service.notify_penalty_applied(bot, kpi_log.id)
+        except Exception:
+            logger.exception("finalize_task_and_apply_penalty: notify_penalty_applied xatosi (kpi_log_id=%s)", kpi_log.id)
+
+    return kpi_logs
 
 
 async def _apply_brigade_share_for_worker(

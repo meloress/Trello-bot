@@ -15,11 +15,15 @@ from datetime import datetime, timedelta, timezone
 from aiogram import Bot
 
 from core.database import async_session
-from db.repositories import DepartmentRepository, StopLogRepository, TaskRepository
+from db.repositories import DepartmentRepository, StopLogRepository, TaskClaimRepository, TaskRepository
 from services import financial_service, notification_service, settings_service, timer_service
 from utils.enums import TaskStatus
 
 logger = logging.getLogger(__name__)
+
+# Mebel moduli: PENDING so'rov necha soat kutgandan keyin qaysi bosqich
+# eslatmasi yuboriladi (§7-TZ, foydalanuvchi tasdiqlagan qadam).
+_CLAIM_REMINDER_THRESHOLDS = {1: 2, 2: 6, 3: 24}
 
 
 async def _process_deadline_approaching(bot: Bot, now: datetime) -> int:
@@ -149,6 +153,50 @@ async def _process_stopped_auto_resume(now: datetime) -> int:
     return len(resume_task_ids)
 
 
+async def _process_stale_claims(bot: Bot, now: datetime) -> int:
+    """Mebel moduli: PENDING `TaskClaim`lar `claimed_at`dan necha soat
+    o'tganiga qarab bosqichma-bosqich (+2/+6/+24 soat, `_CLAIM_REMINDER_
+    THRESHOLDS`) eslatma oladi — rahbar va brigadirga (`notification_
+    service.notify_claim_reminder`). Bir xil bosqich uchun qayta
+    yubormaslik `TaskClaim.last_reminder_stage` orqali ta'minlanadi (har
+    safar faqat YUQORIROQ bosqichga o'tganda qayta yuboriladi). Faqat
+    mebel bo'limlariga tegishli claim'lar ko'rib chiqiladi — boshqa
+    modullarda claim tushunchasi umuman yo'q."""
+    async with async_session() as session:
+        claim_repo = TaskClaimRepository(session)
+        task_repo = TaskRepository(session)
+        department_repo = DepartmentRepository(session)
+
+        due_reminders: list[tuple[int, int]] = []  # (claim_id, stage)
+        for claim in await claim_repo.list_pending():
+            task = await task_repo.get_by_id(claim.task_id)
+            if task is None or task.current_department_id is None or task.status == TaskStatus.COMPLETED:
+                continue
+            department = await department_repo.get_by_id(task.current_department_id)
+            if department is None or department.module != "mebel":
+                continue
+
+            hours_pending = (now - claim.claimed_at).total_seconds() / 3600
+            target_stage = 0
+            for stage, threshold_hours in sorted(_CLAIM_REMINDER_THRESHOLDS.items()):
+                if hours_pending >= threshold_hours:
+                    target_stage = stage
+
+            if target_stage > claim.last_reminder_stage:
+                await claim_repo.update(claim, last_reminder_stage=target_stage, last_reminder_sent_at=now)
+                due_reminders.append((claim.id, target_stage))
+
+        await session.commit()
+
+    for claim_id, stage in due_reminders:
+        try:
+            await notification_service.notify_claim_reminder(bot, claim_id, stage)
+        except Exception:
+            logger.exception("overdue_watch_job: notify_claim_reminder xatosi (claim_id=%s)", claim_id)
+
+    return len(due_reminders)
+
+
 async def run(bot: Bot) -> None:
     now = datetime.now(timezone.utc)
 
@@ -182,8 +230,15 @@ async def run(bot: Bot) -> None:
         logger.exception("overdue_watch_job: stopped-auto-resume bosqichida xatolik")
         auto_resumed = 0
 
+    try:
+        stale_claims = await _process_stale_claims(bot, now)
+    except Exception:
+        logger.exception("overdue_watch_job: stale-claim eslatma bosqichida xatolik")
+        stale_claims = 0
+
     logger.info(
         "overdue_watch_job yakunlandi: %s ta '1 kun qoldi', %s ta yangi OVERDUE, "
-        "%s ta reassignment signali, %s ta moliyaviy bayroq, %s ta avto-resume",
-        approaching, overdue, reassignment, financial_flags, auto_resumed,
+        "%s ta reassignment signali, %s ta moliyaviy bayroq, %s ta avto-resume, "
+        "%s ta claim eslatmasi",
+        approaching, overdue, reassignment, financial_flags, auto_resumed, stale_claims,
     )

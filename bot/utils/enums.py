@@ -87,3 +87,20 @@ class LeadStage(str, Enum):
     AGREED = "agreed"
     CLOSED_WON = "closed_won"
     CLOSED_LOST = "closed_lost"
+
+
+class ClaimActionType(str, Enum):
+    """Ishchi Mini App'da qaysi tugmani bosgani — tasdiqlanmaguncha
+    haqiqiy TaskStatus o'zgarishiga sabab bo'lmaydi."""
+
+    PAUSE = "pause"
+    FINISH = "finish"
+
+
+class ClaimStatus(str, Enum):
+    """Rahbar (SUPERVISOR/ADMIN) tasdiqlagunga qadar so'rov PENDING holatida
+    turadi — faqat shu payt haqiqiy tasks/StopLog yozuvi yaratiladi."""
+
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"

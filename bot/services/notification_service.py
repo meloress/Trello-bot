@@ -27,10 +27,11 @@ from db.repositories import (
     LeadRepository,
     StopLogRepository,
     TaskAssignmentRepository,
+    TaskClaimRepository,
     TaskRepository,
     TaskSellerRepository,
 )
-from utils.enums import ReminderUrgency, Role
+from utils.enums import ClaimActionType, ReminderUrgency, Role
 from utils.formatters import format_dt as _format_dt
 
 logger = logging.getLogger(__name__)
@@ -515,3 +516,183 @@ async def notify_lead_follow_up(bot: Bot, lead_id: int) -> None:
     days_idle = (datetime.now(timezone.utc) - lead.last_contacted_at).days
     text = f"📞 \"{client_name}\" bilan {days_idle} kundan beri aloqa yo'q. Qo'ng'iroq qiling."
     await _send(bot, seller.telegram_id, text)
+
+
+async def notify_claim_submitted(bot: Bot, claim_id: int) -> None:
+    """Mebel moduli: ishchi Mini App'da Pauza/Yakunlash bosganda — uning
+    brigadiriga (faqat ma'lumot uchun, tasdiqlash tugmasisiz) va bo'lim
+    rahbari (SUPERVISOR) + barcha ADMIN'larga (tasdiqlash chaqirig'i bilan)
+    xabar boradi. Faqat rahbar/admin tasdiqlay oladi — brigadir shu xabarni
+    ko'radi, lekin `miniapp/api/brigadier.py`da tasdiqlash endpoint'i yo'q."""
+    async with async_session() as session:
+        claim = await TaskClaimRepository(session).get_by_id(claim_id)
+        if claim is None:
+            logger.warning("notify_claim_submitted: claim %s topilmadi", claim_id)
+            return
+
+        task = await TaskRepository(session).get_by_id(claim.task_id)
+        if task is None:
+            logger.warning("notify_claim_submitted: task %s topilmadi", claim.task_id)
+            return
+
+        employee_repo = EmployeeRepository(session)
+        claimant = await employee_repo.get_by_id(claim.employee_id)
+
+        recipients: dict[int, int | None] = {}
+        if claimant is not None and claimant.brigade_id is not None:
+            brigade = await BrigadeRepository(session).get_by_id(claimant.brigade_id)
+            if brigade is not None and brigade.brigadier_id is not None:
+                brigadier = await employee_repo.get_by_id(brigade.brigadier_id)
+                if brigadier is not None:
+                    recipients[brigadier.id] = brigadier.telegram_id
+
+        if task.current_department_id is not None:
+            for employee in await employee_repo.list_by_department(task.current_department_id):
+                if employee.role == Role.SUPERVISOR:
+                    recipients[employee.id] = employee.telegram_id
+        for admin in await employee_repo.list_by_role(Role.ADMIN):
+            recipients[admin.id] = admin.telegram_id
+
+    action_label = "Pauza" if claim.action_type == ClaimActionType.PAUSE else "Yakunlash"
+    claimant_name = claimant.full_name if claimant is not None else "noma'lum xodim"
+    reason_line = f"\nSabab: {claim.reason}" if claim.reason else ""
+    text = (
+        f"📋 {claimant_name} \"{task.title}\" bo'yicha {action_label} so'rovini yubordi.\n"
+        f"Vaqt: {_format_dt(claim.claimed_at)}{reason_line}\n"
+        "Tasdiqlash: Mini App → \"Tasdiqlash kutilmoqda\"."
+    )
+    for telegram_id in recipients.values():
+        await _send(bot, telegram_id, text)
+
+
+async def notify_claim_approved(bot: Bot, claim_id: int) -> None:
+    """Mebel moduli: rahbar so'rovni tasdiqlagach — faqat so'rov yuborgan ishchiga."""
+    async with async_session() as session:
+        claim = await TaskClaimRepository(session).get_by_id(claim_id)
+        if claim is None:
+            logger.warning("notify_claim_approved: claim %s topilmadi", claim_id)
+            return
+        task = await TaskRepository(session).get_by_id(claim.task_id)
+        employee = await EmployeeRepository(session).get_by_id(claim.employee_id)
+        if task is None or employee is None:
+            return
+
+    action_label = "Pauza" if claim.action_type == ClaimActionType.PAUSE else "Yakunlash"
+    text = f"✅ \"{task.title}\" bo'yicha {action_label} so'rovingiz tasdiqlandi."
+    await _send(bot, employee.telegram_id, text)
+
+
+async def notify_claim_rejected(bot: Bot, claim_id: int) -> None:
+    """Mebel moduli: rahbar so'rovni rad etgach — faqat so'rov yuborgan
+    ishchiga, vazifa avvalgidek davom etayotganini bildirib (hech qanday
+    holat o'zgarmagan, `claim_service.reject_claim()`ga qarang)."""
+    async with async_session() as session:
+        claim = await TaskClaimRepository(session).get_by_id(claim_id)
+        if claim is None:
+            logger.warning("notify_claim_rejected: claim %s topilmadi", claim_id)
+            return
+        task = await TaskRepository(session).get_by_id(claim.task_id)
+        employee = await EmployeeRepository(session).get_by_id(claim.employee_id)
+        if task is None or employee is None:
+            return
+
+    action_label = "Pauza" if claim.action_type == ClaimActionType.PAUSE else "Yakunlash"
+    note_line = f"\nSabab: {claim.rejection_note}" if claim.rejection_note else ""
+    text = (
+        f"❌ \"{task.title}\" bo'yicha {action_label} so'rovingiz rad etildi.{note_line}\n"
+        "Vazifa avvalgidek davom etmoqda."
+    )
+    await _send(bot, employee.telegram_id, text)
+
+
+_CLAIM_REMINDER_TEXTS = {
+    1: "⏰ Eslatma: \"{title}\" bo'yicha so'rov hali ko'rib chiqilmagan.",
+    2: "⚠️ DIQQAT: \"{title}\" bo'yicha so'rov {hours} soatdan beri kutmoqda — iltimos hoziroq ko'rib chiqing.",
+    3: "🔴 QAT'IY OGOHLANTIRISH: \"{title}\" bo'yicha so'rov {hours} soatdan beri tasdiqlanmagan — zudlik bilan hal qiling.",
+}
+
+
+async def notify_claim_reminder(bot: Bot, claim_id: int, stage: int) -> None:
+    """Mebel moduli: `jobs/overdue_watch_job.py`ning eskalatsiya bosqichi
+    (+2/+6/+24 soat, keyingi vazifada qo'shiladi) — bo'lim rahbari
+    (SUPERVISOR) + barcha ADMIN + claiming xodimning brigadiriga, `stage`ga
+    qarab kuchayib boruvchi ohangda. Noma'lum `stage` qiymati uchun jim
+    o'tkazib yuboriladi (chaqiruvchi xato qilgan bo'lishi mumkin, lekin bu
+    funksiya o'zi yiqilmasligi kerak)."""
+    async with async_session() as session:
+        claim = await TaskClaimRepository(session).get_by_id(claim_id)
+        if claim is None:
+            logger.warning("notify_claim_reminder: claim %s topilmadi", claim_id)
+            return
+        task = await TaskRepository(session).get_by_id(claim.task_id)
+        if task is None:
+            logger.warning("notify_claim_reminder: task %s topilmadi", claim.task_id)
+            return
+
+        employee_repo = EmployeeRepository(session)
+        claimant = await employee_repo.get_by_id(claim.employee_id)
+
+        recipients: dict[int, int | None] = {}
+        if claimant is not None and claimant.brigade_id is not None:
+            brigade = await BrigadeRepository(session).get_by_id(claimant.brigade_id)
+            if brigade is not None and brigade.brigadier_id is not None:
+                brigadier = await employee_repo.get_by_id(brigade.brigadier_id)
+                if brigadier is not None:
+                    recipients[brigadier.id] = brigadier.telegram_id
+
+        if task.current_department_id is not None:
+            for employee in await employee_repo.list_by_department(task.current_department_id):
+                if employee.role == Role.SUPERVISOR:
+                    recipients[employee.id] = employee.telegram_id
+        for admin in await employee_repo.list_by_role(Role.ADMIN):
+            recipients[admin.id] = admin.telegram_id
+
+    template = _CLAIM_REMINDER_TEXTS.get(stage)
+    if template is None:
+        logger.warning("notify_claim_reminder: noma'lum bosqich %s (claim_id=%s)", stage, claim_id)
+        return
+
+    hours = int((datetime.now(timezone.utc) - claim.claimed_at).total_seconds() // 3600)
+    text = template.format(title=task.title, hours=hours)
+    for telegram_id in recipients.values():
+        await _send(bot, telegram_id, text)
+
+
+async def notify_reconciliation_needed(bot: Bot, task_id: int) -> None:
+    """Mebel moduli: `jobs/trello_ingest_job.py` kartani keyingi bo'limga
+    ko'chirilganini aniqlaganda, lekin eski bosqich hali COMPLETED
+    bo'lmasa (masalan ishchi hali "Yakunlash" tugmasini bosmagan yoki
+    bosgan-u lekin rahbar hali tasdiqlamagan) — bir martalik xabar
+    (`tasks.advanced_without_finish_claim_at` shu chaqiruv bilan bir vaqtda
+    birinchi marta belgilanganda, chaqiruvchida)."""
+    async with async_session() as session:
+        task = await TaskRepository(session).get_by_id(task_id)
+        if task is None:
+            logger.warning("notify_reconciliation_needed: task %s topilmadi", task_id)
+            return
+
+        employee_repo = EmployeeRepository(session)
+        recipients = await _collect_assignees(session, task_id)
+
+        for assignee_id in list(recipients):
+            assignee = await employee_repo.get_by_id(assignee_id)
+            if assignee is not None and assignee.brigade_id is not None:
+                brigade = await BrigadeRepository(session).get_by_id(assignee.brigade_id)
+                if brigade is not None and brigade.brigadier_id is not None:
+                    brigadier = await employee_repo.get_by_id(brigade.brigadier_id)
+                    if brigadier is not None:
+                        recipients[brigadier.id] = brigadier.telegram_id
+
+        if task.current_department_id is not None:
+            for employee in await employee_repo.list_by_department(task.current_department_id):
+                if employee.role == Role.SUPERVISOR:
+                    recipients[employee.id] = employee.telegram_id
+        for admin in await employee_repo.list_by_role(Role.ADMIN):
+            recipients[admin.id] = admin.telegram_id
+
+    text = (
+        f"⚠️ \"{task.title}\" kartasi keyingi bo'limga ko'chirildi, lekin oldingi bosqich "
+        "hali \"Yakunlash\" tasdig'idan o'tmagan. Iltimos qo'lda tekshiring."
+    )
+    for telegram_id in recipients.values():
+        await _send(bot, telegram_id, text)

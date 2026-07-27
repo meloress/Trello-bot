@@ -23,9 +23,8 @@ from config import settings
 from core.database import async_session
 from db.models.task import Task
 from db.repositories import TaskRepository
-from services import notification_service, penalty_service, timer_service, trello_sync_service
+from services import penalty_service, trello_sync_service
 from trello.client import TrelloAPIError, TrelloClient
-from utils.enums import TaskStatus, TaskType
 
 logger = logging.getLogger(__name__)
 
@@ -37,15 +36,14 @@ async def _list_open_tasks() -> list[Task]:
     belgilanmagan bosqich — `deadline=NULL`) ham chetlab o'tiladi: bu holatda
     `determine_status()` NULL deadline bilan chaqirilib yiqilardi, va muddat
     hali yo'qligi sabab label/muddat tekshiruvi umuman ma'nosiz. ACTIVE va
-    STOPPED (deadline bor, faqat taymer muzlatilgan) — avvalgidek qamrovda."""
+    STOPPED (deadline bor, faqat taymer muzlatilgan) — avvalgidek qamrovda.
+
+    Mebel moduli (`departments.module == "mebel"`) endi bu ro'yxatdan
+    CHIQARIB TASHLANADI — bu modul endi Trello'ni bevosita,
+    `jobs/trello_ingest_job.py` orqali (har 5 daqiqada) kuzatadi; shu job
+    (kunlik) endi faqat fasad_sex uchun ishlaydi."""
     async with async_session() as session:
-        tasks = await TaskRepository(session).list_all()
-        return [
-            t
-            for t in tasks
-            if t.status not in (TaskStatus.COMPLETED, TaskStatus.PENDING_SETUP)
-            and t.task_type == TaskType.ORDER
-        ]
+        return await TaskRepository(session).list_open_orders_excluding_module("mebel")
 
 
 async def _update_title_if_changed(task_id: int, new_title: str) -> bool:
@@ -57,34 +55,6 @@ async def _update_title_if_changed(task_id: int, new_title: str) -> bool:
         await task_repo.update(task, title=new_title)
         await session.commit()
         return True
-
-
-async def _close_task_and_apply_penalty(bot: Bot, task_id: int) -> None:
-    try:
-        await timer_service.finish_task(task_id)
-    except timer_service.InvalidTaskStateError:
-        return  # allaqachon boshqa yo'l bilan yopilgan (race condition)
-    except timer_service.TaskNotFoundError:
-        logger.warning("daily_sync_job: task %s yopishda topilmadi", task_id)
-        return
-
-    try:
-        kpi_logs = await penalty_service.calculate_and_apply_task_penalty(task_id)
-    except penalty_service.PenaltyRuleNotConfiguredError:
-        logger.warning(
-            "daily_sync_job: task %s uchun kechikish qoidasi topilmadi (penalty_rules'ga qo'shish kerak)",
-            task_id,
-        )
-        kpi_logs = []
-    except Exception:
-        logger.exception("daily_sync_job: calculate_and_apply_task_penalty xatosi (task_id=%s)", task_id)
-        kpi_logs = []
-
-    for kpi_log in kpi_logs:
-        try:
-            await notification_service.notify_penalty_applied(bot, kpi_log.id)
-        except Exception:
-            logger.exception("daily_sync_job: notify_penalty_applied xatosi (kpi_log_id=%s)", kpi_log.id)
 
 
 async def _update_label(task: Task) -> None:
@@ -133,7 +103,7 @@ async def run(bot: Bot) -> None:
                     updated_titles += 1
 
                 if card.get("closed"):
-                    await _close_task_and_apply_penalty(bot, task.id)
+                    await penalty_service.finalize_task_and_apply_penalty(bot, task.id)
                     closed_tasks += 1
                 else:
                     try:

@@ -28,6 +28,18 @@ class TaskRepository(BaseRepository[Task]):
         )
         return result.scalars().first()
 
+    async def get_latest_by_trello_card_id(self, trello_card_id: str) -> Task | None:
+        """Mebel moduli: `trello_ingest_job` uchun — `get_by_trello_card_id()`dan
+        farqli, COMPLETED qatorlarni HAM qamraydi (eng oxirgi qator, status
+        qanday bo'lishidan qat'iy nazar). Ingest job shu orqali "karta uchun
+        umuman birorta qator bormi, va u qaysi holatda/bo'limda tugagan"
+        ekanini aniqlaydi — yangi buyurtma / normal bosqich o'tishi /
+        shubhali qayta paydo bo'lish holatlarini ajratish uchun."""
+        result = await self.session.execute(
+            select(Task).where(Task.trello_card_id == trello_card_id).order_by(Task.id.desc())
+        )
+        return result.scalars().first()
+
     async def list_by_previous_task_id(self, previous_task_id: int) -> list[Task]:
         """Fasad sex TZ (Phase 3, fork/join): bitta fork nuqtasidan chiqqan
         qardosh tarmoq-qatorlarini topish — hammasi bir xil
@@ -140,6 +152,25 @@ class TaskRepository(BaseRepository[Task]):
             .where(
                 Task.status == TaskStatus.STOPPED,
                 Department.stopped_auto_resume_after_hours.isnot(None),
+            )
+        )
+        return list(result.scalars().all())
+
+    async def list_open_orders_excluding_module(self, excluded_module: str) -> list[Task]:
+        """`daily_sync_job` uchun: ochiq (COMPLETED/PENDING_SETUP emas) ORDER
+        vazifalar, lekin berilgan modulga (masalan "mebel") tegishli bo'lim
+        chiqarib tashlanadi — bu modul endi Trello'ni bevosita, yuqori
+        chastotali `jobs/trello_ingest_job.py` orqali kuzatadi. `current_
+        department_id IS NULL` bo'lgan qatorlar (nazariy jihatdan bo'lmasligi
+        kerak ORDER uchun, lekin himoya sifatida) chiqarib tashlanmaydi —
+        modul tekshiruvi faqat bo'lim aniq bo'lganda qo'llaniladi."""
+        result = await self.session.execute(
+            select(Task)
+            .join(Department, Task.current_department_id == Department.id, isouter=True)
+            .where(
+                Task.status.notin_([TaskStatus.COMPLETED, TaskStatus.PENDING_SETUP]),
+                Task.task_type == TaskType.ORDER,
+                (Department.module != excluded_module) | (Task.current_department_id.is_(None)),
             )
         )
         return list(result.scalars().all())
