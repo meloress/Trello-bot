@@ -642,7 +642,7 @@ async def delegate_task(task_id: int, *, brigadier_id: int, worker_ids: list[int
     return task
 
 
-async def reassign_task_brigade(task_id: int, new_brigade_id: int) -> Task:
+async def reassign_task_brigade(task_id: int, new_brigade_id: int, bot=None) -> Task:
     """8.3-band: uzoq kechikkan (OVERDUE, avtomatik aniqlangan —
     `overdue_watch_job._process_reassignment_signals`) buyurtmani boshqa
     brigadaga QO'LDA o'tkazish (yakuniy tasdiq rahbarda,
@@ -678,13 +678,16 @@ async def reassign_task_brigade(task_id: int, new_brigade_id: int) -> Task:
         card_id = task.trello_card_id
 
     hours_late = int((now - deadline).total_seconds() // 3600)
-    await penalty_service.apply_penalty_for_employees(
+    kpi_logs = await penalty_service.apply_penalty_for_employees(
         task_id=task_id,
         department_id=department_id,
         employee_ids=old_employee_ids,
         hours_late=hours_late,
         reason_label="Brigadaga o'tkazish (eski brigada, darhol jarima)",
     )
+    # Yozilgan ball haqida eski brigada xodimlariga xabar — avval bu yozuvlar
+    # jim tashlab yuborilardi (jarima yozilardi, lekin hech kim bilmasdi).
+    await penalty_service.notify_kpi_logs(bot, kpi_logs)
 
     async with async_session() as session:
         task_repo = TaskRepository(session)

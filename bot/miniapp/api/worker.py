@@ -241,11 +241,7 @@ async def finish_task(request: web.Request) -> web.Response:
         logger.exception("calculate_and_apply_task_penalty xatosi (task_id=%s)", task.id)
         kpi_logs = []
 
-    for kpi_log in kpi_logs:
-        try:
-            await notification_service.notify_penalty_applied(bot, kpi_log.id)
-        except Exception:
-            logger.exception("notify_penalty_applied xatosi (kpi_log_id=%s)", kpi_log.id)
+    await penalty_service.notify_kpi_logs(bot, kpi_logs)
 
     if task.task_type == TaskType.ORDER:
         # Phase 3 (fork/join): advance_task_stage endi Task | list[Task] | None

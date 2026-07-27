@@ -149,6 +149,9 @@ body {
 .hero-tile .lbl { font-size: 12px; color: var(--ink-soft); }
 .hero-tile.positive .num { color: var(--positive); }
 .hero-tile.warn .num { color: var(--warn); }
+/* Manfiy qiymat uchun ham aniq rang bo'lishi SHART — avval bu qoida yo'q edi,
+   shu sabab manfiy ball oddiy matn rangida (qizil emas) ko'rinardi. */
+.hero-tile.critical .num { color: var(--critical); }
 
 .section-lbl { font-size: 12px; font-weight: 700; color: var(--ink-faint); text-transform: uppercase; letter-spacing: .05em; margin: 6px 0 -2px; }
 
@@ -199,7 +202,13 @@ body {
 
 .chart-box { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
 .chart-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
-.chart-head .big { font-family: var(--font-mono); font-size: 20px; font-weight: 800; color: var(--positive); }
+/* Rang ISHORAGA qarab beriladi — bu yerda avval `color: var(--positive)`
+   shartsiz yozilgan edi, ya'ni ishchining oylik JAMI bali manfiy bo'lsa ham
+   yashil ko'rinardi (jarima ballni yutuq kabi ko'rsatib). */
+.chart-head .big { font-family: var(--font-mono); font-size: 20px; font-weight: 800; }
+.chart-head .big.pos { color: var(--positive); }
+.chart-head .big.neg { color: var(--critical); }
+.chart-head .big.zero { color: var(--ink-soft); }
 .bar-row { display: grid; grid-template-columns: 64px 1fr 34px; align-items: center; gap: 8px; font-size: 11.5px; padding: 5px 0; }
 .bar-row .day { color: var(--ink-faint); font-family: var(--font-mono); }
 .bar-track { position: relative; height: 16px; background: var(--surface-sunken); border-radius: 6px; overflow: hidden; }
@@ -215,6 +224,10 @@ body {
 .kpi-list-item .amt { font-family: var(--font-mono); font-weight: 700; }
 .kpi-list-item.pos .amt { color: var(--positive); }
 .kpi-list-item.neg .amt { color: var(--critical); }
+/* 0 ball amalda yozilmaydi (penalty_service uni o'tkazib yuboradi), lekin
+   klass bo'lsa-yu qoida bo'lmasa element rangsiz/ko'rinmas bo'lib qoladi. */
+.bar-fill.zero { background: var(--line-strong); }
+.bar-row.zero .val, .kpi-list-item.zero .amt { color: var(--ink-soft); }
 
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field label { font-size: 12.5px; font-weight: 600; color: var(--ink-soft); }
@@ -259,7 +272,10 @@ body {
 .member-top .nm { font-size: 14.5px; font-weight: 700; }
 .member-top .score { font-family: var(--font-mono); font-weight: 700; font-size: 13.5px; }
 .member-top .score.pos { color: var(--positive); }
-.member-top .score.neg, .member-top .score.zero { color: var(--ink-soft); }
+/* `.neg` avval `.zero` bilan birga kulrang edi — brigadirning ishchisi manfiy
+   ballda bo'lsa ham "neytral" ko'rinardi. Manfiy = qizil, 0 = kulrang. */
+.member-top .score.neg { color: var(--critical); }
+.member-top .score.zero { color: var(--ink-soft); }
 .member-actions { display: flex; gap: 8px; }
 .member-actions button { flex: 1; font: inherit; font-size: 12.5px; font-weight: 600; padding: 8px; border-radius: 9px; border: 1px solid var(--line-strong); background: var(--surface-sunken); color: var(--ink); cursor: pointer; }
 

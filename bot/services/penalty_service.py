@@ -218,7 +218,28 @@ async def calculate_and_apply_task_penalty(task_id: int) -> list[KpiLog]:
     )
 
 
-async def finalize_task_and_apply_penalty(bot, task_id: int, *, finished_at: datetime | None = None) -> list[KpiLog]:
+async def notify_kpi_logs(bot, kpi_logs: list[KpiLog]) -> None:
+    """Yozilgan HAR BIR KPI yozuvi (ishchining bali + brigadir ulushi) uchun
+    egasiga bildirishnoma. Ball yozadigan har bir yo'l shu yagona yordamchidan
+    foydalanadi — avval har bir chaqiruvchi o'z siklini yozardi va ikkitasi
+    (claim tasdiqlash, brigadaga o'tkazish) buni umuman qilmagan edi, ya'ni
+    ball yozilardi-yu xodim bilmay qolardi. Bildirishnoma — ikkilamchi ta'sir:
+    xatosi hech qachon ball yozilishini bekor qilmaydi, faqat log qilinadi.
+
+    `bot=None` (skript/seed kabi Telegram konteksti yo'q chaqiruvchilar) —
+    jim o'tkazib yuboriladi, xato emas."""
+    if bot is None:
+        return
+    for kpi_log in kpi_logs:
+        try:
+            await notification_service.notify_penalty_applied(bot, kpi_log.id)
+        except Exception:
+            logger.exception("notify_kpi_logs: notify_penalty_applied xatosi (kpi_log_id=%s)", kpi_log.id)
+
+
+async def finalize_task_and_apply_penalty(
+    bot, task_id: int, *, finished_at: datetime | None = None, employee_id: int | None = None
+) -> list[KpiLog]:
     """Vazifani yakunlaydi (agar hali yakunlanmagan bo'lsa) va kechikish
     tekshiruvini ishga tushiradi, so'ng har bir KPI yozuvi uchun ishchiga
     bildirishnoma yuboradi. `jobs/daily_sync_job.py` (Trello-arxiv orqali
@@ -226,10 +247,16 @@ async def finalize_task_and_apply_penalty(bot, task_id: int, *, finished_at: dat
     `jobs/trello_ingest_job.py` (karta arxivlanganda) ikkalasi ham shu umumiy
     yo'ldan foydalanadi — ikkalasida ham inson to'g'ridan-to'g'ri Trello'da
     arxivlagan (ishchi claim'i emas), shuning uchun `finished_at` odatda
-    `None` (hozirgi vaqt) bilan chaqiriladi; parametr shunga qaramay mavjud,
-    chunki kelajakda kerak bo'lishi mumkin."""
+    `None` (hozirgi vaqt) bilan chaqiriladi.
+
+    `services/claim_service.approve_claim()` ham (mebel moduli, rahbar
+    "Yakunlash" so'rovini tasdiqlaganda) shu yo'ldan foydalanadi — u yerda
+    ikkala parametr ham beriladi: `finished_at=claim.claimed_at` (tasdiqlash
+    kechikishi ballga ta'sir qilmasligi uchun) va `employee_id` (so'rov
+    egasi — `timer_service.finish_task`ning zaxira tayinlov tekshiruvi
+    saqlanib qolsin uchun)."""
     try:
-        await timer_service.finish_task(task_id, finished_at=finished_at)
+        await timer_service.finish_task(task_id, employee_id=employee_id, finished_at=finished_at)
     except timer_service.InvalidTaskStateError:
         return []  # allaqachon boshqa yo'l bilan yopilgan (race condition)
     except timer_service.TaskNotFoundError:
@@ -248,12 +275,7 @@ async def finalize_task_and_apply_penalty(bot, task_id: int, *, finished_at: dat
         logger.exception("finalize_task_and_apply_penalty: calculate_and_apply_task_penalty xatosi (task_id=%s)", task_id)
         kpi_logs = []
 
-    for kpi_log in kpi_logs:
-        try:
-            await notification_service.notify_penalty_applied(bot, kpi_log.id)
-        except Exception:
-            logger.exception("finalize_task_and_apply_penalty: notify_penalty_applied xatosi (kpi_log_id=%s)", kpi_log.id)
-
+    await notify_kpi_logs(bot, kpi_logs)
     return kpi_logs
 
 

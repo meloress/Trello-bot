@@ -156,6 +156,26 @@ function daysLate(iso) {
   return Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86400000));
 }
 
+/* Ball (KPI) ishorasidan rang klassini aniqlashning YAGONA joyi. Avval har
+   bir ekran o'z ternary'sini yozardi va ular bir-biriga mos emas edi —
+   ba'zilari manfiy ballni yashil (`>= 0 ? "positive"`), ba'zilari kulrang
+   qoldirardi. Ball manfiy bo'lsa DOIM qizil bo'lishi shart: bu jarima,
+   xodim uni darhol ko'rishi kerak.
+     scoreClass()  -> .pos/.neg/.zero    (matn/raqam uchun)
+     heroTone()    -> .positive/.critical (hero-tile uchun, mavjud nomlash)
+     scoreSigned() -> "+5" / "-3" / "0"  (musbatga aniq "+" qo'yiladi) */
+function scoreClass(value) {
+  return value > 0 ? "pos" : value < 0 ? "neg" : "zero";
+}
+
+function heroTone(value) {
+  return value > 0 ? "positive" : value < 0 ? "critical" : "";
+}
+
+function scoreSigned(value) {
+  return (value > 0 ? "+" : "") + value;
+}
+
 function statusClass(status) {
   return { active: "st-active", overdue: "st-overdue", stopped: "st-stopped", completed: "", pending_setup: "st-warn" }[status] || "";
 }
@@ -310,13 +330,24 @@ async function screenWorkerOrders() {
     ? openTasks.reduce((a, b) => (new Date(a.deadline) < new Date(b.deadline) ? a : b))
     : null;
   const nearestDays = nearest ? daysUntil(nearest.deadline) : null;
+  // Muddati o'tgan bo'lsa bu OGOHLANTIRISH emas, KRITIK holat — avval sariq
+  // "warn" rangida va "⚠️" belgisi bilan ko'rsatilardi, ya'ni muddati bugun
+  // tugaydigan vazifadan farq qilmasdi. Kechikish kunini `daysLate()` bilan
+  // hisoblaymiz (`daysUntil()`ni manfiylash 1 kunga yuqoriga yaxlitlaydi).
+  const nearestTone = nearestDays === null ? "" : nearestDays <= 0 ? "critical" : nearestDays <= 1 ? "warn" : "";
+  const nearestText =
+    nearestDays === null
+      ? "—"
+      : nearestDays <= 0
+        ? esc(t("lateUnitShort", daysLate(nearest.deadline)))
+        : `${nearestDays}${esc(t("dayUnitShort"))}`;
 
   setScreen(`
     <p class="greet-wave">${esc(t("greeting"))}</p>
     <p class="greet">${esc(state.employee.full_name)} 👋</p>
     <div class="hero-row">
-      <div class="hero-tile ${score.total >= 0 ? "positive" : ""}"><span class="num">${score.total > 0 ? "+" : ""}${score.total}</span><span class="lbl">${esc(t("currentMonthScore"))}</span></div>
-      <div class="hero-tile ${nearestDays !== null && nearestDays <= 1 ? "warn" : ""}"><span class="num">${nearestDays === null ? "—" : nearestDays <= 0 ? "⚠️" : nearestDays + "d"}</span><span class="lbl">${esc(t("nearestDeadline"))}</span></div>
+      <div class="hero-tile ${heroTone(score.total)}"><span class="num">${scoreSigned(score.total)}</span><span class="lbl">${esc(t("currentMonthScore"))}</span></div>
+      <div class="hero-tile ${nearestTone}"><span class="num">${nearestText}</span><span class="lbl">${esc(t("nearestDeadline"))}</span></div>
     </div>
     <p class="section-lbl">${esc(t(nav.module === "fasad_sex" ? "myStages" : "myOrders"))}</p>
     ${orders.length ? orders.map((tsk, i) => `
@@ -480,20 +511,20 @@ async function screenWorkerScore() {
   setScreen(`
     <p class="page-title">${esc(t("myScore"))}</p>
     <div class="chart-box">
-      <div class="chart-head"><span>${esc(t("currentMonth"))}</span><span class="big">${data.total > 0 ? "+" : ""}${data.total} ${state.lang === "ru" ? "баллов" : "ball"}</span></div>
+      <div class="chart-head"><span>${esc(t("currentMonth"))}</span><span class="big ${scoreClass(data.total)}">${scoreSigned(data.total)} ${state.lang === "ru" ? "баллов" : "ball"}</span></div>
       ${data.logs.slice(0, 12).map((l) => `
-        <div class="bar-row ${l.score >= 0 ? "pos" : "neg"}">
+        <div class="bar-row ${scoreClass(l.score)}">
           <span class="day">${formatDt(l.created_at).slice(0, 5)}</span>
-          <div class="bar-track"><div class="bar-fill ${l.score >= 0 ? "pos" : "neg"}" style="width:${(Math.abs(l.score) / maxAbs) * 50}%"></div></div>
-          <span class="val">${l.score > 0 ? "+" : ""}${l.score}</span>
+          <div class="bar-track"><div class="bar-fill ${scoreClass(l.score)}" style="width:${(Math.abs(l.score) / maxAbs) * 50}%"></div></div>
+          <span class="val">${scoreSigned(l.score)}</span>
         </div>
       `).join("")}
     </div>
     ${data.logs.length ? `<p class="section-lbl">${esc(t("details"))}</p>${data.logs.map((l) => `
-      <div class="kpi-list-item ${l.score >= 0 ? "pos" : "neg"}">
+      <div class="kpi-list-item ${scoreClass(l.score)}">
         <span class="d">${formatDt(l.created_at).slice(0, 5)}</span>
         <span class="why">${esc(l.reason)}</span>
-        <span class="amt">${l.score > 0 ? "+" : ""}${l.score}</span>
+        <span class="amt">${scoreSigned(l.score)}</span>
       </div>
     `).join("")}` : `<p class="empty-state">${esc(t("noScoreYet"))}</p>`}
   `);
@@ -518,7 +549,7 @@ async function screenAdminHome() {
       <div class="hero-tile positive"><span class="num">${d.completed_this_month}</span><span class="lbl">${esc(t("completedThisMonth"))}</span></div>
     </div>
     <div class="hero-row">
-      <div class="hero-tile ${d.avg_score >= 0 ? "positive" : ""}"><span class="num">${d.avg_score > 0 ? "+" : ""}${d.avg_score}</span><span class="lbl">${esc(t("avgScore"))}</span></div>
+      <div class="hero-tile ${heroTone(d.avg_score)}"><span class="num">${scoreSigned(d.avg_score)}</span><span class="lbl">${esc(t("avgScore"))}</span></div>
       <div class="hero-tile"><span class="num" style="font-size:15px">${esc(d.top_performer || "—")}</span><span class="lbl">${esc(t("topPerformer"))}</span></div>
     </div>
     <button class="nav-card accent" id="nav-newtask"><span class="ic">${icon("plus")}</span><span class="grow">${esc(t("newTaskCta"))}</span><span class="chev">›</span></button>
@@ -968,7 +999,7 @@ function statRowsHtml(stats) {
     <div class="stat-row">
       <span class="rank">${i + 1}</span>
       <span class="nm">${esc(s.full_name)}<div class="completed">${s.completed_tasks} ${esc(t("completedThisMonth"))} · ${s.penalty_count} ${esc(t("penaltyCountLbl")).toLowerCase()}</div></span>
-      <span class="score ${s.total_score > 0 ? "pos" : s.total_score < 0 ? "neg" : ""}">${s.total_score > 0 ? "+" : ""}${s.total_score}</span>
+      <span class="score ${scoreClass(s.total_score)}">${scoreSigned(s.total_score)}</span>
     </div>
   `).join("");
 }
@@ -1562,14 +1593,14 @@ async function screenBrigadierHome() {
   const workers = brigade.members.filter((m) => m.employee_id !== state.employee.id);
   setScreen(`
     <p class="page-title">${esc(t("brigade_title"))}: ${esc(brigade.name)}</p>
-    <div class="hero-tile ${own && own.total_score >= 0 ? "positive" : ""}">
-      <span class="num">${own ? (own.total_score > 0 ? "+" : "") + own.total_score : "—"}</span>
+    <div class="hero-tile ${own ? heroTone(own.total_score) : ""}">
+      <span class="num">${own ? scoreSigned(own.total_score) : "—"}</span>
       <span class="lbl">${esc(t("currentMonthScore"))}</span>
     </div>
-    ${pendingWork.length ? `<button class="alert-card" id="nav-new-work"><span class="ic">🆕</span><span class="grow">${esc(t("newWorkAlert", pendingWork.length))}</span><span class="chev">›</span></button>` : ""}
+    ${pendingWork.length ? `<button class="alert-card" id="nav-new-work"><span class="ic">${icon("inbox")}</span><span class="grow">${esc(t("newWorkAlert", pendingWork.length))}</span><span class="chev">›</span></button>` : ""}
     ${workers.length ? workers.map((m, i) => `
       <div class="member-card ${m.total_score < 0 ? "low" : m.total_score > 0 ? "high" : ""}" data-i="${i}">
-        <div class="member-top"><span class="nm">${esc(m.full_name)}</span><span class="score ${m.total_score > 0 ? "pos" : m.total_score < 0 ? "neg" : "zero"}">${m.total_score > 0 ? "+" : ""}${m.total_score} ${state.lang === "ru" ? "б." : "ball"}</span></div>
+        <div class="member-top"><span class="nm">${esc(m.full_name)}</span><span class="score ${scoreClass(m.total_score)}">${scoreSigned(m.total_score)} ${state.lang === "ru" ? "б." : "ball"}</span></div>
         <div class="member-actions"><button class="btn-report">${icon("calendar")} ${esc(t("weeklyReport"))}</button><button class="btn-tasks">${icon("list")} ${esc(t("currentTasks"))}</button></div>
       </div>
     `).join("") : `<p class="empty-state">${esc(t("noBrigadeMembers"))}</p>`}
@@ -1580,7 +1611,7 @@ async function screenBrigadierHome() {
       ev.stopPropagation();
       const r = await api(`/brigadier/members/${member.employee_id}/report`);
       const app = tg();
-      const msg = `${t("completedTasksLbl")}: ${r.completed_tasks}\n${t("totalScoreLbl")}: ${r.total_score > 0 ? "+" : ""}${r.total_score}\n${t("penaltyCountLbl")}: ${r.penalty_count}`;
+      const msg = `${t("completedTasksLbl")}: ${r.completed_tasks}\n${t("totalScoreLbl")}: ${scoreSigned(r.total_score)}\n${t("penaltyCountLbl")}: ${r.penalty_count}`;
       if (app && app.showPopup) app.showPopup({ title: r.full_name, message: msg, buttons: [{ type: "close" }] });
       else window.alert(`${r.full_name}\n${msg}`);
     };
@@ -1603,9 +1634,9 @@ async function screenNewWork() {
   setScreen(`
     <p class="page-title">${esc(t("newWorkTitle"))}</p>
     ${items.map((tsk, i) => tsk.module === "mebel" ? `
-      <div class="nav-card" data-i="${i}"><span class="ic">🆕</span><span class="grow">${esc(tsk.title)}<div class="t-sub">${esc(t("deadline"))}: ${esc(formatDt(tsk.deadline))}</div><div class="t-sub">${esc(t("assignViaTrelloHint"))}</div></span></div>
+      <div class="nav-card" data-i="${i}"><span class="ic">${icon("inbox")}</span><span class="grow">${esc(tsk.title)}<div class="t-sub">${esc(t("deadline"))}: ${esc(formatDt(tsk.deadline))}</div><div class="t-sub">${esc(t("assignViaTrelloHint"))}</div></span></div>
     ` : `
-      <button class="nav-card accent" data-i="${i}"><span class="ic">🆕</span><span class="grow">${esc(tsk.title)}<div class="t-sub">${esc(t("deadline"))}: ${esc(formatDt(tsk.deadline))}</div></span><span class="chev">›</span></button>
+      <button class="nav-card accent" data-i="${i}"><span class="ic">${icon("inbox")}</span><span class="grow">${esc(tsk.title)}<div class="t-sub">${esc(t("deadline"))}: ${esc(formatDt(tsk.deadline))}</div></span><span class="chev">›</span></button>
     `).join("")}
   `);
   root.querySelectorAll("button.nav-card").forEach((el) => {

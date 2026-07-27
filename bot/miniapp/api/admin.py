@@ -1019,7 +1019,7 @@ async def reassign_task(request: web.Request) -> web.Response:
         ]
 
     try:
-        await task_service.reassign_task_brigade(task_id, new_brigade_id)
+        await task_service.reassign_task_brigade(task_id, new_brigade_id, bot=request.config_dict["bot"])
     except task_service.TaskNotFoundError:
         return err("not_found", 404)
     except (task_service.InvalidTaskStateError, ValueError) as exc:
@@ -1082,7 +1082,7 @@ async def approve_claim(request: web.Request) -> web.Response:
     employee = request["employee"]
 
     try:
-        claim = await claim_service.approve_claim(claim_id, employee.id)
+        claim = await claim_service.approve_claim(claim_id, employee.id, bot=request.config_dict["bot"])
     except claim_service.ClaimNotFoundError:
         return err("not_found", 404)
     except claim_service.InvalidClaimStateError as exc:

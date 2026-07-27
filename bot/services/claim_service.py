@@ -111,7 +111,7 @@ async def list_pending_claims_for_supervisor(employee_id: int) -> list[TaskClaim
         return scoped
 
 
-async def approve_claim(claim_id: int, reviewer_employee_id: int) -> TaskClaim:
+async def approve_claim(claim_id: int, reviewer_employee_id: int, bot=None) -> TaskClaim:
     """Tasdiqlash: haqiqiy holat o'zgarishi ENDI sodir bo'ladi, lekin
     `finished_at`/`stopped_at` sifatida ishchi bosgan ORIGINAL vaqt
     (`claim.claimed_at`) ishlatiladi — rahbar TASDIQLAGAN vaqt emas. Avval
@@ -119,7 +119,17 @@ async def approve_claim(claim_id: int, reviewer_employee_id: int) -> TaskClaim:
     muvaffaqiyatli bo'lsa claim `APPROVED` deb belgilanadi (aks holda
     xatolik chaqiruvchiga otiladi, claim PENDING holicha qoladi) —
     `task_service.reassign_task_brigade()`dagi "o'qi -> tashqi chaqiruv ->
-    qayta yoz" uch bosqichli naqsh bilan bir xil."""
+    qayta yoz" uch bosqichli naqsh bilan bir xil.
+
+    "Yakunlash" so'rovi `penalty_service.finalize_task_and_apply_penalty()`
+    orqali o'tadi (avval bu yerda `finish_task` + `calculate_and_apply_task_penalty`
+    qo'lda ketma-ket chaqirilardi) — o'sha yagona funksiya yakunlash, ball
+    hisoblash, BILDIRISHNOMA va xato holatlarini birga hal qiladi. Qo'lda
+    chaqirishning ikkita haqiqiy oqibati bor edi: (1) ball yozilardi-yu ishchiga
+    hech qanday xabar bormasdi, (2) kechikish `penalty_rules` qamrovidan
+    tashqarida bo'lsa (`PenaltyRuleNotConfiguredError`) xato yuqoriga otilib,
+    vazifa allaqachon COMPLETED bo'lgani holda claim abadiy PENDING bo'lib
+    qolardi va rahbarga 500 qaytardi."""
     async with async_session() as session:
         claim_repo = TaskClaimRepository(session)
         claim = await claim_repo.get_by_id(claim_id)
@@ -141,8 +151,12 @@ async def approve_claim(claim_id: int, reviewer_employee_id: int) -> TaskClaim:
 
     try:
         if action_type == ClaimActionType.FINISH:
-            await timer_service.finish_task(task_id, employee_id=employee_id, finished_at=claimed_at)
-            await penalty_service.calculate_and_apply_task_penalty(task_id)
+            # Yakunlash + ball + bildirishnoma + xato holatlari — hammasi shu
+            # yagona funksiyada (o'zi InvalidTaskStateError/TaskNotFoundError/
+            # PenaltyRuleNotConfiguredError'ni yutib, log qilib o'tkazadi).
+            await penalty_service.finalize_task_and_apply_penalty(
+                bot, task_id, finished_at=claimed_at, employee_id=employee_id
+            )
         else:
             await timer_service.stop_task(task_id, employee_id, reason or "", stopped_at=claimed_at)
     except (timer_service.InvalidTaskStateError, timer_service.TaskNotFoundError) as exc:
