@@ -1,8 +1,8 @@
 """Demo ma'lumotlar generatori — boshliqqa ko'rsatish uchun.
 
 Bo'sh Railway DB'ni real servis funksiyalari orqali (task_service,
-timer_service, penalty_service, sales_service, financial_service,
-client_service) to'ldiradi — natijada Trello'da HAQIQIY kartalar/
+timer_service, penalty_service, sales_service, client_service) to'ldiradi
+— natijada Trello'da HAQIQIY kartalar/
 checklist/ranglar paydo bo'ladi, DB va Trello bir-biriga to'liq mos keladi.
 
 Boshqa `_smoke_*.py` skriptlaridan farqli o'laroq, bu skript ISHLATILGACH
@@ -26,7 +26,6 @@ from db.repositories import BrigadeRepository, DepartmentRepository, TaskReposit
 from services import (
     client_service,
     employee_service,
-    financial_service,
     penalty_service,
     sales_service,
     settings_service,
@@ -352,41 +351,6 @@ async def create_production_tasks(org: dict, employees: dict, clients: dict) -> 
     return tasks_info
 
 
-async def create_financial_demo(org: dict, employees: dict) -> dict:
-    now = datetime.now(timezone.utc)
-
-    long_task = await task_service.create_task(
-        title="Buyurtma #800 — uzoq turgan bosqich",
-        description="Demo: moliyaviy bayroqlash (8.6-band 1-qoida)",
-        deadline=now + timedelta(days=10),
-        department_id=org["dept_shkurka"],
-        employee_ids=employees["brig_shk_workers"],
-    )
-    async with async_session() as session:
-        task_repo = TaskRepository(session)
-        row = await task_repo.get_by_id(long_task.id)
-        await task_repo.update(row, started_at=now - timedelta(days=6))
-        await session.commit()
-    suggestion1 = await financial_service.flag_long_duration_stage(long_task.id)
-    print(f"  [moliyaviy-1] Task #{long_task.id}: taklif #{suggestion1.id if suggestion1 else None}")
-
-    advance_task = await task_service.create_task(
-        title="Buyurtma #801 — avans kechirimi namunasi",
-        description="Demo: moliyaviy bayroqlash (8.6-band 2-qoida)",
-        deadline=now - timedelta(hours=30),
-        department_id=org["dept_kraska"],
-        employee_ids=employees["brig_kr_workers"],
-    )
-    await timer_service.finish_task(advance_task.id)
-    await penalty_service.calculate_and_apply_task_penalty(advance_task.id)
-    suggestion2 = await financial_service.create_advance_waiver_suggestion(
-        advance_task.id, advance_percent_paid=85, is_late=True, order_total_value=25_000_000
-    )
-    print(f"  [moliyaviy-2] Task #{advance_task.id}: taklif #{suggestion2.id}")
-
-    return {"wage_deduction_task": long_task.id, "advance_waiver_task": advance_task.id}
-
-
 async def create_sales_demo(list_ids: dict[str, str], employees: dict) -> list[int]:
     await settings_service.update_setting(
         sales_board_lists={
@@ -460,10 +424,7 @@ async def main() -> None:
     print("\n=== 5. Ishlab chiqarish vazifalari ===")
     tasks = await create_production_tasks(org, employees, clients)
 
-    print("\n=== 6. Moliyaviy takliflar ===")
-    financial = await create_financial_demo(org, employees)
-
-    print("\n=== 7. Sotuv CRM ===")
+    print("\n=== 6. Sotuv CRM ===")
     leads = await create_sales_demo(list_ids, employees)
 
     print("\n=== TAYYOR — jonli namoyish uchun cheat-sheet ===")
@@ -473,7 +434,6 @@ async def main() -> None:
     print(f"PENDING_SETUP (muddat/xodim kiritish namoyishi) task: #{tasks['pending_setup']}")
     print(f"Yangi ACTIVE (Boshlash/Yakunlash namoyishi) tasklar: {tasks['fresh']}")
     print(f"MISC vazifalar (9-band): {tasks['misc']}")
-    print(f"Moliyaviy takliflar (/moliyaviy, /avanskechirim): {financial}")
     print(f"Sotuv lidlar (/lidlarim): {leads}")
 
 

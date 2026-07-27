@@ -16,13 +16,6 @@ DEFAULT_REMINDER_SCHEDULE = [
     {"time": "17:00", "urgency": "urgent"},
 ]
 
-# Fasad sex TZ, Phase 7: bosqich necha kunda tugatilganiga qarab tavsiya
-# etiladigan to'lov "tezlik darajasi" jadvali — [{"max_days": N, "tier":
-# "<nom>", "pay_multiplier": X}, ...]. Aniq foiz/nom TZda berilmagan (ochiq
-# savol #7), shu sabab standart qiymat BO'SH — admin to'ldirmaguncha butun
-# xususiyat harakatsiz (`financial_service.calculate_speed_tier_bonus`).
-DEFAULT_SPEED_TIER_SCHEDULE: list = []
-
 # 5-bosqich (Sotuv CRM), 6.1-band: har (brand, bosqich) juftligi uchun
 # Trello list ID. `departments.trello_list_id` bilan bir xil naqsh: bot UI
 # orqali EMAS, to'g'ridan-to'g'ri bazada sozlanadi.
@@ -53,13 +46,6 @@ class AppSetting(TimestampedBase):
     # plus_ball_max_days'dan ortig'iga qo'shimcha ball berilmaydi (cap).
     plus_ball_per_day: Mapped[int] = mapped_column(Integer, nullable=False)
     plus_ball_max_days: Mapped[int] = mapped_column(Integer, nullable=False)
-    # 8.6-band: bosqich shuncha kundan ORTIQ (qat'iy >) davom etsa, moliyaviy
-    # taklif avtomatik bayroqlanadi (summa hali noma'lum holatda).
-    financial_flag_threshold_days: Mapped[int] = mapped_column(Integer, nullable=False)
-    # 8.6-band 2-qoida: avans shu foizdan KO'P/TENG olingan bo'lsa va buyurtma
-    # kechiksa, qolgan advance_waiver_percent mijozdan talab qilinmasligi taklif qilinadi.
-    advance_threshold_percent: Mapped[int] = mapped_column(Integer, nullable=False)
-    advance_waiver_percent: Mapped[int] = mapped_column(Integer, nullable=False)
     # 10.2-band: kunlik/haftalik/oylik Telegram hisobotlari shu vaqtda
     # (HH:MM, Toshkent) ADMIN/SUPERVISOR'larga yuboriladi (jobs/report_job.py).
     # Haftalik — yakshanba, oylik — har oyning 1-sanasi, ikkalasi ham shu
@@ -78,9 +64,6 @@ class AppSetting(TimestampedBase):
     # stats/dashboard'da ko'rsatish uchun — timer/jarima sifatida MAJBURIY
     # QILINMAYDI (stats_service.get_capacity_vs_actual()).
     daily_quota_points_per_worker: Mapped[int] = mapped_column(Integer, nullable=False)
-    # Fasad sex TZ, Phase 7: tezlik-darajali to'lov taklifi jadvali (yuqoridagi
-    # DEFAULT_SPEED_TIER_SCHEDULE izohiga q.) — standart bo'sh ro'yxat.
-    speed_tier_schedule: Mapped[list] = mapped_column(JSON, nullable=False)
     # Fasad sex TZ, Phase 8: kunlik rasm/video hisobot SO'ROVI shu vaqtda
     # (HH:MM, Toshkent) `daily_report_required=True` xodimlarga yuboriladi
     # (`jobs/daily_report_job.py`) — `report_time` bilan bir xil naqsh.

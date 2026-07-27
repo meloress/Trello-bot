@@ -6,7 +6,6 @@ from db.models.daily_report_submission import DailyReportSubmission
 from db.models.department import Department
 from db.models.department_fork_target import DepartmentForkTarget
 from db.models.employee import Employee
-from db.models.financial_suggestion import FinancialSuggestion
 from db.models.kpi_log import KpiLog
 from db.models.lead import Lead
 from db.models.penalty_rule import PenaltyRule
@@ -25,7 +24,6 @@ __all__ = [
     "Department",
     "DepartmentForkTarget",
     "Employee",
-    "FinancialSuggestion",
     "KpiLog",
     "Lead",
     "PenaltyRule",

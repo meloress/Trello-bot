@@ -7,7 +7,6 @@ from db.repositories.daily_report_submission_repo import DailyReportSubmissionRe
 from db.repositories.department_fork_target_repo import DepartmentForkTargetRepository
 from db.repositories.department_repo import DepartmentRepository
 from db.repositories.employee_repo import EmployeeRepository
-from db.repositories.financial_suggestion_repo import FinancialSuggestionRepository
 from db.repositories.kpi_log_repo import KpiLogRepository
 from db.repositories.lead_repo import LeadRepository
 from db.repositories.penalty_rule_repo import PenaltyRuleRepository
@@ -27,7 +26,6 @@ __all__ = [
     "DepartmentForkTargetRepository",
     "DepartmentRepository",
     "EmployeeRepository",
-    "FinancialSuggestionRepository",
     "KpiLogRepository",
     "LeadRepository",
     "PenaltyRuleRepository",

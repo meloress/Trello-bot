@@ -175,18 +175,3 @@ class TaskRepository(BaseRepository[Task]):
         )
         return list(result.scalars().all())
 
-    async def list_long_running_stages(self, *, threshold_days: int, now: datetime) -> list[Task]:
-        """8.6-band 1-qoida: hozirgi bosqichda (`started_at`dan hisoblab)
-        `threshold_days`dan ORTIQ (qat'iy >) turib qolgan, hali yakunlanmagan
-        ORDER vazifalar (`overdue_watch_job`, soatiga bir marta). MISC
-        vazifalarda (9-band) bo'lim zanjiri umuman yo'q, shu sabab chetlab
-        o'tiladi."""
-        threshold = now - timedelta(days=threshold_days)
-        result = await self.session.execute(
-            select(Task).where(
-                Task.task_type == TaskType.ORDER,
-                Task.status.in_(_OPEN_STATUSES + [TaskStatus.OVERDUE]),
-                Task.started_at < threshold,
-            )
-        )
-        return list(result.scalars().all())

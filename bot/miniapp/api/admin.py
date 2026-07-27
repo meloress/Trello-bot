@@ -1,6 +1,6 @@
-"""Rahbar/Nazoratchi ekranlari: dashboard, yangi vazifa, xodimlar, moliyaviy
-takliflar. Ruxsat: faqat Role.ADMIN/Role.SUPERVISOR (`server.py`da
-route bo'yicha `require_roles` orqali ulanadi)."""
+"""Rahbar/Nazoratchi ekranlari: dashboard, yangi vazifa, xodimlar. Ruxsat:
+faqat Role.ADMIN/Role.SUPERVISOR (`server.py`da route bo'yicha
+`require_roles` orqali ulanadi)."""
 
 import logging
 from datetime import date, datetime, timezone
@@ -14,7 +14,6 @@ from db.repositories import (
     DepartmentForkTargetRepository,
     DepartmentRepository,
     EmployeeRepository,
-    FinancialSuggestionRepository,
     TaskAssignmentRepository,
     TaskClaimRepository,
     TaskRepository,
@@ -27,7 +26,6 @@ from services import (
     client_service,
     daily_report_service,
     employee_service,
-    financial_service,
     notification_service,
     penalty_service,
     settings_service,
@@ -82,16 +80,12 @@ async def dashboard(request: web.Request) -> web.Response:
     avg_score = round(sum(s.total_score for s in kpi_stats) / len(kpi_stats)) if kpi_stats else 0
     top = max(kpi_stats, key=lambda s: s.total_score, default=None)
 
-    async with async_session() as session:
-        pending_financial = len(await FinancialSuggestionRepository(session).list_pending())
-
     return web.json_response(
         {
             "active_employees": active_employees,
             "completed_this_month": completed_total,
             "avg_score": avg_score,
             "top_performer": top.full_name if top and top.total_score > 0 else None,
-            "pending_financial": pending_financial,
         }
     )
 
@@ -591,105 +585,6 @@ async def create_employee(request: web.Request) -> web.Response:
     return web.json_response({"id": employee.id}, status=201)
 
 
-@routes.get("/financial")
-async def list_financial(request: web.Request) -> web.Response:
-    async with async_session() as session:
-        suggestions = await FinancialSuggestionRepository(session).list_pending()
-        task_repo = TaskRepository(session)
-        items = []
-        for s in suggestions:
-            task = await task_repo.get_by_id(s.task_id)
-            items.append(
-                {
-                    "id": s.id,
-                    "task_id": s.task_id,
-                    "task_title": task.title if task else None,
-                    "kind": s.kind.value,
-                    "stage_duration_days": s.stage_duration_days,
-                    "suggested_deduction_amount": s.suggested_deduction_amount,
-                    "waived_amount": s.waived_amount,
-                    "speed_tier": s.speed_tier,
-                    "suggested_pay_amount": s.suggested_pay_amount,
-                }
-            )
-    return web.json_response(items)
-
-
-@routes.post("/financial/{suggestion_id}/amount")
-async def set_financial_amount(request: web.Request) -> web.Response:
-    suggestion_id = int(request.match_info["suggestion_id"])
-    body = await request.json()
-    try:
-        amount = float(body["amount"])
-    except (KeyError, TypeError, ValueError):
-        return err("amount noto'g'ri")
-    if amount < 0:
-        return err("amount manfiy bo'lishi mumkin emas")
-
-    try:
-        suggestion = await financial_service.set_wage_deduction_amount(suggestion_id, amount)
-    except ValueError as exc:
-        return err(str(exc), 404)
-
-    return web.json_response(
-        {"id": suggestion.id, "suggested_deduction_amount": suggestion.suggested_deduction_amount}
-    )
-
-
-@routes.post("/financial/{suggestion_id}/pay-amount")
-async def set_financial_pay_amount(request: web.Request) -> web.Response:
-    """Fasad sex TZ, Phase 7: `set_financial_amount`dagi bilan bir xil
-    naqsh, faqat SPEED_TIER_BONUS taklifining `suggested_pay_amount`
-    maydonini to'ldiradi."""
-    suggestion_id = int(request.match_info["suggestion_id"])
-    body = await request.json()
-    try:
-        amount = float(body["amount"])
-    except (KeyError, TypeError, ValueError):
-        return err("amount noto'g'ri")
-    if amount < 0:
-        return err("amount manfiy bo'lishi mumkin emas")
-
-    try:
-        suggestion = await financial_service.set_speed_tier_pay_amount(suggestion_id, amount)
-    except ValueError as exc:
-        return err(str(exc), 404)
-
-    return web.json_response({"id": suggestion.id, "suggested_pay_amount": suggestion.suggested_pay_amount})
-
-
-@routes.post("/financial/advance-waiver")
-async def create_advance_waiver(request: web.Request) -> web.Response:
-    """8.6-band 2-qoida: `/avanskechirim` bilan bir xil — bitta formada
-    task_id/avans%/buyurtma summasi/kechikkanmi."""
-    body = await request.json()
-    try:
-        task_id = int(body["task_id"])
-        advance_percent_paid = int(body["advance_percent_paid"])
-        order_total_value = float(body["order_total_value"])
-        is_late = bool(body["is_late"])
-    except (KeyError, TypeError, ValueError):
-        return err("task_id, advance_percent_paid, order_total_value, is_late majburiy")
-    if not (0 <= advance_percent_paid <= 100):
-        return err("advance_percent_paid 0 dan 100 gacha bo'lishi kerak")
-
-    async with async_session() as session:
-        task = await TaskRepository(session).get_by_id(task_id)
-    if task is None:
-        return err("task topilmadi", 404)
-
-    suggestion = await financial_service.create_advance_waiver_suggestion(
-        task_id,
-        advance_percent_paid=advance_percent_paid,
-        is_late=is_late,
-        order_total_value=order_total_value,
-    )
-    return web.json_response(
-        {"id": suggestion.id, "applicable": suggestion.applicable, "waived_amount": suggestion.waived_amount},
-        status=201,
-    )
-
-
 @routes.post("/misctasks")
 async def create_misc_task(request: web.Request) -> web.Response:
     """9-band: "Vazifalar" moduli — Trello'siz, `/addtask` bilan bir xil."""
@@ -841,7 +736,7 @@ async def capacity_stats(request: web.Request) -> web.Response:
 
 _SETTING_FIELDS = list(settings_service.AppSettingsSnapshot.__dataclass_fields__)
 _SETTING_FIELDS = [
-    f for f in _SETTING_FIELDS if f not in ("reminder_schedule", "sales_board_lists", "speed_tier_schedule")
+    f for f in _SETTING_FIELDS if f not in ("reminder_schedule", "sales_board_lists")
 ]
 
 
@@ -861,15 +756,11 @@ def _parse_setting_value(field: str, value: object) -> object:
         if value <= 0:
             raise ValueError
     elif field in (
-        "plus_ball_per_day", "plus_ball_max_days", "financial_flag_threshold_days",
+        "plus_ball_per_day", "plus_ball_max_days",
         "lead_follow_up_threshold_days", "daily_quota_points_per_worker",
     ):
         value = int(value)
         if value <= 0:
-            raise ValueError
-    elif field in ("advance_threshold_percent", "advance_waiver_percent"):
-        value = int(value)
-        if not (0 <= value <= 100):
             raise ValueError
     elif field in ("report_time", "daily_report_time"):
         settings_service.validate_time_str(value)
@@ -954,69 +845,6 @@ async def delete_reminder(request: web.Request) -> web.Response:
     updated = await settings_service.update_setting(reminder_schedule=schedule)
     reminder_job.schedule_all(request.config_dict["bot"], updated.reminder_schedule)
     return web.json_response(updated.reminder_schedule)
-
-
-@routes.get("/speed-tiers")
-async def list_speed_tiers(request: web.Request) -> web.Response:
-    snapshot = await settings_service.get_settings()
-    return web.json_response(snapshot.speed_tier_schedule)
-
-
-@routes.post("/speed-tiers")
-async def add_speed_tier(request: web.Request) -> web.Response:
-    body = await request.json()
-    snapshot = await settings_service.get_settings()
-    schedule = list(snapshot.speed_tier_schedule)
-    try:
-        schedule.append(
-            {
-                "max_days": int(body.get("max_days")),
-                "tier": (body.get("tier") or "").strip(),
-                "pay_multiplier": float(body.get("pay_multiplier")),
-            }
-        )
-    except (TypeError, ValueError):
-        return err("max_days, tier, pay_multiplier noto'g'ri")
-    try:
-        updated = await settings_service.update_setting(speed_tier_schedule=schedule)
-    except settings_service.InvalidReminderScheduleError as exc:
-        return err(str(exc))
-    return web.json_response(updated.speed_tier_schedule, status=201)
-
-
-@routes.put("/speed-tiers/{index}")
-async def edit_speed_tier(request: web.Request) -> web.Response:
-    index = int(request.match_info["index"])
-    body = await request.json()
-    snapshot = await settings_service.get_settings()
-    schedule = list(snapshot.speed_tier_schedule)
-    if not 0 <= index < len(schedule):
-        return err("not_found", 404)
-    try:
-        schedule[index] = {
-            "max_days": int(body.get("max_days")),
-            "tier": (body.get("tier") or "").strip(),
-            "pay_multiplier": float(body.get("pay_multiplier")),
-        }
-    except (TypeError, ValueError):
-        return err("max_days, tier, pay_multiplier noto'g'ri")
-    try:
-        updated = await settings_service.update_setting(speed_tier_schedule=schedule)
-    except settings_service.InvalidReminderScheduleError as exc:
-        return err(str(exc))
-    return web.json_response(updated.speed_tier_schedule)
-
-
-@routes.delete("/speed-tiers/{index}")
-async def delete_speed_tier(request: web.Request) -> web.Response:
-    index = int(request.match_info["index"])
-    snapshot = await settings_service.get_settings()
-    schedule = list(snapshot.speed_tier_schedule)
-    if not 0 <= index < len(schedule):
-        return err("not_found", 404)
-    del schedule[index]
-    updated = await settings_service.update_setting(speed_tier_schedule=schedule)
-    return web.json_response(updated.speed_tier_schedule)
 
 
 @routes.get("/pending-setup")

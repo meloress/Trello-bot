@@ -33,7 +33,6 @@ function tabDefsForRole(role, module) {
       { key: "home", icon: "🏠", label: "tab_home", screen: screenAdminHome },
       { key: "stats", icon: "📊", label: "tab_stats", screen: screenFullStats },
       { key: "employees", icon: "👥", label: "tab_employees", screen: screenEmployees },
-      { key: "financial", icon: "💰", label: "tab_financial", screen: screenFinancial },
       { key: "profile", icon: "👤", label: "tab_profile", screen: screenProfile },
     ];
   }
@@ -829,58 +828,6 @@ async function screenAddEmployee() {
   }, "#2f6f62");
 }
 
-async function screenFinancial() {
-  setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
-  const items = await api("/admin/financial");
-  setScreen(`
-    <p class="page-title">${esc(t("financialNav"))}</p>
-    <button class="nav-card accent" id="nav-advance-waiver"><span class="ic">➕</span><span class="grow">${esc(t("advanceWaiverNav"))}</span><span class="chev">›</span></button>
-    ${items.length ? items.map((s, i) => `
-      <div class="fin-card" data-i="${i}">
-        <div class="top"><span class="task">${esc(t("taskLabel"))} #${s.task_id}${s.task_title ? " — " + esc(s.task_title) : ""}</span><span class="status-pill warn">${esc(t(s.kind))}</span></div>
-        ${s.kind === "wage_deduction" && s.suggested_deduction_amount === null ? `
-          <div class="amount-row"><input type="number" class="f-amount" placeholder="${esc(t("enterAmount"))}" /><button class="btn primary f-amount-save">${esc(t("save"))}</button></div>
-        ` : s.kind === "speed_tier_bonus" ? `
-          <p class="desc">${esc(t("speedTierLabel"))}: ${esc(s.speed_tier)}</p>
-          ${s.suggested_pay_amount === null ? `
-            <div class="amount-row"><input type="number" class="f-pay-amount" placeholder="${esc(t("suggestedPayAmountLabel"))}" /><button class="btn primary f-pay-amount-save">${esc(t("save"))}</button></div>
-          ` : `<p class="desc">${esc(t("suggestedPayAmountLabel"))}: ${s.suggested_pay_amount}</p>`}
-        ` : `<p class="desc">${s.suggested_deduction_amount !== null ? s.suggested_deduction_amount : s.waived_amount}</p>`}
-      </div>
-    `).join("") : `<p class="empty-state">${esc(t("noPendingFinancial"))}</p>`}
-  `);
-  root.querySelector("#nav-advance-waiver").onclick = () => show(screenAdvanceWaiverForm);
-  root.querySelectorAll(".fin-card").forEach((card) => {
-    const item = items[Number(card.dataset.i)];
-    const amountBtn = card.querySelector(".f-amount-save");
-    if (amountBtn) {
-      amountBtn.onclick = async () => {
-        const value = card.querySelector(".f-amount").value;
-        if (!value) return;
-        try {
-          await api(`/admin/financial/${item.id}/amount`, { method: "POST", body: JSON.stringify({ amount: Number(value) }) });
-          await replaceTop(screenFinancial);
-        } catch (e) {
-          showError(e.message);
-        }
-      };
-    }
-    const payBtn = card.querySelector(".f-pay-amount-save");
-    if (payBtn) {
-      payBtn.onclick = async () => {
-        const value = card.querySelector(".f-pay-amount").value;
-        if (!value) return;
-        try {
-          await api(`/admin/financial/${item.id}/pay-amount`, { method: "POST", body: JSON.stringify({ amount: Number(value) }) });
-          await replaceTop(screenFinancial);
-        } catch (e) {
-          showError(e.message);
-        }
-      };
-    }
-  });
-}
-
 async function screenPendingClaims() {
   setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
   const claims = await api("/admin/pending-claims");
@@ -925,57 +872,6 @@ async function screenPendingClaims() {
       };
     }
   });
-}
-
-async function screenAdvanceWaiverForm() {
-  setScreen(`
-    <p class="page-title">${esc(t("advanceWaiverTitle"))}</p>
-    <div class="field"><label>${esc(t("taskIdField"))}</label><input id="f-task-id" type="number" /></div>
-    <div class="field"><label>${esc(t("advancePercentField"))}</label><input id="f-percent" type="number" min="0" max="100" /></div>
-    <div class="field"><label>${esc(t("orderValueField"))}</label><input id="f-value" type="number" min="0" /></div>
-    <p class="section-lbl">${esc(t("isLateField"))}</p>
-    <div class="segmented" id="late-toggle">
-      <button data-late="1" aria-selected="true">${esc(t("statusOverdue"))}</button>
-      <button data-late="0" aria-selected="false">${esc(t("statusActive"))}</button>
-    </div>
-  `);
-  let isLate = true;
-  root.querySelectorAll("#late-toggle button").forEach((btn) => {
-    btn.onclick = () => {
-      isLate = btn.dataset.late === "1";
-      root.querySelectorAll("#late-toggle button").forEach((b) => b.setAttribute("aria-selected", b === btn));
-    };
-  });
-
-  setMainButton(`✅ ${t("create")}`, async () => {
-    const taskId = root.querySelector("#f-task-id").value;
-    const percent = root.querySelector("#f-percent").value;
-    const value = root.querySelector("#f-value").value;
-    if (!taskId || percent === "" || value === "") {
-      showError(`${t("taskIdField")}, ${t("advancePercentField")}, ${t("orderValueField")}`);
-      return;
-    }
-    const app = tg();
-    app.MainButton.showProgress();
-    try {
-      const result = await api("/admin/financial/advance-waiver", {
-        method: "POST",
-        body: JSON.stringify({
-          task_id: Number(taskId), advance_percent_paid: Number(percent),
-          order_total_value: Number(value), is_late: isLate,
-        }),
-      });
-      app.HapticFeedback && app.HapticFeedback.notificationOccurred("success");
-      app.showPopup
-        ? app.showPopup({ message: result.applicable ? t("waiverApplicableYes", result.waived_amount) : t("waiverApplicableNo") })
-        : window.alert(result.applicable ? t("waiverApplicableYes", result.waived_amount) : t("waiverApplicableNo"));
-      await goBack();
-    } catch (e) {
-      showError(e.message);
-    } finally {
-      app.MainButton.hideProgress();
-    }
-  }, "#2f6f62");
 }
 
 function statRowsHtml(stats) {
@@ -1066,8 +962,7 @@ async function screenCapacityStats(departmentId, departmentName) {
 
 const SETTING_FIELDS = [
   "default_penalty_multiplier", "brigade_share_ratio", "balls_per_day_shift",
-  "plus_ball_per_day", "plus_ball_max_days", "financial_flag_threshold_days",
-  "advance_threshold_percent", "advance_waiver_percent", "report_time",
+  "plus_ball_per_day", "plus_ball_max_days", "report_time",
   "lead_follow_up_threshold_days", "daily_quota_points_per_worker", "daily_report_time",
 ];
 
@@ -1085,7 +980,6 @@ async function screenSettings() {
     <button class="nav-card" id="nav-chain"><span class="ic">🔗</span><span class="grow">${esc(t("departmentChainNav"))}</span><span class="chev">›</span></button>
     <button class="nav-card" id="nav-autoreassign"><span class="ic">🔁</span><span class="grow">${esc(t("autoreassignNav"))}</span><span class="chev">›</span></button>
     <button class="nav-card" id="nav-reminders"><span class="ic">🕗</span><span class="grow">${esc(t("remindersNav"))}</span><span class="chev">›</span></button>
-    <button class="nav-card" id="nav-speed-tiers"><span class="ic">⚡</span><span class="grow">${esc(t("speedTiersNav"))}</span><span class="chev">›</span></button>
     <button class="nav-card" id="nav-departments"><span class="ic">🏭</span><span class="grow">${esc(t("departmentsNav"))}</span><span class="chev">›</span></button>
   `);
   root.querySelectorAll(".settings-row").forEach((el) => {
@@ -1094,7 +988,6 @@ async function screenSettings() {
   root.querySelector("#nav-chain").onclick = () => show(screenDepartmentChain);
   root.querySelector("#nav-autoreassign").onclick = () => show(screenAutoreassign);
   root.querySelector("#nav-reminders").onclick = () => show(screenReminders);
-  root.querySelector("#nav-speed-tiers").onclick = () => show(screenSpeedTiers);
   root.querySelector("#nav-departments").onclick = () => show(screenDepartments);
 }
 
@@ -1447,75 +1340,6 @@ async function screenReminderForm(mode, index, entry) {
   }, "#2f6f62");
 }
 
-/* ---------- Fasad sex TZ, Phase 7: tezlik-darajali to'lov jadvali ---------- */
-
-async function screenSpeedTiers() {
-  setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
-  const schedule = await api("/admin/speed-tiers");
-  setScreen(`
-    <p class="page-title">${esc(t("speedTiersTitle"))}</p>
-    ${schedule.length ? schedule.map((entry, i) => `
-      <div class="fin-card" data-i="${i}">
-        <div class="top"><span class="task">⚡ ${esc(entry.tier)}</span><span class="status-pill warn">≤ ${entry.max_days} ${esc(t("daysUnit"))}</span></div>
-        <p class="desc">${esc(t("payMultiplierField"))}: ×${entry.pay_multiplier}</p>
-        <div class="amount-row">
-          <button class="btn f-edit">${esc(t("edit"))}</button>
-          <button class="btn danger f-delete">${esc(t("deleteBtn"))}</button>
-        </div>
-      </div>
-    `).join("") : `<p class="empty-state">${esc(t("noSpeedTiers"))}</p>`}
-  `);
-  root.querySelectorAll(".fin-card").forEach((card) => {
-    const entry = schedule[Number(card.dataset.i)];
-    const idx = Number(card.dataset.i);
-    card.querySelector(".f-edit").onclick = () => show(screenSpeedTierForm, "edit", idx, entry);
-    card.querySelector(".f-delete").onclick = async () => {
-      try {
-        await api(`/admin/speed-tiers/${idx}`, { method: "DELETE" });
-        await replaceTop(screenSpeedTiers);
-      } catch (e) {
-        showError(e.message);
-      }
-    };
-  });
-  setMainButton(t("addSpeedTierBtn"), () => show(screenSpeedTierForm, "add", null, null), "#2f6f62");
-}
-
-async function screenSpeedTierForm(mode, index, entry) {
-  setScreen(`
-    <p class="page-title">${esc(t("addSpeedTierBtn"))}</p>
-    <div class="field"><label>${esc(t("maxDaysField"))}</label><input id="f-max-days" type="number" min="1" value="${esc(entry ? entry.max_days : "")}" /></div>
-    <div class="field"><label>${esc(t("tierNameField"))}</label><input id="f-tier" type="text" value="${esc(entry ? entry.tier : "")}" /></div>
-    <div class="field"><label>${esc(t("payMultiplierField"))}</label><input id="f-multiplier" type="number" min="0" step="0.1" value="${esc(entry ? entry.pay_multiplier : "")}" /></div>
-  `);
-
-  setMainButton(`💾 ${t("saveChanges")}`, async () => {
-    const maxDays = root.querySelector("#f-max-days").value;
-    const tier = root.querySelector("#f-tier").value.trim();
-    const payMultiplier = root.querySelector("#f-multiplier").value;
-    if (!maxDays || !tier || !payMultiplier) {
-      showError(`${t("maxDaysField")}, ${t("tierNameField")}, ${t("payMultiplierField")}`);
-      return;
-    }
-    const app = tg();
-    app.MainButton.showProgress();
-    try {
-      const body = JSON.stringify({ max_days: Number(maxDays), tier, pay_multiplier: Number(payMultiplier) });
-      if (mode === "add") {
-        await api("/admin/speed-tiers", { method: "POST", body });
-      } else {
-        await api(`/admin/speed-tiers/${index}`, { method: "PUT", body });
-      }
-      app.HapticFeedback && app.HapticFeedback.notificationOccurred("success");
-      await goBack();
-    } catch (e) {
-      showError(e.message);
-    } finally {
-      app.MainButton.hideProgress();
-    }
-  }, "#2f6f62");
-}
-
 /* ---------- 6.1/7.4-band: Sozlash kutilayotgan bosqichlar ---------- */
 
 async function screenPendingSetup() {
@@ -1797,6 +1621,21 @@ async function screenMemberTaskDetail(employeeId, fullName, taskId) {
         app.MainButton.hideProgress();
       }
     }, "#008300");
+  } else if (tsk.status === "stopped") {
+    // Resume claim-gated emas (rahbar tasdig'i shart emas) — davom
+    // ettirilgach rahbarga shunchaki xabar ketadi (notify_task_resumed).
+    setMainButton(`▶️ ${t("resume")}`, async () => {
+      const app = tg();
+      app.MainButton.showProgress();
+      try {
+        await api(`/brigadier/members/${employeeId}/tasks/${taskId}/resume`, { method: "POST" });
+        await replaceTop(screenMemberTaskDetail, employeeId, fullName, taskId);
+      } catch (e) {
+        showError(e.message);
+      } finally {
+        app.MainButton.hideProgress();
+      }
+    });
   }
 }
 

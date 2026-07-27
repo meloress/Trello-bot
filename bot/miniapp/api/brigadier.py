@@ -22,7 +22,7 @@ from db.repositories import (
     TaskRepository,
 )
 from miniapp.util import err, is_mebel_task
-from services import claim_service, notification_service, stats_service, task_service
+from services import claim_service, notification_service, stats_service, task_service, timer_service
 from utils.enums import ClaimActionType, Role, TaskStatus, TaskType
 
 routes = web.RouteTableDef()
@@ -345,6 +345,36 @@ async def submit_member_finish_claim(request: web.Request) -> web.Response:
         logger.exception("notify_claim_submitted xatosi (claim_id=%s)", claim.id)
 
     return web.json_response({"id": claim.id, "status": claim.status.value})
+
+
+@routes.post("/members/{employee_id}/tasks/{task_id}/resume")
+async def resume_member_task(request: web.Request) -> web.Response:
+    """Mebel moduli: to'xtatilgan (STOPPED) vazifani brigadir a'zosi nomidan
+    davom ettiradi. Pauza/Yakunlashdan farqli o'laroq claim-gated EMAS —
+    rahbar tasdig'i shart emas, `timer_service.resume_task()` darhol
+    ishlaydi; rahbarga faqat xabar ketadi (`notify_task_resumed`)."""
+    employee_id = int(request.match_info["employee_id"])
+    task_id = int(request.match_info["task_id"])
+    if not await _employee_in_scope(request, employee_id):
+        return err("xodim topilmadi", 404)
+    if not await _is_member_assigned(task_id, employee_id):
+        return err("not_found", 404)
+    if not await is_mebel_task(task_id):
+        return err("Bu funksiya faqat mebel moduli uchun", 409)
+
+    try:
+        task = await timer_service.resume_task(task_id, employee_id)
+    except timer_service.TaskNotFoundError:
+        return err("not_found", 404)
+    except timer_service.InvalidTaskStateError as exc:
+        return err(str(exc), 409)
+
+    try:
+        await notification_service.notify_task_resumed(request.config_dict["bot"], task.id, employee_id)
+    except Exception:
+        logger.exception("notify_task_resumed xatosi (task_id=%s)", task.id)
+
+    return web.json_response({"id": task.id, "status": task.status.value})
 
 
 @routes.get("/members/{employee_id}/tasks/{task_id}/claim-status")
