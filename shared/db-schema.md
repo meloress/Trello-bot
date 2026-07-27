@@ -106,6 +106,10 @@ Fork/join zanjiri uchun (`b7c1e4f9a83d` migratsiyasi). `next_department_id` bitt
 | trello_checklist_id | VARCHAR(50), NULL | 6.2-band (`470b837c8dae`): kartadagi "Bosqichlar" checklist ID'si — bir xil `trello_card_id`ni bo'lishuvchi barcha bosqich-qatorlariga bir xil qiymat ko'chiriladi (`advance_task_stage()`) |
 | client_id | FK -> clients.id, NULL | 12-band (`b3f7a1c9d204`, 4-bosqich): bosqich o'tganda/"Stop" bosilganda avtomatik xabarnoma yuboriladigan mijoz. MISC vazifada har doim NULL (`create_misc_task()` client_id qabul qilmaydi). `advance_task_stage()` bosqichdan-bosqichga `trello_checklist_id` kabi ko'chiradi |
 | misc_category | VARCHAR(20), NULL | Fasad sex TZ, Phase 9 (`e1a4b8f36c02` migratsiyasi). MISC vazifalar uchun ixtiyoriy kategoriya (ofis/Fasad sex/o'rnatuvchi/payvandchi, `utils/enums.MiscCategory`). ORDER'da har doim NULL — faqat `task_type=MISC` qatorlarida ma'noli, funksiya qo'shilishidan oldingi eski MISC qatorlar ham NULL bo'lishi mumkin |
+| trello_last_seen_list_id | VARCHAR(50), NULL | Mebel Trello-first sync (`77a6fe7328cd` migratsiyasi, 2026-07-26). `jobs/trello_ingest_job.py`ning oxirgi muvaffaqiyatli poll paytidagi karta `idList`i — bosqich o'tishi/qayta-tayinlashni aniqlash uchun "oxirgi ko'rilgan holat". Faqat `module="mebel"` vazifalarida to'ldiriladi, boshqa hamma qatorda har doim NULL |
+| trello_last_seen_member_ids | JSON, NULL | Yuqoridagisi bilan bir xil sync uchun — oxirgi ko'rilgan Trello karta a'zo-ID'lari ro'yxati (brigadir almashinuvini aniqlash uchun) |
+| trello_last_polled_at | TIMESTAMPTZ, NULL | Diagnostika: `trello_ingest_job` bu qatorni oxirgi marta qachon ko'rgani |
+| advanced_without_finish_claim_at | TIMESTAMPTZ, NULL | Mebel Trello-first sync: karta claim tasdiqlanmasdan (yoki umuman yuborilmasdan) keyingi bo'lim ro'yxatiga qo'lda ko'chirilganda birinchi marta belgilanadi — zanjir baribir davom etadi (jismoniy voqelik: karta allaqachon ko'chgan), lekin eski bosqich "tasdiqlanmagan" holatda qoladi va `overdue_watch_job`ning eskalatsiya bosqichlariga signal beradi |
 | created_at / updated_at | TIMESTAMPTZ | |
 
 **MISC vazifalar KPI/jarima tizimiga ORDER bilan BIR XIL qoidada ta'sir qiladi**
@@ -185,6 +189,34 @@ brigada tanlovi va tasdiq qo'lda (`task_service.reassign_task_brigade()`,
 | task_id | FK -> tasks.id | |
 | employee_id | FK -> employees.id | |
 | created_at / updated_at | TIMESTAMPTZ | |
+
+### task_claims — Rahbar tasdig'i orqali claim (mebel Trello-first sync, `3c977b3a0d86` migratsiyasi, 2026-07-26)
+| Ustun | Tur | Izoh |
+|---|---|---|
+| id | PK | |
+| task_id | FK -> tasks.id, NOT NULL | qaysi bosqich uchun so'rov |
+| employee_id | FK -> employees.id, NOT NULL | tugmani bosgan ishchi |
+| action_type | VARCHAR (Enum `ClaimActionType`, `native_enum=False`) | `pause` / `finish` |
+| status | VARCHAR (Enum `ClaimStatus`, `native_enum=False`), default `pending` | `pending` / `approved` / `rejected` |
+| claimed_at | TIMESTAMPTZ, NOT NULL | ishchi tugmani bosgan ANIQ vaqt — tasdiqlansa shu vaqt `tasks.finished_at`/`stop_logs.stopped_at`ga o'tadi, rahbar tasdiqlagan vaqt EMAS (bu jadvalning butun maqsadi shu) |
+| reason | TEXT, NULL | `pause` uchun majburiy (servis darajasida tekshiriladi), `finish` uchun ixtiyoriy |
+| reviewed_by_employee_id | FK -> employees.id, NULL | tasdiqlagan/rad etgan rahbar (SUPERVISOR/ADMIN) |
+| reviewed_at | TIMESTAMPTZ, NULL | |
+| rejection_note | TEXT, NULL | ishchiga ko'rsatiladi |
+| last_reminder_stage | INTEGER, default 0 | eslatma eskalatsiyasi uchun (0 = hali yuborilmagan, 1/2/3 = +2/+6/+24 soat bosqichlari) |
+| last_reminder_sent_at | TIMESTAMPTZ, NULL | |
+| created_at / updated_at | TIMESTAMPTZ | |
+
+Faqat `module="mebel"` vazifalarida ishlatiladi (`fasad_sex` hamon Mini App'ning
+`/tasks/{id}/stop`/`/finish` orqali darhol ta'sir qiladigan eski yo'ldan
+foydalanadi). Bir vaqtda faqat bitta `pending` claim (qisman UNIQUE indeks,
+`task_id` bo'yicha, `status='pending'` shartida). `services/claim_service.py`:
+`submit_claim()` shu qatorni yaratadi (hech qanday `tasks`/`stop_logs`
+mutatsiyasisiz); `approve_claim()` `timer_service.finish_task()`/`stop_task()`ni
+`claimed_at`ni aniq uzatib chaqiradi (shundan keyingina `penalty_service`
+odatdagidek ishlaydi); `reject_claim()` faqat `status=rejected` qiladi, hech
+qanday task mutatsiyasi yo'q — vazifa avvalgidek davom etadi, kechikish oddiy
+tarzda hisoblanaverdi (maxsus "rad etish jarimasi" yo'q).
 
 `UNIQUE(task_id, employee_id)` — bitta xodim bitta vazifaga faqat bir marta biriktiriladi.
 
