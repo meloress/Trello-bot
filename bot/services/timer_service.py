@@ -105,7 +105,7 @@ async def stop_task(task_id: int, employee_id: int, reason: str) -> StopLog:
         task = await task_repo.get_by_id(task_id)
         if task is None:
             raise TaskNotFoundError(f"Task {task_id} topilmadi")
-        if task.status != TaskStatus.ACTIVE:
+        if task.status not in (TaskStatus.ACTIVE, TaskStatus.OVERDUE):
             raise InvalidTaskStateError(
                 f"Task {task_id} faol emas, to'xtatib bo'lmaydi (joriy holat: {task.status})"
             )

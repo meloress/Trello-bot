@@ -333,13 +333,13 @@ async function screenTaskDetail(taskId) {
       <div class="kv-row"><span class="k">${esc(t("department"))}</span><span class="v">${esc(tsk.department || "—")}</span></div>
       ${tsk.client_name ? `<div class="kv-row"><span class="k">${esc(t("client"))}</span><span class="v">${esc(tsk.client_name)}</span></div>` : ""}
     </div>
-    ${tsk.status === "active" ? `<button class="btn" id="btn-stop">🛑 ${esc(t("stop"))}</button>` : ""}
+    ${tsk.status === "active" || tsk.status === "overdue" ? `<button class="btn" id="btn-stop">🛑 ${esc(t("stop"))}</button>` : ""}
   `);
 
   const stopBtn = root.querySelector("#btn-stop");
   if (stopBtn) stopBtn.onclick = () => show(screenStopTask, taskId);
 
-  if (tsk.status === "active") {
+  if (tsk.status === "active" || tsk.status === "overdue") {
     setMainButton(`✅ ${t("finish")}`, async () => {
       const app = tg();
       app.MainButton.showProgress();
