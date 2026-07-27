@@ -799,7 +799,11 @@ async function screenEmployeeDetail(employeeId) {
 }
 
 async function screenAddEmployee() {
-  const departments = await api("/admin/departments");
+  // Bo'lim ro'yxati ilgari ikkala modul ("Fasad seh"/mebel va Nazorat
+  // Trello/fasad_sex) bo'limlarini aralashtirib ko'rsatardi — yangi xodim
+  // joriy modulga tegishli BO'LMAGAN bo'limga tasodifan biriktirilishi
+  // mumkin edi. Endi faqat joriy `nav.module`ga tegishli bo'limlar ko'rinadi.
+  const departments = (await api("/admin/departments")).filter((d) => d.module === nav.module);
   const roleOptions = Object.keys(ROLE_LABELS[state.lang])
     .map((r) => `<option value="${r}">${esc(ROLE_LABELS[state.lang][r])}</option>`).join("");
 
@@ -905,6 +909,10 @@ function statRowsHtml(stats) {
    ekranidagi kabi: avval umumiy (aralash, saralangan) reyting, ustida esa
    rol bo'yicha alohida ro'yxatga o'tish tugmalari. */
 async function screenFullStats() {
+  // Mebel ("Fasad seh"): "Kunlik norma (sig'im)" TZ'da Nazorat Trello
+  // (fasad_sex) uchun mo'ljallangan — mebel kontekstida bu nav-card
+  // ko'rsatilmaydi, fasad_sex uchun to'liq qoladi.
+  const mebelOnly = nav.module === "mebel";
   setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
   const stats = await api("/admin/stats");
   if (!stats.length) {
@@ -923,14 +931,15 @@ async function screenFullStats() {
         </button>
       `;
     }).join("") : ""}
-    <button class="nav-card" id="nav-capacity"><span class="ic">📐</span><span class="grow">${esc(t("capacityStatsNav"))}</span><span class="chev">›</span></button>
+    ${mebelOnly ? "" : `<button class="nav-card" id="nav-capacity"><span class="ic">📐</span><span class="grow">${esc(t("capacityStatsNav"))}</span><span class="chev">›</span></button>`}
     <p class="section-lbl">${esc(t("overallRanking"))}</p>
     ${statRowsHtml(stats)}
   `);
   root.querySelectorAll(".nav-card[data-role]").forEach((el) => {
     el.onclick = () => show(screenStatsByRole, el.dataset.role);
   });
-  root.querySelector("#nav-capacity").onclick = () => show(screenCapacityDepartmentPicker);
+  const capacityBtn = root.querySelector("#nav-capacity");
+  if (capacityBtn) capacityBtn.onclick = () => show(screenCapacityDepartmentPicker);
 }
 
 async function screenStatsByRole(role) {
