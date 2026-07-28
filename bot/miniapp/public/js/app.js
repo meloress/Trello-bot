@@ -127,6 +127,13 @@ const ROLE_ICONS = {
    fasad_sex ("Nazorat Trello") moduli barcha rollarni saqlab qoladi. */
 const MEBEL_ROLES = ["worker", "brigadier", "supervisor", "admin"];
 
+/* Yangi xodim qo'shishda rahbar/admin tanlanmasin — ular boshqaruvchi,
+   ishlab chiqarish ishini bajarmaydi, va bu rollar odatda kamdan-kam,
+   alohida tayinlanadi (yangi xodim qo'shish orqali emas). Mavjud xodimni
+   TAHRIRLASHDA esa cheklanmaydi (masalan ishchini brigadirlikka yoki
+   brigadirni rahbarlikka ko'tarish shu orqali qilinadi). */
+const NEW_EMPLOYEE_EXCLUDED_ROLES = ["admin", "supervisor"];
+
 function rolesForModule(alwaysInclude) {
   const all = Object.keys(ROLE_LABELS[state.lang]);
   if (nav.module !== "mebel") return all;
@@ -722,7 +729,7 @@ async function screenNewTaskForm(kind) {
         </select>
       </div>
       <p class="section-lbl">${esc(t("employeesField"))} (≤3)</p>
-      ${activeEmployees.map((e) => `
+      ${activeEmployees.filter((e) => e.role === "worker" || e.role === "brigadier").map((e) => `
         <label class="check-row"><input type="checkbox" value="${e.id}" class="f-emp" />${esc(e.full_name)} — ${esc(e.role_label)}</label>
       `).join("")}
     `}
@@ -927,6 +934,7 @@ async function screenAddEmployee() {
   // mumkin edi. Endi faqat joriy `nav.module`ga tegishli bo'limlar ko'rinadi.
   const departments = (await api("/admin/departments")).filter((d) => d.module === nav.module);
   const roleOptions = rolesForModule()
+    .filter((r) => !NEW_EMPLOYEE_EXCLUDED_ROLES.includes(r))
     .map((r) => `<option value="${r}">${esc(ROLE_LABELS[state.lang][r])}</option>`).join("");
 
   setScreen(`
