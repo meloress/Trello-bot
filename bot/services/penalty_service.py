@@ -70,23 +70,49 @@ async def _write_scores_for_employees(
     session, *, employee_ids: list[int], score: int, reason: str, task_id: int, brigade_share_ratio: float
 ) -> list[KpiLog]:
     """Minus (kechikish) va plus (muddatdan oldin) yo'llarining ikkalasi ham
-    shu umumiy yadrodan foydalanadi: berilgan employee_id ro'yxatidagi ISHCHI
-    (Role.WORKER) xodimlarning har biriga bir xil `score`ni yozadi, har biri
-    uchun 8.4-band bo'yicha brigadir ulushini ham qo'shadi (ulush ikki
-    yo'nalishda ham ishlaydi — `score` musbat bo'lsa bonus ulushi, manfiy
-    bo'lsa jarima ulushi, `_apply_brigade_share_for_worker` sof arifmetika)."""
+    shu umumiy yadrodan foydalanadi: berilgan employee_id ro'yxatidagi
+    javobgar xodim(lar)ning har biriga bir xil `score`ni yozadi.
+
+    Javobgar KIM ekani ikki bosqichda aniqlanadi:
+    1. Ro'yxatda ISHCHI (Role.WORKER) bo'lsa — odatdagi holat: ball
+       ishchi(lar)ga yoziladi, har biri uchun 8.4-band bo'yicha brigadir
+       ulushi ham qo'shiladi (ulush ikki yo'nalishda ham ishlaydi — `score`
+       musbat bo'lsa bonus ulushi, manfiy bo'lsa jarima ulushi,
+       `_apply_brigade_share_for_worker` sof arifmetika).
+    2. Ishchi UMUMAN bo'lmasa — vazifa hali brigadirdan ishchiga
+       topshirilmagan (mebel oqimida har bir yangi bosqich aynan shunday,
+       brigadirga tayinlangan holda boshlanadi). Bunda ball TO'LIQ
+       brigadirning o'ziga yoziladi: vazifa kimning qo'lida bo'lsa,
+       javobgarlik ham o'shanda. Avval bunday vazifa uchun HECH KIMGA ball
+       yozilmasdi, ya'ni brigadir topshirmaslik orqali butun jarima
+       tizimidan chetda qolardi — bu KPI'dagi teskari rag'bat edi.
+
+    Ikkala holatda ham WORKER/BRIGADIER'dan boshqa rol (admin, sotuvchi,
+    nazoratchi) ballga umuman kirmaydi — ular kartada tasodifan a'zo bo'lib
+    qolgan bo'lishi mumkin, bu ish tayinlash emas."""
     employee_repo = EmployeeRepository(session)
     brigade_repo = BrigadeRepository(session)
     kpi_repo = KpiLogRepository(session)
 
-    created_logs: list[KpiLog] = []
+    employees = []
     for employee_id in employee_ids:
         employee = await employee_repo.get_by_id(employee_id)
-        if employee is None or employee.role != Role.WORKER:
-            continue
+        if employee is not None:
+            employees.append(employee)
 
-        log = await kpi_repo.create(employee_id=employee_id, score=score, reason=reason)
+    workers = [e for e in employees if e.role == Role.WORKER]
+    responsible = workers or [e for e in employees if e.role == Role.BRIGADIER]
+
+    created_logs: list[KpiLog] = []
+    for employee in responsible:
+        log = await kpi_repo.create(employee_id=employee.id, score=score, reason=reason)
         created_logs.append(log)
+
+        # Brigadir ballni O'ZI olgan holatda ustiga yana ulush yozilmaydi
+        # (`_apply_brigade_share_for_worker`da ham himoya bor, lekin bu yerda
+        # aniq ko'rinib tursin — ikki marta jarimalash mumkin emas).
+        if employee.role != Role.WORKER:
+            continue
 
         brigadier_log = await _apply_brigade_share_for_worker(
             brigade_repo,
@@ -110,9 +136,10 @@ async def apply_penalty_for_employees(
     yakunlangan vazifa (`calculate_and_apply_task_penalty`) va 8.3-band
     "brigadaga o'tkazish"da eski brigadaga DARHOL jarima
     (`task_service.reassign_task_brigade`) ikkalasi ham shundan foydalanadi.
-    `penalty_rules`dan mos qoidani topib, ISHCHI (Role.WORKER) rolidagi
-    xodim(lar)ga to'liq jarimani yozadi, har biriga 8.4-band bo'yicha
-    brigadir ulushini ham qo'shadi."""
+    `penalty_rules`dan mos qoidani topib, javobgar xodim(lar)ga to'liq
+    jarimani yozadi (kim javobgar ekani — `_write_scores_for_employees`
+    docstring'ida: ishchi(lar), ular bo'lmasa brigadirning o'zi), ishchiga
+    yozilganda 8.4-band bo'yicha brigadir ulushini ham qo'shadi."""
     async with async_session() as session:
         rule_repo = PenaltyRuleRepository(session)
 

@@ -35,6 +35,14 @@ from utils.enums import MiscCategory, Role, TaskStatus, TaskType
 
 logger = logging.getLogger(__name__)
 
+# Trello kartasidagi a'zolardan KIM ijrochi bo'la oladi. Admin/nazoratchi/
+# sotuvchi kartada bo'lishi mumkin (kuzatish uchun, yoki tasodifan) — bu ish
+# tayinlash EMAS. Filtrsiz holatda haqiqiy ishlab chiqarish bazasida ADMIN
+# hisobi vazifa ijrochisi bo'lib qolgan edi (task #129), va u hech qachon
+# ball ololmasdi (`penalty_service` faqat ishchi/brigadirni hisoblaydi) —
+# ya'ni vazifa butunlay KPI'dan tashqarida qolardi.
+ASSIGNABLE_ROLES = (Role.WORKER, Role.BRIGADIER)
+
 
 async def _trello_writes_disabled(department_id: int | None) -> bool:
     """Mebel moduli endi bir tomonlama (faqat Trello -> bot): shu bo'limlar
@@ -282,12 +290,12 @@ async def sync_trello_card_stage(
         resolved = []
         for trello_member_id in member_trello_ids:
             employee = await employee_repo.get_by_trello_member_id(trello_member_id)
-            if employee is not None and employee.is_active:
+            if employee is not None and employee.is_active and employee.role in ASSIGNABLE_ROLES:
                 resolved.append(employee)
 
         if not resolved:
             logger.warning(
-                "sync_trello_card_stage: karta %s uchun hech qanday tanish xodim topilmadi (a'zolar: %s)",
+                "sync_trello_card_stage: karta %s uchun hech qanday tanish IJROCHI topilmadi (a'zolar: %s)",
                 card_id, member_trello_ids,
             )
             return None

@@ -161,7 +161,10 @@ async def _handle_open_task(bot: Bot, department, card: dict, latest) -> None:
             employee_repo = EmployeeRepository(session)
             for trello_member_id in added:
                 employee = await employee_repo.get_by_trello_member_id(trello_member_id)
-                if employee is not None and employee.is_active:
+                # Faqat ishchi/brigadir ijrochi bo'la oladi — admin yoki
+                # sotuvchining kartaga qo'shilishi tayinlov emas (izohni
+                # `task_service.ASSIGNABLE_ROLES` yonida ko'ring).
+                if employee is not None and employee.is_active and employee.role in task_service.ASSIGNABLE_ROLES:
                     reassign_to = employee.id
                     break
             if reassign_to is not None:
