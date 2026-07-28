@@ -70,6 +70,19 @@ class Department(TimestampedBase):
     # `trello_list_id`dan MUSTAQIL — Resume bosilganda karta ANIQ shu
     # ustunga emas, bo'limning ODATIY `trello_list_id`siga qaytariladi.
     stop_target_list_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    # Mebel moduli: bu bo'limga QAYSI Trello ro'yxatlari tegishli ekanini
+    # NOMI bo'yicha aniqlaydigan kalit so'zlar (vergul bilan, katta-kichik
+    # harf farqsiz). Masalan Shpon -> "shpon", Kraska -> "kraska,malyarka".
+    #
+    # Nega ro'yxat ID'lari emas: haqiqiy boardda bitta bosqichga bir nechta
+    # ro'yxat to'g'ri keladi (har brigadaga bittadan: "Zoxid shpon brigada",
+    # "Abror shpon brigada", ...), va ular vaqti-vaqti bilan qo'shiladi/
+    # o'chiriladi/nomi o'zgaradi. ID saqlansa har o'zgarishda bazani qo'lda
+    # yangilash kerak bo'lardi va Trello hisobi almashtirilsa hammasi
+    # buzilardi. Kalit so'z bilan esa yangi "Sardor shpon brigada" ro'yxati
+    # qo'shilsa — keyingi pollda o'zi Shpon bo'limiga tushadi, hech qanday
+    # sozlash kerak emas. NULL = bu bo'lim Trello'dan sinxronlanmaydi.
+    trello_list_keywords: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
 
     brigades: Mapped[list["Brigade"]] = relationship(back_populates="department")
     employees: Mapped[list["Employee"]] = relationship(back_populates="department")

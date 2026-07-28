@@ -268,6 +268,7 @@ async def sync_trello_card_stage(
     member_trello_ids: list[str],
     previous_task_id: int | None = None,
     client_id: int | None = None,
+    trello_list_id: str | None = None,
 ) -> Task | None:
     """Mebel moduli: Trello-birinchi kirish nuqtasi (`jobs/trello_ingest_job.py`
     chaqiradi, keyingi vazifada qo'shiladi). Trello endi yagona manba — bu
@@ -300,13 +301,21 @@ async def sync_trello_card_stage(
             )
             return None
 
-        brigadiers = [e for e in resolved if e.role == Role.BRIGADIER]
-        if len(brigadiers) > 1:
+        # Kartadagi BARCHA tanish ishchi vazifaga biriktiriladi — brigadir
+        # Trello'da ishni bir nechta ishchiga bo'lib beradi, va ularning
+        # HAMMASIGA xabar borishi kerak. Avval faqat bittasi (yoki brigadir)
+        # tayinlanardi, ya'ni brigadir 3 ta ishchi qo'shsa 2 tasi ishdan
+        # butunlay bexabar qolardi. Ishchi umuman bo'lmasa (brigadir kartani
+        # o'ziga olgan, hali bo'lib bermagan) — brigadir(lar) tayinlanadi,
+        # javobgarlik o'shanda qoladi (penalty_service ham shunga mos: ishchi
+        # bo'lmasa ball brigadirning o'ziga yoziladi).
+        workers = [e for e in resolved if e.role == Role.WORKER]
+        assignees = workers or [e for e in resolved if e.role == Role.BRIGADIER]
+        if not assignees:
             logger.warning(
-                "sync_trello_card_stage: karta %s uchun bir nechta brigadir topildi (%s) — birinchisi tanlandi",
-                card_id, [e.id for e in brigadiers],
+                "sync_trello_card_stage: karta %s a'zolari orasida ishchi/brigadir yo'q", card_id
             )
-        assignee = brigadiers[0] if brigadiers else resolved[0]
+            return None
 
         task_repo = TaskRepository(session)
         assignment_repo = TaskAssignmentRepository(session)
@@ -322,22 +331,29 @@ async def sync_trello_card_stage(
             started_at=datetime.now(timezone.utc),
             previous_task_id=previous_task_id,
             client_id=client_id,
-            trello_last_seen_list_id=department.trello_list_id,
+            trello_last_seen_list_id=trello_list_id or department.trello_list_id,
             trello_last_seen_member_ids=list(member_trello_ids),
             trello_last_polled_at=datetime.now(timezone.utc),
         )
-        await assignment_repo.create(task_id=task.id, employee_id=assignee.id)
+        for assignee in assignees:
+            await assignment_repo.create(task_id=task.id, employee_id=assignee.id)
 
         await session.commit()
         return task
 
 
-async def set_assignee_from_trello(task_id: int, new_employee_id: int) -> Task:
-    """Mebel moduli: karta a'zosi Trello'da o'zgarganda chaqiriladi
+async def set_assignees_from_trello(task_id: int, new_employee_ids: list[int]) -> Task:
+    """Mebel moduli: karta a'zolari Trello'da o'zgarganda chaqiriladi
     (`jobs/trello_ingest_job.py`) — jarima yo'q, Trello yozuvi yo'q, faqat
     `task_assignments`ni to'liq almashtiradi (`delegate_task()`/
     `reassign_task_brigade()`dagi bilan bir xil "to'liq almashtirish"
-    qoidasi — qisman birgalikda egalik qilish yo'q)."""
+    qoidasi — qisman birgalikda egalik qilish yo'q).
+
+    Ro'yxat qabul qiladi, chunki brigadir bitta ishni bir nechta ishchiga
+    bo'lib berishi mumkin va ularning hammasi biriktirilishi kerak."""
+    if not new_employee_ids:
+        raise ValueError("new_employee_ids bo'sh bo'lishi mumkin emas")
+
     async with async_session() as session:
         task_repo = TaskRepository(session)
         assignment_repo = TaskAssignmentRepository(session)
@@ -348,7 +364,8 @@ async def set_assignee_from_trello(task_id: int, new_employee_id: int) -> Task:
 
         for assignment in await assignment_repo.list_by_task(task_id):
             await assignment_repo.delete(assignment)
-        await assignment_repo.create(task_id=task_id, employee_id=new_employee_id)
+        for employee_id in new_employee_ids:
+            await assignment_repo.create(task_id=task_id, employee_id=employee_id)
 
         await session.commit()
         return task

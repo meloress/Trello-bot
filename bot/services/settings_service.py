@@ -7,6 +7,7 @@ yangilanadi.
 """
 
 from dataclasses import dataclass
+from datetime import datetime
 
 from core.database import async_session
 from db.repositories import AppSettingRepository
@@ -32,6 +33,11 @@ class AppSettingsSnapshot:
     sales_board_lists: dict
     daily_quota_points_per_worker: int
     daily_report_time: str
+    # Mebel moduli, Trello sinxronizatsiyasi. Ikkalasi ham None bo'lishi mumkin:
+    # board_id yo'q = sinxronizatsiya butunlay o'chiq (xavfsiz standart),
+    # ingest_start_at yo'q = eski kartalar uchun chegara yo'q.
+    mebel_trello_board_id: str | None
+    mebel_ingest_start_at: datetime | None
 
 
 _cache: AppSettingsSnapshot | None = None
@@ -86,6 +92,8 @@ async def _load_from_db() -> AppSettingsSnapshot:
         sales_board_lists=row.sales_board_lists,
         daily_quota_points_per_worker=row.daily_quota_points_per_worker,
         daily_report_time=row.daily_report_time,
+        mebel_trello_board_id=row.mebel_trello_board_id,
+        mebel_ingest_start_at=row.mebel_ingest_start_at,
     )
 
 

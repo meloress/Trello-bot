@@ -99,7 +99,11 @@ class TrelloClient:
         ishlaydigan bo'lsa, bu butun ro'yxatni bir so'rovda oladi."""
         return await self._request(
             "GET", f"/lists/{list_id}/cards",
-            params={"filter": "all", "fields": "name,desc,due,idList,idMembers,closed"},
+            # `dateLastActivity` — ingest'ning "ishga tushirish chegarasi" uchun:
+            # karta oxirgi marta qachon qimirlagani. Chegaradan eski kartalar
+            # (tizim yoqilgunga qadar qotib qolgan eski buyurtmalar) yangi ish
+            # deb qabul qilinmaydi (`jobs/trello_ingest_job.py`).
+            params={"filter": "all", "fields": "name,desc,due,idList,idMembers,closed,dateLastActivity"},
         )
 
     async def list_board_labels(self, board_id: str) -> list[dict]:

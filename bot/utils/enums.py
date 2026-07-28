@@ -83,3 +83,25 @@ class ClaimStatus(str, Enum):
     PENDING = "pending"
     APPROVED = "approved"
     REJECTED = "rejected"
+
+
+class TrelloListKind(str, Enum):
+    """Mebel moduli: kuzatilayotgan Trello ro'yxati NIMA ma'noni bildiradi.
+
+    Haqiqiy "Fasad seh" boardida bitta bosqichga (masalan Shpon) bir nechta
+    ro'yxat to'g'ri keladi — har bir brigadaning o'z ro'yxati bor, ustiga
+    yana "hali boshlanmadik" kabi kutish ro'yxatlari. Shu sabab bo'lim <->
+    ro'yxat bog'lanishi 1:1 emas, 1:N (`department_trello_lists`), va har bir
+    ro'yxat qaysi turga kirishi shu yerda belgilanadi.
+
+    WORK  — brigadaning ish ro'yxati. Karta bu yerga tushdi = ish BOSHLANDI:
+            vazifa ochiladi, kartadagi ishchilarga xabar boradi, taymer ketadi.
+    QUEUE — kutish/o'tish ro'yxati ("shpon hali boshlanmadik", "shkurka hali
+            tasdiqlanmadi", shuningdek kraskadan keyingi dastavka/ustanovka).
+            Karta bu yerda TURSA hech qanday vazifa ochilmaydi; agar shu karta
+            uchun ochiq vazifa bo'lsa — demak u ish ro'yxatidan CHIQIB ketgan,
+            ya'ni o'sha bosqich tugagan: vazifa avtomatik yakunlanadi.
+    """
+
+    WORK = "work"
+    QUEUE = "queue"

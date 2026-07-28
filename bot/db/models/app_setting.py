@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from sqlalchemy import Float, Integer, JSON, String
+from datetime import datetime
+from typing import Optional
+
+from sqlalchemy import DateTime, Float, Integer, JSON, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db.base import TimestampedBase
@@ -68,3 +71,20 @@ class AppSetting(TimestampedBase):
     # (HH:MM, Toshkent) `daily_report_required=True` xodimlarga yuboriladi
     # (`jobs/daily_report_job.py`) — `report_time` bilan bir xil naqsh.
     daily_report_time: Mapped[str] = mapped_column(String(5), nullable=False)
+    # Mebel moduli: bot kuzatadigan Trello DOSKASI (butun doska, bitta ro'yxat
+    # emas). Ro'yxatlar bu yerda SAQLANMAYDI — `jobs/trello_ingest_job.py` har
+    # pollda doskadagi ro'yxatlarni qaytadan o'qiydi va NOMIGA qarab tasniflaydi
+    # (`services/trello_board_map.py`). Shu sabab Trello'da yangi ro'yxat
+    # qo'shilsa/o'chirilsa/nomi o'zgarsa bazada hech narsa sozlash kerak emas.
+    # NULL/bo'sh = mebel sinxronizatsiyasi butunlay o'chiq (xavfsiz standart).
+    mebel_trello_board_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    # Mebel moduli: ingest QAYSI PAYTDAN boshlab ish qabul qilsin. Haqiqiy
+    # doskada yillar davomida yig'ilgan yuzlab ochiq karta bor va ularning
+    # ko'pchiligining muddati allaqachon o'tgan. Chegara qo'yilmasa, tizim
+    # yoqilgan zahoti ularning HAMMASI "yangi ish" deb ochilib, darhol OVERDUE
+    # bo'lardi va real xodimlarga tizim mavjud bo'lmagan davr uchun o'nlab
+    # jarima ball yozilardi. Karta `dateLastActivity` shu sanadan eski bo'lsa,
+    # unga umuman tegilmaydi — karta Trello'da qimirlagan zahoti (ko'chirilsa,
+    # a'zo qo'shilsa) `dateLastActivity` yangilanadi va o'zi ishga qo'shiladi.
+    # NULL = chegara yo'q (barcha kartalar qabul qilinadi).
+    mebel_ingest_start_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
