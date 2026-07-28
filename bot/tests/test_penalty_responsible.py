@@ -70,7 +70,7 @@ async def _run(employees, employee_ids, score=-2, ratio=0.4):
     try:
         logs = await ps._write_scores_for_employees(
             None, employee_ids=employee_ids, score=score,
-            reason="test", task_id=1, brigade_share_ratio=ratio,
+            reason="test", task_id=1, task_title="Test vazifa", brigade_share_ratio=ratio,
         )
     finally:
         ps.EmployeeRepository, ps.BrigadeRepository, ps.KpiLogRepository = orig

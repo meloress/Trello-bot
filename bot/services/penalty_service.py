@@ -67,7 +67,8 @@ def month_bounds(reference: date) -> tuple[datetime, datetime]:
 
 
 async def _write_scores_for_employees(
-    session, *, employee_ids: list[int], score: int, reason: str, task_id: int, brigade_share_ratio: float
+    session, *, employee_ids: list[int], score: int, reason: str, task_id: int, task_title: str,
+    brigade_share_ratio: float,
 ) -> list[KpiLog]:
     """Minus (kechikish) va plus (muddatdan oldin) yo'llarining ikkalasi ham
     shu umumiy yadrodan foydalanadi: berilgan employee_id ro'yxatidagi
@@ -122,6 +123,7 @@ async def _write_scores_for_employees(
             worker_score=score,
             ratio=brigade_share_ratio,
             task_id=task_id,
+            task_title=task_title,
         )
         if brigadier_log is not None:
             created_logs.append(brigadier_log)
@@ -149,6 +151,9 @@ async def apply_penalty_for_employees(
                 f"Task {task_id}: {hours_late} soat kechikish uchun penalty_rules'da mos qoida yo'q"
             )
 
+        task = await TaskRepository(session).get_by_id(task_id)
+        task_title = task.title if task is not None else f"vazifa #{task_id}"
+
         app_settings = await settings_service.get_settings()
         final_score = round(rule.score * app_settings.default_penalty_multiplier)
 
@@ -156,8 +161,9 @@ async def apply_penalty_for_employees(
             session,
             employee_ids=employee_ids,
             score=final_score,
-            reason=f"{reason_label}: {hours_late} soat (vazifa #{task_id})",
+            reason=f'{reason_label}: "{task_title}" vazifasi muddatidan {hours_late} soat kech tugatildi',
             task_id=task_id,
+            task_title=task_title,
             brigade_share_ratio=app_settings.brigade_share_ratio,
         )
         await session.commit()
@@ -178,13 +184,17 @@ async def apply_plus_ball_for_employees(*, task_id: int, employee_ids: list[int]
         return []
 
     async with async_session() as session:
+        task = await TaskRepository(session).get_by_id(task_id)
+        task_title = task.title if task is not None else f"vazifa #{task_id}"
+
         app_settings = await settings_service.get_settings()
         created_logs = await _write_scores_for_employees(
             session,
             employee_ids=employee_ids,
             score=plus_score,
-            reason=f"Muddatdan oldin tugatish: {hours_early} soat oldin (vazifa #{task_id})",
+            reason=f'"{task_title}" vazifasi muddatidan {hours_early} soat oldin tugatildi',
             task_id=task_id,
+            task_title=task_title,
             brigade_share_ratio=app_settings.brigade_share_ratio,
         )
         await session.commit()
@@ -313,10 +323,14 @@ async def _apply_brigade_share_for_worker(
     worker_score: int,
     ratio: float,
     task_id: int,
+    task_title: str,
 ) -> KpiLog | None:
     """8.4-band: `worker` ball olganda (bonus/jarima), uning brigadiriga ulush
     yozadi. Brigadasi yo'q, brigadaning brigadiri tayinlanmagan, yoki ulush
-    0'ga yaxlitlansa — jim `None` qaytaradi (xatolik emas)."""
+    0'ga yaxlitlansa — jim `None` qaytaradi (xatolik emas). Oxirgi holat
+    amalda faqat ishchi -1 ball olganda sodir bo'ladi (-1 * 0.33 = -0.33,
+    yaxlitlansa 0) — bu qasddan shunday qoldirilgan: 0 ball uchun brigadirga
+    bildirishnoma yuborishning ma'nosi yo'q."""
     if worker.brigade_id is None:
         return None
 
@@ -343,7 +357,10 @@ async def _apply_brigade_share_for_worker(
     return await kpi_repo.create(
         employee_id=brigadier.id,
         score=share_score,
-        reason=f"Brigada ulushi: {worker.full_name}ning bali {worker_score:+d} (vazifa #{task_id})",
+        reason=(
+            f'Brigadangizdagi {worker.full_name} "{task_title}" vazifasi bo\'yicha '
+            f"{worker_score:+d} ball olgani uchun ulushingiz ({ratio:.0%})"
+        ),
     )
 
 
