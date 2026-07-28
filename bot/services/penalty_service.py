@@ -198,10 +198,10 @@ async def apply_plus_ball_for_employees(*, task_id: int, employee_ids: list[int]
 
 async def calculate_and_apply_task_penalty(task_id: int) -> list[KpiLog]:
     """8.1/8.2/8.4-band: vazifa yakunlanganda chaqiriladi.
-    - Muddatidan KECH tugagan bo'lsa: 24 soatlik "grace period"dan keyin
-      (`hours_late < 24` bo'lsa hech narsa yozilmaydi — bu `penalty_rules`
-      jadvalidagi bracket'lar endi 24 soatdan boshlangani uchun tabiiy kelib
-      chiqadi) `apply_penalty_for_employees()` orqali jarima.
+    - Muddatidan KECH tugagan bo'lsa (bepul kun/"grace period" YO'Q — rasmiy
+      qoida bo'yicha muddat o'tgan zahoti jarima boshlanadi): `penalty_rules`
+      jadvali `[0,24)` bracketidan boshlab `apply_penalty_for_employees()`
+      orqali jarima yozadi.
     - Aniq MUDDATIDA tugagan bo'lsa: bo'sh ro'yxat, hech narsa yozilmaydi.
     - Muddatidan OLDIN tugagan bo'lsa: `apply_plus_ball_for_employees()`
       orqali 8.4-band plus balli.
@@ -233,8 +233,6 @@ async def calculate_and_apply_task_penalty(task_id: int) -> list[KpiLog]:
         return await apply_plus_ball_for_employees(task_id=task_id, employee_ids=employee_ids, hours_early=hours_early)
 
     hours_late = int(delta_seconds // 3600)
-    if hours_late < 24:
-        return []  # 8.1/8.2-band: 24 soatlik grace period, dayIndex=0 -> jarima yo'q
 
     return await apply_penalty_for_employees(
         task_id=task_id,
