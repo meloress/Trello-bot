@@ -98,16 +98,42 @@ function positionTabPill() {
 }
 window.addEventListener("resize", () => positionTabPill());
 
+/* Rol nomlari — SOF MATN (ikonkasiz), chunki bular `<option>` ichida ham
+   ishlatiladi, u yerda SVG chizilmaydi. Ikonka alohida `ROLE_ICONS`da.
+   "Rahbar" = SUPERVISOR: bo'lim boshlig'i, ishchilarning Pauza/Yakunlash
+   so'rovlarini tasdiqlaydi. "Admin" = tizimning to'liq egasi. Avval
+   SUPERVISOR "Nazoratchi", ADMIN esa "Rahbar/Admin" deb atalardi — ikkalasida
+   ham "rahbar" so'zi bo'lgani uchun chalkashlik chiqardi. */
 const ROLE_LABELS = {
   uz: {
-    worker: "👷 Ishchi", brigadier: "👨‍💼 Brigadir", supervisor: "🕵️ Nazoratchi",
-    admin: "👔 Rahbar/Admin", observer: "👀 Kuzatuvchi", seller: "💼 Sotuvchi",
+    worker: "Ishchi", brigadier: "Brigadir", supervisor: "Rahbar",
+    admin: "Admin", observer: "Kuzatuvchi", seller: "Sotuvchi",
   },
   ru: {
-    worker: "👷 Работник", brigadier: "👨‍💼 Бригадир", supervisor: "🕵️ Наблюдатель",
-    admin: "👔 Руководитель", observer: "👀 Наблюдатель", seller: "💼 Продавец",
+    worker: "Работник", brigadier: "Бригадир", supervisor: "Руководитель",
+    admin: "Админ", observer: "Наблюдатель", seller: "Продавец",
   },
 };
+
+const ROLE_ICONS = {
+  worker: "user", brigadier: "users", supervisor: "chart",
+  admin: "settings", observer: "user", seller: "briefcase",
+};
+
+/* Mebel ("Fasad seh") ishlab chiqarishida atigi to'rt rol ishlatiladi —
+   ishchi, brigadir, rahbar, admin. Kuzatuvchi/sotuvchi u yerda ma'noga ega
+   emas, shuning uchun xodim qo'shish/tahrirlash ro'yxatida ko'rsatilmaydi
+   (bo'lim ro'yxati modulga qarab filtrlangani bilan bir xil naqsh).
+   fasad_sex ("Nazorat Trello") moduli barcha rollarni saqlab qoladi. */
+const MEBEL_ROLES = ["worker", "brigadier", "supervisor", "admin"];
+
+function rolesForModule(alwaysInclude) {
+  const all = Object.keys(ROLE_LABELS[state.lang]);
+  if (nav.module !== "mebel") return all;
+  // Tahrirlashda xodimning JORIY roli ro'yxatdan tushib qolmasligi shart —
+  // aks holda saqlash tugmasi uni jimgina boshqa rolga o'zgartirib yuboradi.
+  return all.filter((r) => MEBEL_ROLES.includes(r) || r === alwaysInclude);
+}
 
 /* Chiziq-uslubidagi SVG ikon — index.html'dagi <symbol id="ic-*"> sprite'idan
    <use> orqali chizadi (emoji glyflar o'rniga, .claude/plans/10-miniapp-qayta-dizayn.md). */
@@ -783,15 +809,11 @@ async function screenEmployees() {
   const roles = Object.keys(ROLE_LABELS[state.lang]).filter((r) => employees.some((e) => e.role === r));
   setScreen(`
     <p class="page-title">${esc(t("employeesNav"))} (${employees.length})</p>
-    ${roles.map((r) => {
-      const count = employees.filter((e) => e.role === r).length;
-      const [icon, ...rest] = ROLE_LABELS[state.lang][r].split(" ");
-      return `
+    ${roles.map((r) => `
         <button class="nav-card" data-role="${r}">
-          <span class="ic">${icon}</span><span class="grow">${esc(rest.join(" "))}</span><span class="badge">${count}</span><span class="chev">›</span>
+          <span class="ic">${icon(ROLE_ICONS[r])}</span><span class="grow">${esc(ROLE_LABELS[state.lang][r])}</span><span class="badge">${employees.filter((e) => e.role === r).length}</span><span class="chev">›</span>
         </button>
-      `;
-    }).join("")}
+      `).join("")}
   `);
   root.querySelectorAll(".nav-card").forEach((el) => {
     el.onclick = () => show(screenEmployeesByRole, el.dataset.role);
@@ -825,7 +847,7 @@ async function screenEmployeeDetail(employeeId) {
   const [employee, departments] = await Promise.all([
     api(`/admin/employees/${employeeId}`), api("/admin/departments"),
   ]);
-  const roleOptions = Object.keys(ROLE_LABELS[state.lang])
+  const roleOptions = rolesForModule(employee.role)
     .map((r) => `<option value="${r}" ${r === employee.role ? "selected" : ""}>${esc(ROLE_LABELS[state.lang][r])}</option>`).join("");
 
   async function renderBrigadeOptions(departmentId, selectedBrigadeId) {
@@ -904,7 +926,7 @@ async function screenAddEmployee() {
   // joriy modulga tegishli BO'LMAGAN bo'limga tasodifan biriktirilishi
   // mumkin edi. Endi faqat joriy `nav.module`ga tegishli bo'limlar ko'rinadi.
   const departments = (await api("/admin/departments")).filter((d) => d.module === nav.module);
-  const roleOptions = Object.keys(ROLE_LABELS[state.lang])
+  const roleOptions = rolesForModule()
     .map((r) => `<option value="${r}">${esc(ROLE_LABELS[state.lang][r])}</option>`).join("");
 
   setScreen(`
@@ -1022,15 +1044,11 @@ async function screenFullStats() {
   const roles = Object.keys(ROLE_LABELS[state.lang]).filter((r) => stats.some((s) => s.role === r));
   setScreen(`
     <p class="page-title">${esc(t("fullStatsTitle"))}</p>
-    ${roles.length > 1 ? roles.map((r) => {
-      const count = stats.filter((s) => s.role === r).length;
-      const [icon, ...rest] = ROLE_LABELS[state.lang][r].split(" ");
-      return `
+    ${roles.length > 1 ? roles.map((r) => `
         <button class="nav-card" data-role="${r}">
-          <span class="ic">${icon}</span><span class="grow">${esc(rest.join(" "))}</span><span class="badge">${count}</span><span class="chev">›</span>
+          <span class="ic">${icon(ROLE_ICONS[r])}</span><span class="grow">${esc(ROLE_LABELS[state.lang][r])}</span><span class="badge">${stats.filter((s) => s.role === r).length}</span><span class="chev">›</span>
         </button>
-      `;
-    }).join("") : ""}
+      `).join("") : ""}
     ${mebelOnly ? "" : `<button class="nav-card" id="nav-capacity"><span class="ic">${icon("ruler")}</span><span class="grow">${esc(t("capacityStatsNav"))}</span><span class="chev">›</span></button>`}
     <p class="section-lbl">${esc(t("overallRanking"))}</p>
     ${statRowsHtml(stats)}

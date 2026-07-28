@@ -25,3 +25,7 @@ Thumbs.db
 
 # Office temp files
 ~$*
+
+# Baza zaxira nusxalari (_backup_db.py chiqishi) — ichida xodimlarning
+# telefon raqamlari va telegram_id'lari bor, hech qachon commit qilinmaydi.
+bot/_backups/
