@@ -2009,6 +2009,12 @@ function routeHome() {
 }
 
 async function bootstrap() {
+  const splash = window.MeloresSplash;
+  await Promise.all([_bootstrap(), splash ? splash.ready : Promise.resolve()]);
+  if (splash) splash.hide();
+}
+
+async function _bootstrap() {
   const app = tg();
   if (app) {
     app.ready();
