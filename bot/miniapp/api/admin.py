@@ -769,10 +769,16 @@ def _parse_setting_value(field: str, value: object) -> object:
     return value
 
 
+def _serialize_setting(value: object) -> object:
+    return value.isoformat() if isinstance(value, datetime) else value
+
+
 @routes.get("/settings")
 async def get_settings(request: web.Request) -> web.Response:
     snapshot = await settings_service.get_settings()
-    return web.json_response({field: getattr(snapshot, field) for field in _SETTING_FIELDS})
+    return web.json_response(
+        {field: _serialize_setting(getattr(snapshot, field)) for field in _SETTING_FIELDS}
+    )
 
 
 @routes.post("/settings")
@@ -794,7 +800,9 @@ async def update_settings(request: web.Request) -> web.Response:
     if "daily_report_time" in fields:
         daily_report_job.schedule_all(request.config_dict["bot"], updated.daily_report_time)
 
-    return web.json_response({field: getattr(updated, field) for field in _SETTING_FIELDS})
+    return web.json_response(
+        {field: _serialize_setting(getattr(updated, field)) for field in _SETTING_FIELDS}
+    )
 
 
 @routes.get("/reminders")
