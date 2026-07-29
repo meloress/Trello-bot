@@ -838,13 +838,21 @@ async function screenEmployees() {
   setMainButton(`➕ ${t("addEmployee")}`, () => show(screenAddEmployee), "#4f3ff0");
 }
 
-async function screenEmployeesByRole(role) {
+async function screenEmployeesByRole(role, departmentId) {
   setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
   // ponytail: to'liq ro'yxatni olib mijozda filtrlaymiz — yuzlab xodim uchun yetarli,
   // minglab bo'lsa /admin/employees?role= kabi serverga filtr qo'shish kerak bo'ladi.
-  const employees = (await api("/admin/employees")).filter((e) => e.role === role);
+  const all = (await api("/admin/employees")).filter((e) => e.role === role);
+  // Bo'lim filtri — faqat shu ro'yxatda haqiqatan uchraydigan bo'limlar
+  // (bo'limi yo'q rol, masalan admin, uchun tugmalar umuman chiqmaydi).
+  const departments = [...new Map(all.filter((e) => e.department).map((e) => [e.department_id, e.department]))];
+  const employees = departmentId ? all.filter((e) => e.department_id === departmentId) : all;
   setScreen(`
     <p class="page-title">${esc(ROLE_LABELS[state.lang][role])} (${employees.length})</p>
+    ${departments.length > 1 ? `<div class="lead-brand-row">
+      <button class="brand-pill" data-did="" aria-selected="${!departmentId}">${esc(t("allDepartments"))}</button>
+      ${departments.map(([id, name]) => `<button class="brand-pill" data-did="${id}" aria-selected="${id === departmentId}">${esc(name)}</button>`).join("")}
+    </div>` : ""}
     ${employees.map((e, i) => `
       <button class="emp-row" data-i="${i}">
         <span class="dot-status ${e.is_active ? "on" : "off"}"></span>
@@ -853,6 +861,9 @@ async function screenEmployeesByRole(role) {
       </button>
     `).join("")}
   `);
+  root.querySelectorAll(".brand-pill").forEach((btn) => {
+    btn.onclick = () => replaceTop(screenEmployeesByRole, role, btn.dataset.did ? Number(btn.dataset.did) : undefined);
+  });
   root.querySelectorAll(".emp-row").forEach((el) => {
     const emp = employees[Number(el.dataset.i)];
     el.onclick = () => show(screenEmployeeDetail, emp.id);
