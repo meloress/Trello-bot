@@ -358,7 +358,9 @@ async def _apply_brigade_share_for_worker(
         employee_id=brigadier.id,
         score=share_score,
         reason=(
-            f'Brigadangizdagi {worker.full_name} "{task_title}" vazifasi bo\'yicha '
+            # Brigada nomi boshida — bitta brigadir bir nechta brigadaga
+            # rahbarlik qilganda ulush qaysi brigadadan kelganini bilishi uchun.
+            f'{brigade.name}: {worker.full_name} "{task_title}" vazifasi bo\'yicha '
             f"{worker_score:+d} ball olgani uchun ulushingiz ({ratio:.0%})"
         ),
     )

@@ -35,6 +35,25 @@ from utils.formatters import format_dt as _format_dt
 
 logger = logging.getLogger(__name__)
 
+# Uchta claim xabari (yuborildi/tasdiqlandi/rad etildi) shu yagona jadvaldan
+# o'qiydi — ilgari har biri o'z ternary'sini yozardi, ya'ni uchinchi amal
+# (RESUME) qo'shilishi bilan hammasi "Yakunlash" deb ko'rsatar edi.
+CLAIM_ACTION_LABELS = {
+    ClaimActionType.PAUSE: "Pauza",
+    ClaimActionType.FINISH: "Yakunlash",
+    ClaimActionType.RESUME: "Davom ettirish",
+}
+
+
+async def _department_name(session, department_id: int | None) -> str | None:
+    """Xabar matniga qo'shiladigan bo'lim nomi — bitta odam bir nechta
+    brigadaga rahbarlik qilganda xabar qaysi bo'lim haqida ekani ko'rinishi
+    uchun (masalan Kraska va Shkurka)."""
+    if department_id is None:
+        return None
+    department = await DepartmentRepository(session).get_by_id(department_id)
+    return department.name if department is not None else None
+
 
 async def _send(
     bot: Bot, telegram_id: int | None, text: str, *, reply_markup: InlineKeyboardMarkup | None = None
@@ -67,8 +86,13 @@ async def notify_task_started(bot: Bot, task_id: int) -> None:
         employees = [
             e for e in [await employee_repo.get_by_id(a.employee_id) for a in assignments] if e is not None
         ]
+        department_name = await _department_name(session, task.current_department_id)
 
-    text = f"🆕 Yangi vazifa: {task.title}\nMuddat: {_format_dt(task.deadline)}\nBatafsil: Mini App'da ko'ring."
+    department_line = f"\nBo'lim: {department_name}" if department_name else ""
+    text = (
+        f"🆕 Yangi vazifa: {task.title}{department_line}\n"
+        f"Muddat: {_format_dt(task.deadline)}\nBatafsil: Mini App'da ko'ring."
+    )
     miniapp_button = build_miniapp_button()
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[miniapp_button]]) if miniapp_button else None
     for employee in employees:
@@ -96,8 +120,10 @@ async def notify_task_delegated_via_trello(bot: Bot, task_id: int, brigadier_id:
             if employee is not None:
                 assignee_name = employee.full_name
                 break
+        department_name = await _department_name(session, task.current_department_id)
 
-    text = f"✅ \"{task.title}\" Trello orqali {assignee_name}ga topshirildi."
+    department_prefix = f"{department_name}: " if department_name else ""
+    text = f"✅ {department_prefix}\"{task.title}\" Trello orqali {assignee_name}ga topshirildi."
     await _send(bot, brigadier.telegram_id, text)
 
 
@@ -513,11 +539,14 @@ async def notify_claim_submitted(bot: Bot, claim_id: int) -> None:
         for admin in await employee_repo.list_by_role(Role.ADMIN):
             recipients[admin.id] = admin.telegram_id
 
-    action_label = "Pauza" if claim.action_type == ClaimActionType.PAUSE else "Yakunlash"
+        department_name = await _department_name(session, task.current_department_id)
+
+    action_label = CLAIM_ACTION_LABELS[claim.action_type]
     claimant_name = claimant.full_name if claimant is not None else "noma'lum xodim"
     reason_line = f"\nSabab: {claim.reason}" if claim.reason else ""
+    department_prefix = f"{department_name}: " if department_name else ""
     text = (
-        f"📋 {claimant_name} \"{task.title}\" bo'yicha {action_label} so'rovini yubordi.\n"
+        f"📋 {department_prefix}{claimant_name} \"{task.title}\" bo'yicha {action_label} so'rovini yubordi.\n"
         f"Vaqt: {_format_dt(claim.claimed_at)}{reason_line}\n"
         "Tasdiqlash: Mini App → \"Tasdiqlash kutilmoqda\"."
     )
@@ -553,12 +582,18 @@ async def notify_claim_approved(bot: Bot, claim_id: int) -> None:
         if task is None or employee is None:
             return
         brigadier_telegram_id = await _claimant_brigadier_telegram_id(session, employee)
+        department_name = await _department_name(session, task.current_department_id)
 
-    action_label = "Pauza" if claim.action_type == ClaimActionType.PAUSE else "Yakunlash"
+    action_label = CLAIM_ACTION_LABELS[claim.action_type]
+    department_prefix = f"{department_name}: " if department_name else ""
     text = f"✅ \"{task.title}\" bo'yicha {action_label} so'rovingiz tasdiqlandi."
     await _send(bot, employee.telegram_id, text)
     if brigadier_telegram_id is not None and brigadier_telegram_id != employee.telegram_id:
-        await _send(bot, brigadier_telegram_id, f"✅ {employee.full_name}: \"{task.title}\" bo'yicha {action_label} so'rovi tasdiqlandi.")
+        await _send(
+            bot,
+            brigadier_telegram_id,
+            f"✅ {department_prefix}{employee.full_name}: \"{task.title}\" bo'yicha {action_label} so'rovi tasdiqlandi.",
+        )
 
 
 async def notify_claim_rejected(bot: Bot, claim_id: int) -> None:
@@ -575,8 +610,10 @@ async def notify_claim_rejected(bot: Bot, claim_id: int) -> None:
         if task is None or employee is None:
             return
         brigadier_telegram_id = await _claimant_brigadier_telegram_id(session, employee)
+        department_name = await _department_name(session, task.current_department_id)
 
-    action_label = "Pauza" if claim.action_type == ClaimActionType.PAUSE else "Yakunlash"
+    action_label = CLAIM_ACTION_LABELS[claim.action_type]
+    department_prefix = f"{department_name}: " if department_name else ""
     note_line = f"\nSabab: {claim.rejection_note}" if claim.rejection_note else ""
     text = (
         f"❌ \"{task.title}\" bo'yicha {action_label} so'rovingiz rad etildi.{note_line}\n"
@@ -587,37 +624,11 @@ async def notify_claim_rejected(bot: Bot, claim_id: int) -> None:
         await _send(
             bot,
             brigadier_telegram_id,
-            f"❌ {employee.full_name}: \"{task.title}\" bo'yicha {action_label} so'rovi rad etildi.{note_line}\n"
+            f"❌ {department_prefix}{employee.full_name}: \"{task.title}\" bo'yicha {action_label} so'rovi rad etildi.{note_line}\n"
             "Vazifa avvalgidek davom etmoqda.",
         )
 
 
-async def notify_task_resumed(bot: Bot, task_id: int, employee_id: int) -> None:
-    """Mebel moduli: brigadir a'zoning to'xtatilgan (STOPPED) vazifasini
-    davom ettirgach — `resume` claim-gated emas (rahbar tasdig'i shart
-    emas), shu sabab bu shunchaki xabar: bo'lim rahbari (SUPERVISOR) + barcha
-    ADMIN'larga."""
-    async with async_session() as session:
-        task = await TaskRepository(session).get_by_id(task_id)
-        if task is None:
-            logger.warning("notify_task_resumed: task %s topilmadi", task_id)
-            return
-        employee = await EmployeeRepository(session).get_by_id(employee_id)
-        if employee is None:
-            return
-
-        employee_repo = EmployeeRepository(session)
-        recipients: dict[int, int | None] = {}
-        if task.current_department_id is not None:
-            for supervisor in await employee_repo.list_by_department(task.current_department_id):
-                if supervisor.role == Role.SUPERVISOR:
-                    recipients[supervisor.id] = supervisor.telegram_id
-        for admin in await employee_repo.list_by_role(Role.ADMIN):
-            recipients[admin.id] = admin.telegram_id
-
-    text = f"▶️ {employee.full_name}: \"{task.title}\" bo'yicha ish davom ettirilmoqda."
-    for telegram_id in recipients.values():
-        await _send(bot, telegram_id, text)
 
 
 _CLAIM_REMINDER_TEXTS = {

@@ -13,9 +13,12 @@ class BrigadeRepository(BaseRepository[Brigade]):
         )
         return list(result.scalars().all())
 
-    async def get_by_brigadier_id(self, brigadier_id: int) -> Brigade | None:
-        """11.1-band: brigadir o'zi boshqaradigan brigadani topadi."""
+    async def list_by_brigadier_id(self, brigadier_id: int) -> list[Brigade]:
+        """11.1-band: brigadir o'zi boshqaradigan brigadalar. RO'YXAT qaytaradi —
+        bitta odam bir nechta bo'limga rahbarlik qilishi mumkin (masalan Kraska
+        va Shkurka). Ilgari `scalar_one_or_none()` edi, ya'ni ikkinchi brigada
+        paydo bo'lishi bilan `MultipleResultsFound` bilan qular edi."""
         result = await self.session.execute(
-            select(Brigade).where(Brigade.brigadier_id == brigadier_id)
+            select(Brigade).where(Brigade.brigadier_id == brigadier_id).order_by(Brigade.id)
         )
-        return result.scalar_one_or_none()
+        return list(result.scalars().all())

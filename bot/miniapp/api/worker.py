@@ -198,6 +198,12 @@ async def resume_task(request: web.Request) -> web.Response:
     task_id = int(request.match_info["task_id"])
     if not await _is_assigned(task_id, employee.id):
         return err("not_found", 404)
+    if await _is_mebel_task(task_id):
+        # Pauza/Yakunlash bilan bir xil qoida: bu modulda ishchi o'zi
+        # boshqarmaydi — brigadir so'rov yuboradi, rahbar tasdiqlaydi.
+        return err(
+            "Mebel bo'limida Davom ettirish endi faqat brigadir orqali yuboriladi.", 409,
+        )
     try:
         task = await timer_service.resume_task(task_id, employee.id)
     except timer_service.TaskNotFoundError:

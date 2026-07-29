@@ -134,6 +134,15 @@ const MEBEL_ROLES = ["worker", "brigadier", "supervisor", "admin"];
    brigadirni rahbarlikka ko'tarish shu orqali qilinadi). */
 const NEW_EMPLOYEE_EXCLUDED_ROLES = ["admin", "supervisor"];
 
+/* Claim amali -> i18n kaliti. Uchta amal ham (pauza/yakunlash/davom ettirish)
+   rahbar tasdig'ini kutadi, shuning uchun ternary emas, jadval. */
+const CLAIM_PENDING_KEYS = {
+  pause: "claimPendingPause", finish: "claimPendingFinish", resume: "claimPendingResume",
+};
+const CLAIM_ACTION_KEYS = {
+  pause: "claimActionPause", finish: "claimActionFinish", resume: "claimActionResume",
+};
+
 function rolesForModule(alwaysInclude) {
   const all = Object.keys(ROLE_LABELS[state.lang]);
   if (nav.module !== "mebel") return all;
@@ -455,7 +464,8 @@ async function screenTaskDetail(taskId) {
   setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
   const tsk = await api(`/tasks/${taskId}`);
   const isMebel = tsk.module === "mebel";
-  const pending = isMebel && (tsk.status === "active" || tsk.status === "overdue") ? (await api(`/tasks/${taskId}/claim-status`)).pending_claim : null;
+  // STOPPED ham: davom ettirish ham endi tasdiq kutadigan so'rov.
+  const pending = isMebel && tsk.status !== "completed" ? (await api(`/tasks/${taskId}/claim-status`)).pending_claim : null;
   const pillClass = tsk.status === "overdue" ? "critical" : tsk.status === "stopped" ? "neutral" : "positive";
 
   setScreen(`
@@ -468,7 +478,7 @@ async function screenTaskDetail(taskId) {
       ${tsk.client_name ? `<div class="kv-row"><span class="k">${esc(t("client"))}</span><span class="v">${esc(tsk.client_name)}</span></div>` : ""}
     </div>
     ${pending ? `
-      <div class="alert-card"><span class="ic">${icon("clock")}</span><span class="grow">${esc(t(pending.action_type === "pause" ? "claimPendingPause" : "claimPendingFinish"))}</span></div>
+      <div class="alert-card"><span class="ic">${icon("clock")}</span><span class="grow">${esc(t(CLAIM_PENDING_KEYS[pending.action_type]))}</span></div>
     ` : !isMebel && (tsk.status === "active" || tsk.status === "overdue") ? `<button class="btn" id="btn-stop">${icon("stop")} ${esc(t("stop"))}</button>` : ""}
   `);
 
@@ -870,6 +880,13 @@ async function screenEmployeeDetail(employeeId) {
   // uchun qoldi — mebel bo'limidagi xodim uchun bu bayroq umuman ko'rsatilmaydi.
   const employeeDepartment = departments.find((d) => d.id === employee.department_id);
   const hideDailyReport = employeeDepartment && employeeDepartment.module === "mebel";
+  // Bitta brigadir bir nechta bo'limga rahbarlik qilishi mumkin (Kraska +
+  // Shkurka) — tanlangan har bir bo'lim uchun brigada avtomatik yaratiladi.
+  const ledIds = employee.led_department_ids || [];
+  const ledOptions = departments
+    .filter((d) => d.module === (employeeDepartment ? employeeDepartment.module : nav.module) && d.id !== employee.department_id)
+    .map((d) => `<label class="check-row"><input type="checkbox" class="f-led" value="${d.id}" ${ledIds.includes(d.id) ? "checked" : ""} />${esc(d.name)}</label>`)
+    .join("");
 
   setScreen(`
     <p class="page-title">${esc(employee.full_name)}</p>
@@ -882,6 +899,9 @@ async function screenEmployeeDetail(employeeId) {
       <select id="f-dept"><option value="">—</option>${departments.map((d) => `<option value="${d.id}" ${d.id === employee.department_id ? "selected" : ""}>${esc(d.name)}</option>`).join("")}</select>
     </div>
     <div class="field"><label>${esc(t("brigade"))}</label><select id="f-brigade">${brigadeOptions}</select></div>
+    <div class="field" id="led-block" ${employee.role === "brigadier" ? "" : "hidden"}>
+      <label>${esc(t("ledDepartments"))}</label>${ledOptions}
+    </div>
     ${hideDailyReport ? "" : `<label class="check-row"><input type="checkbox" id="f-daily-report" ${employee.daily_report_required ? "checked" : ""} />${esc(t("dailyReportRequiredField"))}</label>`}
     <button class="btn ${employee.is_active ? "danger" : "primary"}" id="btn-toggle">${employee.is_active ? esc(t("deactivate")) : esc(t("activate"))}</button>
   `);
@@ -889,6 +909,10 @@ async function screenEmployeeDetail(employeeId) {
   root.querySelector("#f-dept").onchange = async (ev) => {
     const brigadeSelect = root.querySelector("#f-brigade");
     brigadeSelect.innerHTML = await renderBrigadeOptions(ev.target.value ? Number(ev.target.value) : null, null);
+  };
+
+  root.querySelector("#f-role").onchange = (ev) => {
+    root.querySelector("#led-block").hidden = ev.target.value !== "brigadier";
   };
 
   root.querySelector("#btn-toggle").onclick = async () => {
@@ -907,14 +931,18 @@ async function screenEmployeeDetail(employeeId) {
       const deptVal = root.querySelector("#f-dept").value;
       const brigadeVal = root.querySelector("#f-brigade").value;
       const dailyReportEl = root.querySelector("#f-daily-report");
+      const roleVal = root.querySelector("#f-role").value;
       const body = {
         full_name: root.querySelector("#f-name").value.trim(),
         phone_number: root.querySelector("#f-phone").value.trim(),
         trello_username: root.querySelector("#f-trello").value.trim(),
-        role: root.querySelector("#f-role").value,
+        role: roleVal,
         department_id: deptVal ? Number(deptVal) : null,
         brigade_id: brigadeVal ? Number(brigadeVal) : null,
       };
+      if (roleVal === "brigadier") {
+        body.led_department_ids = Array.from(root.querySelectorAll(".f-led:checked")).map((el) => Number(el.value));
+      }
       if (dailyReportEl) body.daily_report_required = dailyReportEl.checked;
       await api(`/admin/employees/${employeeId}`, { method: "POST", body: JSON.stringify(body) });
       app.HapticFeedback && app.HapticFeedback.notificationOccurred("success");
@@ -987,7 +1015,7 @@ async function screenPendingClaims() {
       <div class="fin-card" data-i="${i}">
         <div class="top">
           <span class="task">${esc(c.employee_name || "—")} — ${esc(c.task_title || "")}</span>
-          <span class="status-pill warn">${esc(t(c.action_type === "pause" ? "claimActionPause" : "claimActionFinish"))}</span>
+          <span class="status-pill warn">${esc(t(CLAIM_ACTION_KEYS[c.action_type]))}</span>
         </div>
         <p class="desc">${esc(formatDt(c.claimed_at))}${c.reason ? " · " + esc(c.reason) : ""}</p>
         <div class="amount-row">
@@ -1602,25 +1630,30 @@ async function screenReassignForm(task) {
 
 /* ---------- Brigadir ekranlari ---------- */
 
-async function screenBrigadierHome() {
+async function screenBrigadierHome(brigadeId) {
   setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
   let brigade;
   try {
-    brigade = await api("/brigadier/brigade");
+    brigade = await api(`/brigadier/brigade${brigadeId ? `?brigade_id=${brigadeId}` : ""}`);
   } catch (e) {
     setScreen(`<p class="empty-state">${esc(t("noBrigade"))}</p>`);
     return;
   }
   const pendingWork = await api("/brigadier/pending-delegation");
-  // Brigadirning o'z KPI yozuvi ham `members`da keladi (brigade_share_ratio
-  // ulushi orqali) — ishchilaridan ajratib, alohida yuqorida ko'rsatiladi,
-  // aks holda o'z balini o'z brigadasi ichida "yashirilib" ko'rmas edi.
-  const own = brigade.members.find((m) => m.employee_id === state.employee.id);
+  // Bitta brigadir bir nechta bo'limga rahbarlik qilishi mumkin (masalan
+  // Kraska + Shkurka) — tanlov shu yerda, sotuvchining brend tanlovi bilan
+  // bir xil ko'rinishda. Bitta brigadasi bo'lsa hech narsa ko'rinmaydi.
+  const myBrigades = brigade.brigades || [];
+  // Ball brigadadan MUSTAQIL (backend `own_score`ni o'zi hisoblaydi) — aks
+  // holda ikkinchi brigada ekranida o'z bali "—" bo'lib qolar edi.
   const workers = brigade.members.filter((m) => m.employee_id !== state.employee.id);
   setScreen(`
     <p class="page-title">${esc(t("brigade_title"))}: ${esc(brigade.name)}</p>
-    <div class="hero-tile ${own ? heroTone(own.total_score) : ""}">
-      <span class="num">${own ? scoreSigned(own.total_score) : "—"}</span>
+    ${myBrigades.length > 1 ? `<div class="lead-brand-row">${myBrigades.map((b) => `
+      <button class="brand-pill" data-bid="${b.id}" aria-selected="${b.id === brigade.id}">${esc(b.name.split(" — ")[0])}</button>
+    `).join("")}</div>` : ""}
+    <div class="hero-tile ${heroTone(brigade.own_score)}">
+      <span class="num">${scoreSigned(brigade.own_score)}</span>
       <span class="lbl">${esc(t("currentMonthScore"))}</span>
     </div>
     ${pendingWork.length ? `<button class="alert-card" id="nav-new-work"><span class="ic">${icon("inbox")}</span><span class="grow">${esc(t("newWorkAlert", pendingWork.length))}</span><span class="chev">›</span></button>` : ""}
@@ -1631,6 +1664,9 @@ async function screenBrigadierHome() {
       </div>
     `).join("") : `<p class="empty-state">${esc(t("noBrigadeMembers"))}</p>`}
   `);
+  root.querySelectorAll(".brand-pill").forEach((btn) => {
+    btn.onclick = () => replaceTop(screenBrigadierHome, Number(btn.dataset.bid));
+  });
   root.querySelectorAll(".member-card").forEach((card) => {
     const member = workers[Number(card.dataset.i)];
     card.querySelector(".btn-report").onclick = async (ev) => {
@@ -1735,7 +1771,10 @@ async function screenMemberTaskDetail(employeeId, fullName, taskId) {
   setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
   const tsk = await api(`/brigadier/members/${employeeId}/tasks/${taskId}`);
   const isMebel = tsk.module === "mebel";
-  const pending = isMebel && (tsk.status === "active" || tsk.status === "overdue")
+  // STOPPED ham tekshiriladi: davom ettirish endi darhol emas, rahbar
+  // tasdig'ini kutadigan so'rov (Pauza/Yakunlash bilan bir xil qoida).
+  const isOpen = tsk.status === "active" || tsk.status === "overdue" || tsk.status === "stopped";
+  const pending = isMebel && isOpen
     ? (await api(`/brigadier/members/${employeeId}/tasks/${taskId}/claim-status`)).pending_claim
     : null;
   const pillClass = tsk.status === "overdue" ? "critical" : tsk.status === "stopped" ? "neutral" : "positive";
@@ -1750,7 +1789,7 @@ async function screenMemberTaskDetail(employeeId, fullName, taskId) {
       <div class="kv-row"><span class="k">${esc(t("department"))}</span><span class="v">${esc(tsk.department || "—")}</span></div>
     </div>
     ${pending ? `
-      <div class="alert-card"><span class="ic">${icon("clock")}</span><span class="grow">${esc(t(pending.action_type === "pause" ? "claimPendingPause" : "claimPendingFinish"))}</span></div>
+      <div class="alert-card"><span class="ic">${icon("clock")}</span><span class="grow">${esc(t(CLAIM_PENDING_KEYS[pending.action_type]))}</span></div>
     ` : isMebel && (tsk.status === "active" || tsk.status === "overdue") ? `<button class="btn" id="btn-stop">${icon("stop")} ${esc(t("stop"))}</button>` : ""}
   `);
 
@@ -1773,13 +1812,11 @@ async function screenMemberTaskDetail(employeeId, fullName, taskId) {
       }
     }, "#158f5c");
   } else if (tsk.status === "stopped") {
-    // Resume claim-gated emas (rahbar tasdig'i shart emas) — davom
-    // ettirilgach rahbarga shunchaki xabar ketadi (notify_task_resumed).
     setMainButton(`▶️ ${t("resume")}`, async () => {
       const app = tg();
       app.MainButton.showProgress();
       try {
-        await api(`/brigadier/members/${employeeId}/tasks/${taskId}/resume`, { method: "POST" });
+        await api(`/brigadier/members/${employeeId}/tasks/${taskId}/resume-claim`, { method: "POST" });
         await replaceTop(screenMemberTaskDetail, employeeId, fullName, taskId);
       } catch (e) {
         showError(e.message);

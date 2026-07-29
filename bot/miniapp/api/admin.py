@@ -57,14 +57,18 @@ async def _active_brigadier_ids(session, brigades) -> set[int]:
     ro'yxatga chiqaradi — vazifa tayinlashni tekshiruvchi validatsiya ham
     shu bilan bir xil bo'lishi kerak, aks holda deaktivlashtirilgan
     brigadirga (masalan eskirgan frontend keshi orqali) baribir vazifa
-    berib qo'yish mumkin bo'lardi."""
+    berib qo'yish mumkin bo'lardi.
+
+    Rol ham tekshiriladi: brigadirlikdan ishchilikka tushirilgan odam
+    brigadaning `brigadier_id`sida qolib ketgan bo'lsa (eski ma'lumot yoki
+    web-panel orqali kiritilgan xodim), u brigadir sifatida ko'rsatilmasin."""
     employee_repo = EmployeeRepository(session)
     ids: set[int] = set()
     for brigade in brigades:
         if brigade.brigadier_id is None:
             continue
         brigadier = await employee_repo.get_by_id(brigade.brigadier_id)
-        if brigadier is not None and brigadier.is_active:
+        if brigadier is not None and brigadier.is_active and brigadier.role == Role.BRIGADIER:
             ids.add(brigadier.id)
     return ids
 
@@ -322,7 +326,7 @@ async def list_department_brigadiers(request: web.Request) -> web.Response:
             if brigade.brigadier_id is None:
                 continue
             brigadier = await employee_repo.get_by_id(brigade.brigadier_id)
-            if brigadier is None or not brigadier.is_active:
+            if brigadier is None or not brigadier.is_active or brigadier.role != Role.BRIGADIER:
                 continue
             items.append(
                 {
@@ -445,9 +449,11 @@ async def employee_detail(request: web.Request) -> web.Response:
             if employee.department_id
             else None
         )
-        brigade = (
-            await BrigadeRepository(session).get_by_id(employee.brigade_id) if employee.brigade_id else None
-        )
+        brigade_repo = BrigadeRepository(session)
+        brigade = await brigade_repo.get_by_id(employee.brigade_id) if employee.brigade_id else None
+        # Rahbarlik qiladigan bo'limlar alohida ustunda emas — brigadalar
+        # orqali ifodalanadi (brigada = brigadir, `employee_service`ga qarang).
+        led_department_ids = [b.department_id for b in await brigade_repo.list_by_brigadier_id(employee.id)]
 
     return web.json_response(
         {
@@ -461,6 +467,7 @@ async def employee_detail(request: web.Request) -> web.Response:
             "department": department.name if department else None,
             "brigade_id": employee.brigade_id,
             "brigade": brigade.name if brigade else None,
+            "led_department_ids": led_department_ids,
             "is_active": employee.is_active,
             "telegram_linked": employee.telegram_id is not None,
             "daily_report_required": employee.daily_report_required,
@@ -518,11 +525,22 @@ async def update_employee(request: web.Request) -> web.Response:
     if "daily_report_required" in body:
         fields["daily_report_required"] = bool(body["daily_report_required"])
 
-    if not fields:
+    # Qo'shimcha rahbarlik bo'limlari (masalan Kraska brigadiri Shkurkaga ham
+    # qarasa) — har biri uchun brigada avtomatik yaratiladi/biriktiriladi.
+    led_department_ids = None
+    if "led_department_ids" in body:
+        led_department_ids = [int(d) for d in (body["led_department_ids"] or [])]
+        for department_id in led_department_ids:
+            if not _department_scope_ok(request, department_id):
+                return err("bu bo'lim sizning doirangizda emas", 403)
+
+    if not fields and led_department_ids is None:
         return err("hech qanday maydon berilmadi")
 
     try:
-        employee = await employee_service.update_employee(employee_id, **fields)
+        employee = await employee_service.update_employee(
+            employee_id, led_department_ids=led_department_ids, **fields
+        )
     except employee_service.EmployeeNotFoundError:
         return err("not_found", 404)
     except employee_service.DuplicateNameError as exc:

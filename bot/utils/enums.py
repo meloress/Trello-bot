@@ -74,6 +74,9 @@ class ClaimActionType(str, Enum):
 
     PAUSE = "pause"
     FINISH = "finish"
+    # Davom ettirish ham rahbar tasdig'ini talab qiladi (Pauza/Yakunlash bilan
+    # bir xil qoida) — ilgari brigadir bosishi bilan darhol ishlar edi.
+    RESUME = "resume"
 
 
 class ClaimStatus(str, Enum):

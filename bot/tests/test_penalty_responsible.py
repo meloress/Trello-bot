@@ -58,7 +58,7 @@ async def _run(employees, employee_ids, score=-2, ratio=0.4):
     """`_write_scores_for_employees`ni soxta repository'lar bilan chaqiradi."""
     import services.penalty_service as ps
 
-    brigade = SimpleNamespace(id=7, brigadier_id=90)
+    brigade = SimpleNamespace(id=7, brigadier_id=90, name="Kraska — Brigadir")
     kpi_repo = _FakeKpiRepo()
     fake_emp_repo = _FakeEmployeeRepo(employees)
     fake_brig_repo = _FakeBrigadeRepo([brigade])

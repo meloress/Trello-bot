@@ -22,48 +22,52 @@ from db.repositories import (
     TaskRepository,
 )
 from miniapp.util import err, is_mebel_task
-from services import claim_service, notification_service, stats_service, task_service, timer_service
+from services import claim_service, notification_service, penalty_service, stats_service, task_service
 from utils.enums import ClaimActionType, Role, TaskStatus, TaskType
 
 routes = web.RouteTableDef()
 logger = logging.getLogger(__name__)
 
 
+async def _own_brigades(session, employee) -> list:
+    """So'rovchining ko'rish doirasidagi brigadalar: BRIGADIER uchun o'zi
+    boshqargan BARCHA brigadalar (bitta odam Kraska va Shkurkaga birga
+    rahbarlik qilishi mumkin), SUPERVISOR uchun o'z bo'limidagilar
+    (bo'limsiz SUPERVISOR — barchasi)."""
+    brigade_repo = BrigadeRepository(session)
+    if employee.role == Role.BRIGADIER:
+        return await brigade_repo.list_by_brigadier_id(employee.id)
+    if employee.department_id is not None:
+        return await brigade_repo.list_by_department(employee.department_id)
+    return await brigade_repo.list_all()
+
+
 async def _resolve_brigade(request: web.Request):
-    """BRIGADIER uchun faqat o'zi boshqargan brigada. SUPERVISOR uchun
-    `brigade_id` so'rov parametri ham berilsa, faqat O'Z BO'LIMIdagi
-    brigadalar orasidan tanlanadi — boshqa bo'lim brigadasini `brigade_id`
-    orqali ko'rish oldini olish uchun (ilgari cheklovsiz edi)."""
-    employee = request["employee"]
+    """`brigade_id` so'rov parametri DOIM so'rovchining o'z doirasidan
+    tanlanadi — begona bo'lim/brigada id'sini berib ko'rib bo'lmaydi.
+    Parametrsiz — birinchisi (bitta brigadasi bor odam uchun o'zgarishsiz)."""
     async with async_session() as session:
-        brigade_repo = BrigadeRepository(session)
-        if employee.role == Role.BRIGADIER:
-            return await brigade_repo.get_by_brigadier_id(employee.id)
+        brigades = await _own_brigades(session, request["employee"])
 
-        if employee.department_id is not None:
-            brigades = await brigade_repo.list_by_department(employee.department_id)
-        else:
-            brigades = await brigade_repo.list_all()
-
-        brigade_id = request.query.get("brigade_id")
-        if brigade_id:
-            return next((b for b in brigades if b.id == int(brigade_id)), None)
-        return brigades[0] if brigades else None
+    brigade_id = request.query.get("brigade_id")
+    if brigade_id:
+        return next((b for b in brigades if b.id == int(brigade_id)), None)
+    return brigades[0] if brigades else None
 
 
 async def _employee_in_scope(request: web.Request, employee_id: int) -> bool:
     """`/members/{employee_id}/...` — so'ralgan xodim so'rovchining ko'rish
-    doirasiga tegishli ekanini tekshiradi: BRIGADIER uchun o'z brigadasi,
-    SUPERVISOR uchun o'z bo'limi (bo'limi yo'q SUPERVISOR — barcha xodimlar,
-    `_resolve_brigade`dagi bilan bir xil qoida)."""
+    doirasiga tegishli ekanini tekshiradi: BRIGADIER uchun o'zi boshqargan
+    brigadalarning BIRORTASI, SUPERVISOR uchun o'z bo'limi (bo'limi yo'q
+    SUPERVISOR — barcha xodimlar, `_resolve_brigade`dagi bilan bir xil qoida)."""
     employee = request["employee"]
     async with async_session() as session:
         target = await EmployeeRepository(session).get_by_id(employee_id)
         if target is None:
             return False
         if employee.role == Role.BRIGADIER:
-            brigade = await BrigadeRepository(session).get_by_brigadier_id(employee.id)
-            return brigade is not None and target.brigade_id == brigade.id
+            brigade_ids = {b.id for b in await BrigadeRepository(session).list_by_brigadier_id(employee.id)}
+            return target.brigade_id in brigade_ids
         if employee.department_id is not None:
             return target.department_id == employee.department_id
         return True
@@ -71,14 +75,11 @@ async def _employee_in_scope(request: web.Request, employee_id: int) -> bool:
 
 @routes.get("/brigades")
 async def list_brigades(request: web.Request) -> web.Response:
-    """SUPERVISOR uchun brigada tanlash ro'yxati (o'z bo'limi doirasida)."""
-    employee = request["employee"]
+    """Brigada tanlash ro'yxati — BRIGADIER uchun o'zi boshqargan brigadalar
+    (ilgari bu yerda ham bo'lim bo'yicha qidirilardi, ya'ni brigadirga o'z
+    bo'limidagi BEGONA brigadalar ham ko'rinardi)."""
     async with async_session() as session:
-        brigade_repo = BrigadeRepository(session)
-        if employee.department_id is not None:
-            brigades = await brigade_repo.list_by_department(employee.department_id)
-        else:
-            brigades = await brigade_repo.list_all()
+        brigades = await _own_brigades(session, request["employee"])
     return web.json_response([{"id": b.id, "name": b.name} for b in brigades])
 
 
@@ -88,11 +89,23 @@ async def brigade_overview(request: web.Request) -> web.Response:
     if brigade is None:
         return err("brigada topilmadi", 404)
 
+    employee = request["employee"]
+    async with async_session() as session:
+        brigades = await _own_brigades(session, employee)
+
+    # Brigadirning o'z bali brigadadan MUSTAQIL hisoblanadi: ikkita brigadaga
+    # rahbarlik qilsa, `employees.brigade_id` faqat bittasiga ishora qiladi va
+    # ikkinchi brigada ekranida o'z bali "—" bo'lib qolardi.
+    since, until = penalty_service.month_bounds(datetime.now(timezone.utc).date())
+    own_score = await penalty_service.calculate_total_score(employee.id, since=since, until=until)
+
     stats = await stats_service.get_brigade_monthly_stats(brigade.id)
     return web.json_response(
         {
             "id": brigade.id,
             "name": brigade.name,
+            "own_score": own_score,
+            "brigades": [{"id": b.id, "name": b.name} for b in brigades],
             "members": [
                 {
                     "employee_id": s.employee_id,
@@ -347,12 +360,11 @@ async def submit_member_finish_claim(request: web.Request) -> web.Response:
     return web.json_response({"id": claim.id, "status": claim.status.value})
 
 
-@routes.post("/members/{employee_id}/tasks/{task_id}/resume")
-async def resume_member_task(request: web.Request) -> web.Response:
-    """Mebel moduli: to'xtatilgan (STOPPED) vazifani brigadir a'zosi nomidan
-    davom ettiradi. Pauza/Yakunlashdan farqli o'laroq claim-gated EMAS —
-    rahbar tasdig'i shart emas, `timer_service.resume_task()` darhol
-    ishlaydi; rahbarga faqat xabar ketadi (`notify_task_resumed`)."""
+@routes.post("/members/{employee_id}/tasks/{task_id}/resume-claim")
+async def submit_member_resume_claim(request: web.Request) -> web.Response:
+    """To'xtatilgan (STOPPED) vazifani davom ettirish — Pauza/Yakunlash bilan
+    BIR XIL qoida: brigadir so'rov yuboradi, rahbar/admin tasdiqlaguncha
+    vazifa STOPPED holicha qoladi. Ilgari bu darhol ishlar edi."""
     employee_id = int(request.match_info["employee_id"])
     task_id = int(request.match_info["task_id"])
     if not await _employee_in_scope(request, employee_id):
@@ -363,18 +375,20 @@ async def resume_member_task(request: web.Request) -> web.Response:
         return err("Bu funksiya faqat mebel moduli uchun", 409)
 
     try:
-        task = await timer_service.resume_task(task_id, employee_id)
-    except timer_service.TaskNotFoundError:
-        return err("not_found", 404)
-    except timer_service.InvalidTaskStateError as exc:
+        claim = await claim_service.submit_claim(
+            task_id, employee_id, ClaimActionType.RESUME, datetime.now(timezone.utc),
+        )
+    except claim_service.ClaimAlreadyPendingError as exc:
         return err(str(exc), 409)
+    except IntegrityError:
+        return err("Bu vazifa uchun allaqachon so'rov yuborilgan", 409)
 
     try:
-        await notification_service.notify_task_resumed(request.config_dict["bot"], task.id, employee_id)
+        await notification_service.notify_claim_submitted(request.config_dict["bot"], claim.id)
     except Exception:
-        logger.exception("notify_task_resumed xatosi (task_id=%s)", task.id)
+        logger.exception("notify_claim_submitted xatosi (claim_id=%s)", claim.id)
 
-    return web.json_response({"id": task.id, "status": task.status.value})
+    return web.json_response({"id": claim.id, "status": claim.status.value})
 
 
 @routes.get("/members/{employee_id}/tasks/{task_id}/claim-status")

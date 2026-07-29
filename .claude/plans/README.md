@@ -37,6 +37,7 @@ bajarilmagan qismini aniqladi. Quyidagi hujjatlar shularning har biri uchun.
 | 9 | [09-fasad-sex-modul.md](09-fasad-sex-modul.md) | yangi TZ (`Nazorat_Trello_Bot_TZ_v1.2`) | Ikkinchi, parallel ishlab chiqarish moduli (Fasad sex) — 10 bosqich (Phase 0-9) | BOSHLANDI — `feature/fasad-sex-module` branch'da, hujjat ichidagi checklist'ga qarang |
 | 9z | [09z-fasad-sex-ochiq-savollar.md](09z-fasad-sex-ochiq-savollar.md) | yangi TZ §13-14 | Fasad sex TZ'ning o'z ochiq savollari | KUZATUV RO'YXATI |
 | 10 | [10-miniapp-qayta-dizayn.md](10-miniapp-qayta-dizayn.md) | TZ talabi emas — foydalanuvchi so'rovi | Mini App vizual qayta dizayni (premium-minimal, indigo urg'u), barcha rol/modul | KOD TAYYOR (3 bosqich ham), real Telegram WebView'da tekshirish qoldi |
+| 11 | [11-brigada-tizimi-va-kop-bolimli-brigadir.md](11-brigada-tizimi-va-kop-bolimli-brigadir.md) | TZ talabi emas — real production auditida topilgan | Brigada avtomatik yaratilishi (rol BRIGADIR bo'lganda) + bitta brigadir bir nechta bo'limga rahbarlik qilishi (Elyor: Kraska + Shkurka) + Davom ettirish ham tasdiq talab qilishi | KOD TAYYOR, deploy va ma'lumot bog'lash qoldi (hujjat oxiriga qarang) |
 
 ## Ishlash tartibi
 

@@ -157,6 +157,12 @@ async def approve_claim(claim_id: int, reviewer_employee_id: int, bot=None) -> T
             await penalty_service.finalize_task_and_apply_penalty(
                 bot, task_id, finished_at=claimed_at, employee_id=employee_id
             )
+        elif action_type == ClaimActionType.RESUME:
+            # Davom ettirishda `claimed_at` ishlatilmaydi: `resume_task` faqat
+            # STOPPED -> ACTIVE holatini qaytaradi va `stop_logs`ning ochiq
+            # yozuvini yopadi, muddat/ball hisobi to'xtash vaqtiga bog'liq
+            # emas — shu sabab tasdiqlash kechikishi bu yerda ta'sir qilmaydi.
+            await timer_service.resume_task(task_id, employee_id)
         else:
             await timer_service.stop_task(task_id, employee_id, reason or "", stopped_at=claimed_at)
     except (timer_service.InvalidTaskStateError, timer_service.TaskNotFoundError) as exc:
