@@ -29,6 +29,29 @@ async def _index(request: web.Request) -> web.FileResponse:
     return web.FileResponse(PUBLIC_DIR / "index.html")
 
 
+@web.middleware
+async def no_cache_middleware(request: web.Request, handler) -> web.StreamResponse:
+    """Telegram'ning Mini App WebView'i statik fayllarni (JS/CSS) juda
+    qattiq keshlaydi: Railway'ga deploy qilingandan keyin ham foydalanuvchi
+    eski `app.js`ni ko'rib turaveradi — Telegram'ni fon/oldinga o'tkazish
+    yetmaydi, uni TO'LIQ yopib qayta ochish kerak bo'lardi (haqiqiy holat).
+    Sababi: `add_static`/`FileResponse` hech qanday `Cache-Control`
+    yubormaydi, shuning uchun WebView o'z heuristikasi bilan keshlaydi.
+
+    `no-cache` = "keshla, lekin ISHLATISHDAN OLDIN serverdan so'ra".
+    `no-store` EMAS — `FileResponse` `Last-Modified`/`ETag` yuboradi, shuning
+    uchun fayl o'zgarmagan bo'lsa javob bo'sh `304` bo'ladi (arzon), o'zgargan
+    bo'lsa darhol yangisi keladi. Root ilovaga ulangani uchun statik fayllarni
+    ham, `/api/miniapp/*` JSON javoblarini ham qamrab oladi — API javoblari
+    ham keshlanmasligi kerak (ball/vazifa holati doim yangi bo'lsin).
+
+    `setdefault` — agar biror handler o'zi aniq `Cache-Control` qo'ysa,
+    ustidan yozilmaydi."""
+    response = await handler(request)
+    response.headers.setdefault("Cache-Control", "no-cache")
+    return response
+
+
 def create_app(bot: Bot) -> web.Application:
     api_app = web.Application(middlewares=[auth_middleware])
     api_app.add_routes(common.routes)
@@ -46,7 +69,7 @@ def create_app(bot: Bot) -> web.Application:
     seller_app.add_routes(seller.routes)
     api_app.add_subapp("/seller", seller_app)
 
-    app = web.Application()
+    app = web.Application(middlewares=[no_cache_middleware])
     # `add_subapp()` sub-app "state"ni ota-ilovadan avtomatik meros qilib
     # olmaydi — shu sabab "bot" faqat shu (ROOT) darajada saqlanadi, va
     # handlerlar ichida (istalgan chuqurlikdagi sub-app bo'lsa ham)
