@@ -498,6 +498,28 @@ shart (`sales_service.add_call_log` tekshiradi, DB darajasida emas).
 
 **Bog'lanishlar**: `lead` (M-1), `recorded_by` (M-1, `employees`).
 
+## SPEC.md §11 statistika so'rovlari (jadval qo'shilmagan)
+
+Voronka / bottleneck / STOP statistikasi uchun **yangi jadval yaratilmagan** —
+uchalasi ham mavjud `tasks` + `stop_logs` + `departments` ustidan agregat
+so'rov (`services/stats_service.py`: `get_order_funnel()`,
+`get_stage_bottlenecks()`, `get_stop_stats()`). Bilib qo'yish kerak bo'lgan
+ikki nuqta:
+
+- **Bottleneck STOP vaqtini chiqarib tashlaydi**: davomiylik
+  `finished_at - started_at` MINUS `tasks.stopped_seconds_total` (SPEC.md §6
+  oxirgi bandi). Hisob SQL darajasida — bo'lim boshiga bitta qator qaytadi.
+- **Davom etayotgan STOP `HOZIRGACHA` hisoblanadi**, davr oxirigacha emas.
+  Standart davr — joriy oy, ya'ni `until` deyarli har doim kelajakda;
+  o'sha kelajak vaqt qo'shilsa raqam bir necha barobar shishardi (haqiqiy
+  DB ustidagi tekshiruvda 6 soat o'rniga 30 soat ko'rsatgan edi).
+
+Eksport (§11 "Excel'ga eksport") — CSV, `POST /admin/stats/export`. Fayl
+HTTP javobida qaytarilmaydi, so'rovchining Telegram chatiga hujjat sifatida
+yuboriladi: har bir so'rov `X-Telegram-Init-Data` sarlavhasini talab qiladi,
+ya'ni oddiy `<a download>` ishlamaydi, blob orqali yuklab olish esa Telegram
+WebView'da ishonchsiz.
+
 ## Munosabatlar sxemasi (qisqacha)
 
 ```

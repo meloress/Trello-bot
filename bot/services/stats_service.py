@@ -23,10 +23,11 @@ from core.database import async_session
 from db.models.department import Department
 from db.models.employee import Employee
 from db.models.kpi_log import KpiLog
+from db.models.stop_log import StopLog
 from db.models.task import Task
 from db.models.task_assignment import TaskAssignment
 from services import settings_service
-from utils.enums import Role, TaskStatus
+from utils.enums import Role, TaskStatus, TaskType
 
 # KPI/jarima faqat shu ikki operatsion rolga tegishli (penalty_service faqat
 # WORKER'ni jarimalaydi, BRIGADIER esa brigade_share_ratio orqali ulush oladi) —
@@ -295,6 +296,187 @@ async def get_capacity_vs_actual(department_id: int, since: datetime, until: dat
         worker_count=worker_count,
         planned_points=worker_count * quota * days,
         actual_points=actual_points,
+    )
+
+
+@dataclass(frozen=True)
+class FunnelStage:
+    """SPEC.md §11: "zakazlar voronkasi — qaysi bosqichda nechta zakaz turibdi"."""
+
+    department_id: int
+    department_name: str
+    pending_setup: int
+    active: int
+    stopped: int
+    overdue: int
+
+    @property
+    def total(self) -> int:
+        return self.pending_setup + self.active + self.stopped + self.overdue
+
+
+@dataclass(frozen=True)
+class BottleneckStage:
+    """SPEC.md §11: "har bir bosqich: o'rtacha davomiylik vs reja".
+
+    `avg_hours` — STOP vaqti CHIQARIB TASHLANGAN sof ish vaqti (§6 oxirgi
+    band: "aks holda ishchi 'men vaqtida qildim' deb bahslashadi").
+    `planned_hours` — bo'limning `default_sla_hours`i; `None` bo'lsa reja
+    belgilanmagan va taqqoslash ko'rsatilmaydi (nisbat hisoblanmaydi)."""
+
+    department_id: int
+    department_name: str
+    completed_tasks: int
+    avg_hours: float
+    planned_hours: int | None
+
+
+@dataclass(frozen=True)
+class StopStats:
+    """SPEC.md §11: "STOP statistikasi: nechta zakaz, qancha vaqt, sabablari"."""
+
+    stop_count: int
+    task_count: int
+    total_hours: float
+    reasons: list[tuple[str, int]]  # (sabab, nechta marta) — ko'pdan kamga
+
+
+async def get_order_funnel(module: str = "fasad_sex") -> list[FunnelStage]:
+    """SPEC.md §11: har bo'limda hozir nechta OCHIQ buyurtma-bosqichi
+    turganini holat kesimida qaytaradi (COMPLETED hisobga olinmaydi — bu
+    "hozir qayerda turibdi" ko'rsatkichi, tarix emas).
+
+    Bo'lim tartibi zanjir bo'ylab emas, nom bo'yicha — zanjir fork/join
+    tufayli chiziqli emas, "birinchidan oxirigacha" degan yagona to'g'ri
+    tartib mavjud emas."""
+    open_statuses = (TaskStatus.PENDING_SETUP, TaskStatus.ACTIVE, TaskStatus.STOPPED, TaskStatus.OVERDUE)
+    async with async_session() as session:
+        rows = (
+            await session.execute(
+                select(Department.id, Department.name, Task.status, func.count(Task.id))
+                .join(Task, Task.current_department_id == Department.id)
+                .where(
+                    Department.module == module,
+                    Task.task_type == TaskType.ORDER,
+                    Task.status.in_(open_statuses),
+                )
+                .group_by(Department.id, Department.name, Task.status)
+            )
+        ).all()
+
+    by_department: dict[int, dict] = {}
+    for department_id, name, status, count in rows:
+        entry = by_department.setdefault(department_id, {"name": name})
+        entry[status] = count
+
+    return sorted(
+        (
+            FunnelStage(
+                department_id=department_id,
+                department_name=entry["name"],
+                pending_setup=entry.get(TaskStatus.PENDING_SETUP, 0),
+                active=entry.get(TaskStatus.ACTIVE, 0),
+                stopped=entry.get(TaskStatus.STOPPED, 0),
+                overdue=entry.get(TaskStatus.OVERDUE, 0),
+            )
+            for department_id, entry in by_department.items()
+        ),
+        key=lambda s: s.department_name,
+    )
+
+
+async def get_stage_bottlenecks(
+    since: datetime, until: datetime, module: str = "fasad_sex"
+) -> list[BottleneckStage]:
+    """SPEC.md §11: bosqichlarning o'rtacha HAQIQIY davomiyligi vs reja
+    (`default_sla_hours`) — eng sekinidan boshlab. Sekin bosqichni topish
+    uchun ("bottleneck aniqlash").
+
+    Davomiylik = `finished_at - started_at` MINUS `stopped_seconds_total`
+    (§6: STOP vaqti ish vaqtidan chiqariladi). SQL darajasida hisoblanadi —
+    bo'lim boshiga bitta qator qaytadi, vazifalar Python'ga tortilmaydi."""
+    worked_seconds = func.extract("epoch", Task.finished_at - Task.started_at) - func.coalesce(
+        Task.stopped_seconds_total, 0
+    )
+    async with async_session() as session:
+        rows = (
+            await session.execute(
+                select(
+                    Department.id,
+                    Department.name,
+                    Department.default_sla_hours,
+                    func.count(Task.id),
+                    func.avg(worked_seconds),
+                )
+                .join(Task, Task.current_department_id == Department.id)
+                .where(
+                    Department.module == module,
+                    Task.task_type == TaskType.ORDER,
+                    Task.status == TaskStatus.COMPLETED,
+                    Task.finished_at.isnot(None),
+                    Task.finished_at >= since,
+                    Task.finished_at < until,
+                )
+                .group_by(Department.id, Department.name, Department.default_sla_hours)
+            )
+        ).all()
+
+    return sorted(
+        (
+            BottleneckStage(
+                department_id=department_id,
+                department_name=name,
+                completed_tasks=count,
+                # Manfiy bo'lib qolishi mumkin emas, lekin soat noto'g'ri
+                # yurgan/qo'lda tuzatilgan yozuvlarda 0'ga qisiladi.
+                avg_hours=round(max(float(avg_seconds or 0), 0) / 3600, 1),
+                planned_hours=planned,
+            )
+            for department_id, name, planned, count, avg_seconds in rows
+        ),
+        key=lambda s: s.avg_hours,
+        reverse=True,
+    )
+
+
+async def get_stop_stats(since: datetime, until: datetime, module: str = "fasad_sex") -> StopStats:
+    """SPEC.md §11: "STOP statistikasi: nechta zakaz, qancha vaqt, sabablari".
+
+    Davr ichida BOSHLANGAN to'xtatishlar hisobga olinadi. Hali davom
+    etayotgan STOP (`resumed_at IS NULL`) hisobdan tushib qolmaydi — uning
+    davomiyligi HOZIRGACHA olinadi, `until`gacha emas: standart davr joriy
+    oy, ya'ni `until` deyarli har doim KELAJAKDA, va o'sha kelajak vaqtni
+    qo'shish "qancha vaqt to'xtab turildi" raqamini bir necha barobar
+    shishirardi (haqiqiy DB'da 6 soat o'rniga 30 soat ko'rsatgan edi)."""
+    cutoff = min(until, datetime.now(timezone.utc))
+    async with async_session() as session:
+        rows = (
+            await session.execute(
+                select(StopLog.task_id, StopLog.reason, StopLog.stopped_at, StopLog.resumed_at)
+                .join(Task, StopLog.task_id == Task.id)
+                .join(Department, Task.current_department_id == Department.id)
+                .where(
+                    Department.module == module,
+                    StopLog.stopped_at >= since,
+                    StopLog.stopped_at < until,
+                )
+            )
+        ).all()
+
+    total_seconds = 0.0
+    reason_counts: dict[str, int] = {}
+    task_ids = set()
+    for task_id, reason, stopped_at, resumed_at in rows:
+        task_ids.add(task_id)
+        total_seconds += max(((resumed_at or cutoff) - stopped_at).total_seconds(), 0)
+        key = (reason or "").strip() or "—"
+        reason_counts[key] = reason_counts.get(key, 0) + 1
+
+    return StopStats(
+        stop_count=len(rows),
+        task_count=len(task_ids),
+        total_hours=round(total_seconds / 3600, 1),
+        reasons=sorted(reason_counts.items(), key=lambda item: item[1], reverse=True),
     )
 
 

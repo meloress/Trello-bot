@@ -2,9 +2,12 @@
 faqat Role.ADMIN/Role.SUPERVISOR (`server.py`da route bo'yicha
 `require_roles` orqali ulanadi)."""
 
+import csv
+import io
 import logging
 from datetime import datetime, timezone
 
+from aiogram.types import BufferedInputFile
 from aiohttp import web
 
 from core.database import async_session
@@ -787,6 +790,139 @@ async def capacity_stats(request: web.Request) -> web.Response:
             "actual_points": capacity.actual_points,
         }
     )
+
+
+def _period_from_query(request: web.Request) -> tuple[datetime, datetime]:
+    """SPEC.md §11 "davr bo'yicha filtr": `?since=`/`?until=` (ISO 8601,
+    ikkalasi birga). Berilmasa joriy oy — `capacity_stats` bilan bir xil
+    qoida. Noto'g'ri format ham jimgina joriy oyga tushadi: bular faqat
+    ko'rsatkich ekranlari, yarim to'ldirilgan sana kiritish xato
+    qaytarishga arzimaydi."""
+    since_raw = request.query.get("since")
+    until_raw = request.query.get("until")
+    if since_raw and until_raw:
+        try:
+            return datetime.fromisoformat(since_raw), datetime.fromisoformat(until_raw)
+        except ValueError:
+            pass
+    return penalty_service.month_bounds(datetime.now(timezone.utc))
+
+
+@routes.get("/stats/funnel")
+async def funnel_stats(request: web.Request) -> web.Response:
+    """SPEC.md §11: "zakazlar voronkasi — qaysi bosqichda nechta zakaz
+    turibdi". Davr filtri YO'Q — bu hozirgi holat kesimi, tarix emas."""
+    stages = await stats_service.get_order_funnel(module=request.query.get("module", "fasad_sex"))
+    return web.json_response(
+        [
+            {
+                "department_id": s.department_id,
+                "department": s.department_name,
+                "pending_setup": s.pending_setup,
+                "active": s.active,
+                "stopped": s.stopped,
+                "overdue": s.overdue,
+                "total": s.total,
+            }
+            for s in stages
+            if _department_scope_ok(request, s.department_id)
+        ]
+    )
+
+
+@routes.get("/stats/bottlenecks")
+async def bottleneck_stats(request: web.Request) -> web.Response:
+    """SPEC.md §11: "har bir bosqich: o'rtacha davomiylik vs reja" — eng
+    sekinidan boshlab. Davomiylikdan STOP vaqti chiqarib tashlangan (§6)."""
+    since, until = _period_from_query(request)
+    stages = await stats_service.get_stage_bottlenecks(
+        since, until, module=request.query.get("module", "fasad_sex")
+    )
+    return web.json_response(
+        [
+            {
+                "department_id": s.department_id,
+                "department": s.department_name,
+                "completed_tasks": s.completed_tasks,
+                "avg_hours": s.avg_hours,
+                "planned_hours": s.planned_hours,
+            }
+            for s in stages
+            if _department_scope_ok(request, s.department_id)
+        ]
+    )
+
+
+@routes.get("/stats/stops")
+async def stop_stats(request: web.Request) -> web.Response:
+    """SPEC.md §11: "STOP statistikasi: nechta zakaz, qancha vaqt, sabablari"."""
+    since, until = _period_from_query(request)
+    stats = await stats_service.get_stop_stats(
+        since, until, module=request.query.get("module", "fasad_sex")
+    )
+    return web.json_response(
+        {
+            "stop_count": stats.stop_count,
+            "task_count": stats.task_count,
+            "total_hours": stats.total_hours,
+            "reasons": [{"reason": reason, "count": count} for reason, count in stats.reasons],
+        }
+    )
+
+
+@routes.post("/stats/export")
+async def export_stats(request: web.Request) -> web.Response:
+    """SPEC.md §11 "Excel'ga eksport" — CSV sifatida (Excel uni to'g'ridan-
+    to'g'ri ochadi, yangi bog'liqlik kerak emas).
+
+    Fayl HTTP javobida QAYTARILMAYDI, balki so'rovchining o'z Telegram
+    chatiga hujjat sifatida yuboriladi. Sabab: har bir so'rov
+    `X-Telegram-Init-Data` sarlavhasini talab qiladi, ya'ni oddiy `<a
+    download>` havolasi ishlamaydi, blob orqali yuklab olish esa Telegram
+    WebView'da ishonchsiz. Hujjat sifatida yuborish — nativ va ishonchli
+    yo'l, foydalanuvchi faylni chatidan istalgan vaqtda ocha oladi.
+
+    BOM (`\\ufeff`) bilan boshlanadi: usiz Excel UTF-8ni tanimay, o'zbekcha
+    apostrof va kirill harflarni buzib ko'rsatadi."""
+    since, until = _period_from_query(request)
+    factory_name = request.query.get("factory_name") or None
+    stats = sorted(
+        (
+            s
+            for s in await stats_service.get_monthly_stats(factory_name=factory_name)
+            if s.role in stats_service.KPI_ROLES
+        ),
+        key=lambda s: s.total_score,
+        reverse=True,
+    )
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, delimiter=";")  # Excel (ru/uz lokal) `;` kutadi
+    writer.writerow(["Xodim", "Rol", "Bajarilgan", "Jami ball", "Jarimalar soni"])
+    for s in stats:
+        writer.writerow(
+            [s.full_name, ROLE_LABELS.get(s.role, s.role.value), s.completed_tasks, s.total_score, s.penalty_count]
+        )
+
+    employee = request["employee"]
+    if employee.telegram_id is None:
+        return err("Telegram hisobingiz ulanmagan — faylni yuborib bo'lmadi")
+
+    filename = f"statistika-{since:%Y-%m-%d}.csv"
+    # `request.config_dict` — `request.app` EMAS: `bot` faqat ildiz ilovada
+    # saqlanadi va aiohttp uni sub-app'larga tarqatmaydi (CLAUDE.md).
+    bot = request.config_dict["bot"]
+    try:
+        await bot.send_document(
+            employee.telegram_id,
+            BufferedInputFile(("﻿" + buffer.getvalue()).encode("utf-8"), filename=filename),
+            caption=f"📊 Statistika: {since:%d.%m.%Y} — {until:%d.%m.%Y}",
+        )
+    except Exception:
+        logger.exception("export_stats: CSV yuborilmadi (employee_id=%s)", employee.id)
+        return err("fayl yuborilmadi, keyinroq urinib ko'ring", 502)
+
+    return web.json_response({"sent": True, "rows": len(stats), "filename": filename})
 
 
 _SETTING_FIELDS = list(settings_service.AppSettingsSnapshot.__dataclass_fields__)

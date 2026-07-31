@@ -1083,14 +1083,97 @@ async function screenFullStats() {
         </button>
       `).join("") : ""}
     ${mebelOnly ? "" : `<button class="nav-card" id="nav-capacity"><span class="ic">${icon("ruler")}</span><span class="grow">${esc(t("capacityStatsNav"))}</span><span class="chev">›</span></button>`}
+    ${mebelOnly ? "" : `
+      <button class="nav-card" id="nav-funnel"><span class="ic">${icon("factory")}</span><span class="grow">${esc(t("funnelNav"))}</span><span class="chev">›</span></button>
+      <button class="nav-card" id="nav-bottleneck"><span class="ic">${icon("clock")}</span><span class="grow">${esc(t("bottleneckNav"))}</span><span class="chev">›</span></button>
+      <button class="nav-card" id="nav-stopstats"><span class="ic">${icon("stop")}</span><span class="grow">${esc(t("stopStatsNav"))}</span><span class="chev">›</span></button>
+    `}
+    <button class="nav-card" id="nav-export"><span class="ic">${icon("inbox")}</span><span class="grow">${esc(t("exportCsv"))}</span><span class="chev">›</span></button>
     <p class="section-lbl">${esc(t("overallRanking"))}</p>
     ${statRowsHtml(stats)}
   `);
   root.querySelectorAll(".nav-card[data-role]").forEach((el) => {
     el.onclick = () => show(screenStatsByRole, el.dataset.role);
   });
+  // SPEC.md §11: CSV chatga hujjat sifatida yuboriladi (WebView'da yuklab
+  // olish ishonchsiz) — ekran o'zgarmaydi, faqat tasdiq ko'rsatiladi.
+  root.querySelector("#nav-export").onclick = async (ev) => {
+    ev.currentTarget.disabled = true;
+    try {
+      await api("/admin/stats/export", { method: "POST" });
+      tg().HapticFeedback && tg().HapticFeedback.notificationOccurred("success");
+      tg().showAlert ? tg().showAlert(t("exportSentMsg")) : showError(t("exportSentMsg"));
+    } catch (e) {
+      showError(e.message);
+    } finally {
+      ev.currentTarget.disabled = false;
+    }
+  };
   const capacityBtn = root.querySelector("#nav-capacity");
   if (capacityBtn) capacityBtn.onclick = () => show(screenCapacityDepartmentPicker);
+  const funnelBtn = root.querySelector("#nav-funnel");
+  if (funnelBtn) funnelBtn.onclick = () => show(screenFunnel);
+  const bottleneckBtn = root.querySelector("#nav-bottleneck");
+  if (bottleneckBtn) bottleneckBtn.onclick = () => show(screenBottlenecks);
+  const stopStatsBtn = root.querySelector("#nav-stopstats");
+  if (stopStatsBtn) stopStatsBtn.onclick = () => show(screenStopStats);
+}
+
+/* ---------- SPEC.md §11: voronka / bottleneck / STOP statistikasi ----------
+   Uchalasi ham mavjud `.settings-row` (chapda nom, o'ngda qiymat) va
+   `.hero-tile` naqshlaridan foydalanadi — yangi CSS qo'shilmaydi. */
+
+async function screenFunnel() {
+  setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
+  const stages = await api(`/admin/stats/funnel?module=${encodeURIComponent(nav.module)}`);
+  setScreen(`
+    <p class="page-title">${esc(t("funnelTitle"))}</p>
+    ${stages.length ? stages.map((s) => `
+      <div class="settings-row">
+        <span class="lbl">${esc(s.department)}
+          <div class="hint">${esc(t("statusPendingSetup"))} ${s.pending_setup} · ${esc(t("statusActive"))} ${s.active} · ${esc(t("statusStopped"))} ${s.stopped} · ${esc(t("statusOverdue"))} ${s.overdue}</div>
+        </span>
+        <span class="badge${s.overdue ? " warn" : ""}">${s.total}</span>
+      </div>
+    `).join("") : `<p class="empty-state">${esc(t("noStats"))}</p>`}
+  `);
+}
+
+async function screenBottlenecks() {
+  setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
+  const stages = await api(`/admin/stats/bottlenecks?module=${encodeURIComponent(nav.module)}`);
+  setScreen(`
+    <p class="page-title">${esc(t("bottleneckTitle"))}</p>
+    <p class="hint">${esc(t("bottleneckHint"))}</p>
+    ${stages.length ? stages.map((s) => {
+      // Reja belgilanmagan bo'lsa taqqoslash umuman ko'rsatilmaydi — soxta
+      // "muddatida/kechikdi" xulosasi chiqmasligi uchun.
+      const over = s.planned_hours != null && s.avg_hours > s.planned_hours;
+      const plan = s.planned_hours != null ? ` / ${t("planLabel")} ${s.planned_hours}${t("hourShort")}` : "";
+      return `
+        <div class="stat-row">
+          <span class="rank">${icon("clock")}</span>
+          <span class="nm">${esc(s.department)}<div class="completed">${s.completed_tasks} ${esc(t("taskCountShort"))}</div></span>
+          <span class="score ${over ? "neg" : ""}">${s.avg_hours}${esc(t("hourShort"))}${esc(plan)}</span>
+        </div>`;
+    }).join("") : `<p class="empty-state">${esc(t("noStats"))}</p>`}
+  `);
+}
+
+async function screenStopStats() {
+  setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
+  const s = await api(`/admin/stats/stops?module=${encodeURIComponent(nav.module)}`);
+  setScreen(`
+    <p class="page-title">${esc(t("stopStatsTitle"))}</p>
+    <div class="hero-row">
+      <div class="hero-tile"><span class="num">${s.task_count}</span><span class="lbl">${esc(t("stopTaskCountLabel"))}</span></div>
+      <div class="hero-tile"><span class="num">${s.total_hours}</span><span class="lbl">${esc(t("stopHoursLabel"))}</span></div>
+    </div>
+    <p class="section-lbl">${esc(t("stopReasonsLabel"))} (${s.stop_count})</p>
+    ${s.reasons.length ? s.reasons.map((r) => `
+      <div class="settings-row"><span class="lbl">${esc(r.reason)}</span><span class="val">${r.count}</span></div>
+    `).join("") : `<p class="empty-state">${esc(t("noStats"))}</p>`}
+  `);
 }
 
 async function screenStatsByRole(role) {
