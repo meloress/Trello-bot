@@ -93,6 +93,26 @@ class Department(TimestampedBase):
     # kiritiladi). Mebel modulida bu ustun UMUMAN o'qilmaydi — u yerda muddat
     # Trello kartadan/list nomidan keladi (`trello_board_map.parse_hours`).
     default_sla_hours: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # SPEC.md §5.2 — "chizish" bosqichining kunlik navbat qoidasi:
+    #   srochniy            -> sla_urgent_hours       (24)
+    #   kun ichida <= norma -> default_sla_hours      (48)  <-- yuqoridagi ustun
+    #   normadan oshgan     -> sla_over_quota_hours   (72)
+    # Uchalasi NULL bo'lsa oddiy `default_sla_hours` ishlaydi (navbat qoidasi
+    # o'chiq) — shuning uchun "norma ichida" uchun alohida ustun kerak emas.
+    # "Kun ichidagi tartib" = shu bo'limda shu KALENDAR kunda (Toshkent)
+    # yaratilgan bosqichlar soni.
+    daily_quota_orders: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    sla_urgent_hours: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    sla_over_quota_hours: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # SPEC.md §5.3 "blok SLA": bir xil qiymatga ega KETMA-KET bo'limlar bitta
+    # blok (shkurka + kraska + malyarka). Blok ichidagi bosqichlar o'z
+    # muddatini olmaydi — muddat blokka KIRGANDA bir marta qo'yiladi (masalan
+    # 15 kun) va blokdan chiqquncha ko'chib boraveradi. Jarima ham faqat
+    # blokdan CHIQISHDA hisoblanadi, aks holda bitta kechikish uchun blokdagi
+    # har bosqich alohida jarima yozgan bo'lardi.
+    #
+    # NULL = bo'lim hech qanday blokka kirmaydi (standart).
+    sla_block_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
     brigades: Mapped[list["Brigade"]] = relationship(back_populates="department")
     employees: Mapped[list["Employee"]] = relationship(back_populates="department")

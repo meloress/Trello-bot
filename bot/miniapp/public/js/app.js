@@ -699,6 +699,7 @@ async function screenNewTaskForm(kind) {
       <div class="field"><label>${esc(t("departmentField"))}</label>
         <select id="f-dept"><option value="">—</option>${departments.filter((d) => d.module !== "mebel").map((d) => `<option value="${d.id}">${esc(d.name)}</option>`).join("")}</select>
       </div>
+      <label class="check-row"><input type="checkbox" id="f-urgent" />${esc(t("isUrgentField"))}</label>
       <p class="section-lbl">${esc(t("brigadierField"))}</p>
       <div id="brigadier-picker"><p class="hint">${esc(t("pickDepartmentFirst"))}</p></div>
       <div class="field"><label>${esc(t("clientName"))}</label><input id="f-client-name" type="text" /></div>
@@ -757,6 +758,7 @@ async function screenNewTaskForm(kind) {
             client_full_name: root.querySelector("#f-client-name").value.trim(),
             client_phone: root.querySelector("#f-client-phone").value.trim(),
             seller_ids: sellerIds,
+            is_urgent: root.querySelector("#f-urgent").checked,
           }),
         });
         app.HapticFeedback && app.HapticFeedback.notificationOccurred("success");
@@ -1276,6 +1278,10 @@ async function screenDepartmentEdit(department, allDepartments) {
     <div class="field"><label>${esc(t("departmentNameField"))}</label><input id="f-name" type="text" value="${esc(department.name)}" /></div>
     <div class="field"><label>${esc(t("trelloListIdField"))}</label><input id="f-trello-list" type="text" value="${esc(department.trello_list_id || "")}" /></div>
     <div class="field"><label>${esc(t("defaultSlaHoursField"))}</label><input id="f-sla" type="number" min="1" value="${department.default_sla_hours ?? ""}" /><p class="hint">${esc(t("defaultSlaHoursHint"))}</p></div>
+    <div class="field"><label>${esc(t("slaUrgentHoursField"))}</label><input id="f-sla-urgent" type="number" min="1" value="${department.sla_urgent_hours ?? ""}" /></div>
+    <div class="field"><label>${esc(t("dailyQuotaOrdersField"))}</label><input id="f-quota" type="number" min="1" value="${department.daily_quota_orders ?? ""}" /></div>
+    <div class="field"><label>${esc(t("slaOverQuotaHoursField"))}</label><input id="f-sla-over" type="number" min="1" value="${department.sla_over_quota_hours ?? ""}" /><p class="hint">${esc(t("slaQuotaHint"))}</p></div>
+    <div class="field"><label>${esc(t("slaBlockIdField"))}</label><input id="f-sla-block" type="text" value="${esc(department.sla_block_id || "")}" /><p class="hint">${esc(t("slaBlockIdHint"))}</p></div>
     <label class="check-row"><input type="checkbox" id="f-autoreassign" ${department.auto_reassign_after_48h ? "checked" : ""} />${esc(t("autoreassignNav"))}</label>
     <label class="check-row"><input type="checkbox" id="f-starts-stopped" ${department.starts_stopped ? "checked" : ""} />${esc(t("startsStoppedField"))}</label>
     <div class="field"><label>${esc(t("autoResumeHoursField"))}</label><input id="f-auto-resume" type="number" min="1" value="${department.stopped_auto_resume_after_hours ?? ""}" /></div>
@@ -1297,6 +1303,10 @@ async function screenDepartmentEdit(department, allDepartments) {
     }
     const autoResumeRaw = root.querySelector("#f-auto-resume").value.trim();
     const slaRaw = root.querySelector("#f-sla").value.trim();
+    const num = (sel) => {
+      const raw = root.querySelector(sel).value.trim();
+      return raw ? Number(raw) : null;
+    };
     const app = tg();
     app.MainButton.showProgress();
     try {
@@ -1306,6 +1316,10 @@ async function screenDepartmentEdit(department, allDepartments) {
           name,
           trello_list_id: root.querySelector("#f-trello-list").value.trim() || null,
           default_sla_hours: slaRaw ? Number(slaRaw) : null,
+          sla_urgent_hours: num("#f-sla-urgent"),
+          daily_quota_orders: num("#f-quota"),
+          sla_over_quota_hours: num("#f-sla-over"),
+          sla_block_id: root.querySelector("#f-sla-block").value.trim() || null,
           auto_reassign_after_48h: root.querySelector("#f-autoreassign").checked,
           starts_stopped: root.querySelector("#f-starts-stopped").checked,
           stopped_auto_resume_after_hours: autoResumeRaw ? Number(autoResumeRaw) : null,

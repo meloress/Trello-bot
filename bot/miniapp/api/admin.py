@@ -111,6 +111,10 @@ async def list_departments(request: web.Request) -> web.Response:
                 "factory_name": d.factory_name,
                 "stop_target_list_id": d.stop_target_list_id,
                 "default_sla_hours": d.default_sla_hours,
+                "daily_quota_orders": d.daily_quota_orders,
+                "sla_urgent_hours": d.sla_urgent_hours,
+                "sla_over_quota_hours": d.sla_over_quota_hours,
+                "sla_block_id": d.sla_block_id,
             }
             for d in departments
         ]
@@ -166,6 +170,10 @@ DEPARTMENT_UPDATABLE_FIELDS = (
     "stop_target_list_id",
     "stopped_auto_resume_after_hours",
     "default_sla_hours",  # SPEC.md §5.1
+    "daily_quota_orders",  # SPEC.md §5.2
+    "sla_urgent_hours",
+    "sla_over_quota_hours",
+    "sla_block_id",  # SPEC.md §5.3
 )
 
 
@@ -207,6 +215,10 @@ async def update_department(request: web.Request) -> web.Response:
             "factory_name": department.factory_name,
             "stop_target_list_id": department.stop_target_list_id,
             "default_sla_hours": department.default_sla_hours,
+            "daily_quota_orders": department.daily_quota_orders,
+            "sla_urgent_hours": department.sla_urgent_hours,
+            "sla_over_quota_hours": department.sla_over_quota_hours,
+            "sla_block_id": department.sla_block_id,
         }
     )
 
@@ -400,6 +412,7 @@ async def create_task(request: web.Request) -> web.Response:
             client_id=client_id,
             created_by_employee_id=request["employee"].id,
             seller_ids=seller_ids,
+            is_urgent=bool(body.get("is_urgent", False)),  # SPEC.md §5.2
         )
     except task_service.DepartmentNotFoundError:
         return err("bo'lim topilmadi", 404)

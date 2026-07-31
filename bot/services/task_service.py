@@ -34,6 +34,7 @@ from db.repositories import (
 from services import penalty_service
 from trello.client import TrelloClient
 from utils.enums import MiscCategory, Role, TaskStatus, TaskType
+from utils.formatters import TASHKENT_TZ
 
 logger = logging.getLogger(__name__)
 
@@ -190,6 +191,7 @@ async def create_task(
     client_id: int | None = None,
     created_by_employee_id: int | None = None,
     seller_ids: list[int] | None = None,
+    is_urgent: bool = False,
 ) -> Task:
     seller_ids = list(dict.fromkeys(seller_ids or []))
     if len(seller_ids) > 3:
@@ -226,6 +228,10 @@ async def create_task(
             current_department_id=department_id,
             started_at=datetime.now(timezone.utc),
             client_id=client_id,
+            # SPEC.md §5.2: srochnost butun buyurtmaga tegishli — keyingi
+            # bosqichlarga `_spawn_pending_stage()` orqali ko'chib boradi va
+            # o'sha bo'limlarning `sla_urgent_hours`ini faollashtiradi.
+            is_urgent=is_urgent,
         )
 
         for employee_id in employee_ids:
@@ -373,6 +379,61 @@ async def set_assignees_from_trello(task_id: int, new_employee_ids: list[int]) -
         return task
 
 
+async def _is_same_sla_block(session, department, previous_task) -> bool:
+    """SPEC.md §5.3: yangi bosqich OLDINGISI bilan bir xil SLA blokidami?
+    Shunday bo'lsa muddat qayta hisoblanmaydi — blokka kirganda qo'yilgani
+    ko'chib boraveradi (blok ichida erkin harakat, chiqish esa umumiy
+    muddat ichida)."""
+    if department.sla_block_id is None or previous_task is None:
+        return False
+    if previous_task.current_department_id is None:
+        return False
+    previous_department = await DepartmentRepository(session).get_by_id(previous_task.current_department_id)
+    return previous_department is not None and previous_department.sla_block_id == department.sla_block_id
+
+
+async def _sla_hours_for_stage(session, department, previous_task) -> int | None:
+    """SPEC.md §5.1 + §5.2: shu bosqich uchun necha soat muddat berilishi.
+    `None` = SLA sozlanmagan, muddat qo'lda kiritiladi.
+
+    §5.2 navbat qoidasi faqat `daily_quota_orders` VA `sla_over_quota_hours`
+    ikkalasi ham sozlangan bo'limlarda ishlaydi (chizish bosqichi); qolgan
+    hamma bo'limda oddiy `default_sla_hours` qaytadi."""
+    if previous_task is not None and previous_task.is_urgent and department.sla_urgent_hours:
+        return department.sla_urgent_hours
+
+    if department.daily_quota_orders and department.sla_over_quota_hours:
+        # Kun chegarasi Toshkent bo'yicha: "bir kunda tushgan zakazlar"
+        # rahbar uchun mahalliy kalendar kun, UTC sutkasi emas.
+        now_local = datetime.now(TASHKENT_TZ)
+        day_start = now_local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+        created_today = await TaskRepository(session).count_created_in_department_since(
+            department_id=department.id, since=day_start
+        )
+        # `created_today` — bu bosqich YARATILISHIDAN oldingi son, ya'ni
+        # hozirgi buyurtmaning kun ichidagi tartibi `created_today + 1`.
+        if created_today + 1 > department.daily_quota_orders:
+            return department.sla_over_quota_hours
+
+    return department.default_sla_hours
+
+
+async def resolve_stage_deadline(session, department, previous_task) -> datetime | None:
+    """SPEC.md §5.1/§5.2/§5.3: yangi bosqich muddatini aniqlaydi.
+
+    `None` = muddat qo'yilmaydi (nazoratchi qo'lda kiritadi) — SLA
+    sozlanmagan bo'lim, yoki mebel moduli (u yerda muddat Trello
+    kartadan/list nomidan keladi, bu ustunlar umuman o'qilmaydi)."""
+    if department is None or department.module == "mebel":
+        return None
+
+    if await _is_same_sla_block(session, department, previous_task):
+        return previous_task.deadline
+
+    hours = await _sla_hours_for_stage(session, department, previous_task)
+    return datetime.now(timezone.utc) + timedelta(hours=hours) if hours else None
+
+
 async def _spawn_pending_stage(
     session,
     *,
@@ -395,11 +456,11 @@ async def _spawn_pending_stage(
     xodim) — SLA faqat birinchisini yechadi. Muhim yutuq shunda: taymer
     nazoratchi tugmani bosgan paytdan emas, buyurtma haqiqatda bosqichga
     o'tgan paytdan ketadi (TZ aynan shuni talab qiladi). SLA sozlanmagan
-    bo'lsa `None` — muddat butunlay qo'lda kiritiladi (eski xatti-harakat)."""
+    bo'lsa `None` — muddat butunlay qo'lda kiritiladi (eski xatti-harakat).
+    Aniq qoidalar (navbat, blok) `resolve_stage_deadline()`da."""
     department = await DepartmentRepository(session).get_by_id(department_id)
-    deadline: datetime | None = None
-    if department is not None and department.module != "mebel" and department.default_sla_hours:
-        deadline = datetime.now(timezone.utc) + timedelta(hours=department.default_sla_hours)
+    previous_task = await TaskRepository(session).get_by_id(previous_task_id) if previous_task_id else None
+    deadline = await resolve_stage_deadline(session, department, previous_task)
 
     return await TaskRepository(session).create(
         trello_card_id=card_id,
@@ -413,6 +474,9 @@ async def _spawn_pending_stage(
         previous_task_id=previous_task_id,
         trello_checklist_id=checklist_id,
         client_id=client_id,
+        # SPEC.md §5.2: "srochniy" butun buyurtmaga tegishli, bitta bosqichga
+        # emas — `client_id`/`trello_checklist_id` kabi zanjir bo'ylab ko'chadi.
+        is_urgent=bool(previous_task is not None and previous_task.is_urgent),
     )
 
 

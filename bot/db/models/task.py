@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from db.base import TimestampedBase
@@ -104,6 +104,11 @@ class Task(TimestampedBase):
     # NULL = hali takroriy eslatma yuborilmagan (birinchisi `status=OVERDUE`ga
     # o'tishda `notify_task_overdue` orqali ketadi).
     last_overdue_reminder_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # SPEC.md §5.2: "srochniy" buyurtma — bo'limda navbat qoidasi sozlangan
+    # bo'lsa, bunday buyurtma navbatdan qat'i nazar `sla_urgent_hours` oladi.
+    # Bosqichdan-bosqichga `client_id` kabi ko'chiriladi (butun buyurtma
+    # srochniy, bitta bosqichi emas).
+    is_urgent: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     current_department: Mapped[Optional["Department"]] = relationship(back_populates="tasks")
     client: Mapped[Optional["Client"]] = relationship()

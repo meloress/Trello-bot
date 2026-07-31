@@ -137,6 +137,20 @@ class TaskRepository(BaseRepository[Task]):
         )
         return list(result.scalars().all())
 
+    async def count_created_in_department_since(self, *, department_id: int, since: datetime) -> int:
+        """SPEC.md §5.2 navbat qoidasi: shu bo'limda `since`dan beri necha ta
+        ORDER bosqichi ochilgan. Chaqiruvchi `since`ni Toshkent kalendar
+        kunining boshi qilib beradi — "bir kunda tushgan zakazlar" rahbar
+        uchun mahalliy kun, UTC sutkasi emas."""
+        result = await self.session.execute(
+            select(func.count(Task.id)).where(
+                Task.current_department_id == department_id,
+                Task.task_type == TaskType.ORDER,
+                Task.created_at >= since,
+            )
+        )
+        return result.scalar_one()
+
     async def list_overdue_for_repeat_reminder(self, *, now: datetime, repeat_hours: int) -> list[Task]:
         """SPEC.md §5.4: "kechikish davom etsa, har M soatda takroriy eslatma".
         OVERDUE holatda turgan `fasad_sex` vazifalari — oxirgi takroriy

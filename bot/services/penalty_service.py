@@ -22,6 +22,7 @@ from db.models.employee import Employee
 from db.models.kpi_log import KpiLog
 from db.repositories import (
     BrigadeRepository,
+    DepartmentRepository,
     EmployeeRepository,
     KpiLogRepository,
     PenaltyRuleRepository,
@@ -206,6 +207,36 @@ async def apply_plus_ball_for_employees(*, task_id: int, employee_ids: list[int]
     return created_logs
 
 
+async def _is_inside_sla_block(session, task) -> bool:
+    """SPEC.md §5.3: bosqich SLA blokining ICHIDA (chiqishi emas)mi?
+
+    Blok — bir xil `departments.sla_block_id`ga ega ketma-ket bo'limlar
+    (shkurka + kraska + malyarka). "Ichida erkin harakatlanish mumkin,
+    ammo butun blokdan chiqish 15 kun ichida" — ya'ni blok ichidagi
+    bosqichlarning o'z muddati yo'q, hammasi bitta umumiy muddatni
+    ulashadi (`task_service.resolve_stage_deadline()` uni ko'chirib
+    boradi). Shu sabab jarima/bonus faqat blokdan CHIQISHDA bir marta
+    hisoblanadi — aks holda bitta kechikish uchun blokdagi har bosqich
+    alohida jarima yozgan bo'lardi (3 barobar).
+
+    Chiqish = `next_department_id` yo'q, YOKI keyingi bo'lim boshqa
+    blokda (yoki umuman bloksiz).
+
+    ponytail: blok chiziqli deb qabul qilinadi (`next_department_id`
+    orqali). Blok ichida fork kerak bo'lsa — `department_fork_targets`ni
+    ham tekshirish kerak bo'ladi; hozircha bunday zanjir yo'q."""
+    if task.current_department_id is None:
+        return False
+    department_repo = DepartmentRepository(session)
+    department = await department_repo.get_by_id(task.current_department_id)
+    if department is None or department.sla_block_id is None:
+        return False
+    if department.next_department_id is None:
+        return False  # zanjir tugadi — bu blokning chiqishi
+    next_department = await department_repo.get_by_id(department.next_department_id)
+    return next_department is not None and next_department.sla_block_id == department.sla_block_id
+
+
 async def calculate_and_apply_task_penalty(task_id: int) -> list[KpiLog]:
     """8.1/8.2/8.4-band: vazifa yakunlanganda chaqiriladi.
     - Muddatidan KECH tugagan bo'lsa (bepul kun/"grace period" YO'Q — rasmiy
@@ -219,7 +250,11 @@ async def calculate_and_apply_task_penalty(task_id: int) -> list[KpiLog]:
     8.3-band: agar buyurtma brigadaga o'tkazilgan bo'lsa (`task.reassigned_at`
     NOT NULL), kechikish shu paytdan hisoblanadi (`deadline`dan emas) — eski
     brigada allaqachon `reassign_task_brigade()`da jarimalangan davrni yangi
-    brigadaga qayta hisoblamaslik uchun."""
+    brigadaga qayta hisoblamaslik uchun.
+
+    SPEC.md §5.3: SLA blokining ICHIDAGI bosqich hech qanday ball yozmaydi —
+    blok bo'ylab bitta umumiy muddat bor, jarima blokdan chiqishda bir marta
+    hisoblanadi (`_is_inside_sla_block()`)."""
     async with async_session() as session:
         task_repo = TaskRepository(session)
         assignment_repo = TaskAssignmentRepository(session)
@@ -229,6 +264,9 @@ async def calculate_and_apply_task_penalty(task_id: int) -> list[KpiLog]:
             raise TaskNotFoundError(f"Task {task_id} topilmadi")
         if task.finished_at is None:
             raise InvalidTaskStateError(f"Task {task_id} hali yakunlanmagan")
+
+        if await _is_inside_sla_block(session, task):
+            return []
 
         reference_start = task.reassigned_at or task.deadline
         delta_seconds = (task.finished_at - reference_start).total_seconds()
