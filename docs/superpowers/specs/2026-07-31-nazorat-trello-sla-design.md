@@ -157,3 +157,37 @@ ko'chiriladi, jarima esa faqat blokdan chiqishda hisoblanadi.
 Har faza bitta migratsiya. Barcha yangi ustunlar `nullable=True` yoki
 `server_default` bilan (jadvallar bo'sh emas). Yakunda
 `shared/db-schema.md` yangilanadi.
+
+---
+
+## Bajarilish holati (2026-08-01)
+
+To'rt fazaning hammasi amalga oshirildi va `main`ga tayyor
+(`spec-nazorat-trello` branchi, 4 commit):
+
+| Faza | Commit | Migratsiya |
+|---|---|---|
+| 1 — SLA dvigateli (§5.1/§6.1/§5.4) | `0967ec4` | `c7f2a91b0d48` |
+| 2 — navbat + blok SLA (§5.2/§5.3) | `f3d13fa` | `d5b83e10c9a7` |
+| 3 — guruh/rahbar/jarima maqsadi (§7/§8) | `1f0478f` | `e9c04a7f3b62` |
+| 4 — dashboard (§11) | `ab824ab` | — (jadval qo'shilmagan) |
+
+Uchala migratsiya production DB'ga qo'llangan (`alembic current` =
+`e9c04a7f3b62`). Barcha 6 test o'tadi; `test_sla_engine.py` yangi, uchta
+tuzatish sabotaj bilan tekshirilgan (ataylab buzilganda yiqiladi).
+
+**Rejadan chetlanish:** Faza 2 da "norma ichida" uchun alohida
+`sla_within_quota` ustuni qo'shilmadi — `default_sla_hours`ning o'zi shu
+rolni bajaradi, ya'ni navbat qoidasi o'chirilganda xatti-harakat avtomatik
+oddiy SLA'ga qaytadi (bitta ustun kam, bitta nomuvofiqlik holati kam).
+
+**Haqiqiy DB ustidagi tekshiruv topgan xato:** `get_stop_stats()` davom
+etayotgan STOP'ni kelajakdagi `until`gacha hisoblardi — joriy oy filtrida
+6 soatlik to'xtatishni 30 soat qilib ko'rsatgan edi. `min(until, now)`
+bilan tuzatildi.
+
+**Qolgan ish (kod emas):** yangi ustunlarning hech biri hali to'ldirilmagan
+(hammasi NULL) — 17 ta `fasad_sex` bo'limi uchun SLA soatlari, chizish
+bosqichining normasi, "paint" blokining a'zolari va sex guruh ID'lari
+rahbardan olinishi kerak. Shu qiymatlar kiritilmaguncha tizim aynan
+bugungidek ishlaydi.

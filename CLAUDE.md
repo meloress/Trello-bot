@@ -71,6 +71,53 @@ are live, and role routing works for every role in both modules
 Material-type templates (Laminoks, Eman/dub — 3 stages each) were added
 2026-07-31.
 
+### SPEC.md — the SLA/dashboard layer on top of Nazorat Trello (2026-08-01)
+
+`SPEC.md` (repo root) is a second, later TZ covering the same system. Most
+of it was already built; the genuine gaps were implemented in four
+commits, **all scoped to `fasad_sex`** (design doc:
+`docs/superpowers/specs/2026-07-31-nazorat-trello-sla-design.md`):
+
+- **§5.1 SLA engine** — `departments.default_sla_hours`. A new stage's
+  `deadline` is now pre-computed at the moment the order *enters* the
+  stage (`task_service.resolve_stage_deadline()`, called from
+  `_spawn_pending_stage()`), not when a supervisor gets around to typing
+  it. The stage still opens `PENDING_SETUP` (it waits on *two* things —
+  deadline *and* employee; SLA only solves the first), and
+  `activate_pending_stage(deadline=None)` keeps the pre-computed value.
+- **§5.2 queue rule** — `daily_quota_orders` / `sla_urgent_hours` /
+  `sla_over_quota_hours` + `tasks.is_urgent`. "Within quota" reuses
+  `default_sla_hours`, so unsetting the quota columns silently falls back
+  to the plain SLA. Day boundary is the **Tashkent** calendar day.
+- **§5.3 block SLA** — `departments.sla_block_id`. Consecutive same-block
+  departments share one deadline (carried forward, never recomputed) and
+  **only the block exit scores KPI** (`penalty_service._is_inside_sla_block()`)
+  — otherwise one late block wrote a penalty per stage.
+- **§6.1 STOP freezes the timer** — `resume_task()` adds the paused span to
+  `deadline` and to `tasks.stopped_seconds_total`. A STOPPED `fasad_sex`
+  task no longer flips `OVERDUE` or gets the "deadline near" warning
+  (`task_repo._timer_running()`).
+- **§5.4** — `app_settings.deadline_warning_hours` (4; was a hardcoded 24)
+  and `overdue_repeat_hours` (12, `0` = off) + a repeat-reminder phase in
+  `overdue_watch_job`.
+- **§7/§8** — `departments.telegram_chat_id` (sex group), `employees.manager_id`
+  (self-FK; notified on a subordinate's penalty and overdue task, **not** on
+  bonuses), `app_settings.penalize_all_assignees`.
+- **§11** — `stats_service.get_order_funnel()` / `get_stage_bottlenecks()` /
+  `get_stop_stats()` + CSV export. No new table. Bottleneck duration
+  subtracts `stopped_seconds_total`; an *ongoing* stop is counted **only up
+  to now**, not to the period end (the default period is the current month,
+  so `until` is in the future — counting it inflated 6 real hours to 30).
+
+Mebel is untouched: every one of these reads a column mebel never sets, and
+each is additionally behind a `module == "mebel"` guard. `tests/test_sla_engine.py`
+asserts the mebel path explicitly. Deliberately **not** built (confirm before
+adding): §3 `Company`/multi-tenant and §10 tariff plans (SaaS was dropped),
+§7 speed-tier bonus (removed as 8.6-band on 2026-07-27), §3 `NotificationLog`.
+§13's open questions: #1/#7 were already closed in `.claude/nazorat-trello/`,
+#5 was answered **calendar hours (24/7)**, #2/#3 are answered by SPEC itself,
+#4 by the existing `penalty_rules`, #6/#8 are data/SaaS, not code.
+
 ### What is left
 
 Only `.claude/nazorat-trello/` — **read its `README.md` first**. As of
