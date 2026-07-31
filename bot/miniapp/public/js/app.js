@@ -877,6 +877,9 @@ async function screenEmployeeDetail(employeeId) {
     .join("");
   // SPEC.md §7/§8: rahbar — faqat boshqaruvchi rollar, va xodimning o'zi
   // ro'yxatda bo'lmaydi (o'ziga rahbar bo'lish backend'da ham rad etiladi).
+  // Mebel ("Fasad seh") MUZLATILGAN: rahbar xabarnomasi u yerda ishlamaydi
+  // (backend ham e'tiborsiz qoldiradi), shuning uchun maydon ko'rsatilmaydi.
+  const isMebelEmployee = employeeDepartment ? employeeDepartment.module === "mebel" : nav.module === "mebel";
   const MANAGER_ROLES = ["brigadier", "supervisor", "admin"];
   const managerOptions = allEmployees
     .filter((e) => e.id !== employee.id && MANAGER_ROLES.includes(e.role))
@@ -894,10 +897,11 @@ async function screenEmployeeDetail(employeeId) {
       <select id="f-dept"><option value="">—</option>${departments.map((d) => `<option value="${d.id}" ${d.id === employee.department_id ? "selected" : ""}>${esc(d.name)}</option>`).join("")}</select>
     </div>
     <div class="field"><label>${esc(t("brigade"))}</label><select id="f-brigade">${brigadeOptions}</select></div>
+    ${isMebelEmployee ? "" : `
     <div class="field"><label>${esc(t("managerField"))}</label>
       <select id="f-manager"><option value="">—</option>${managerOptions}</select>
       <p class="hint">${esc(t("managerHint"))}</p>
-    </div>
+    </div>`}
     <div class="field" id="led-block" ${employee.role === "brigadier" ? "" : "hidden"}>
       <label>${esc(t("ledDepartments"))}</label>${ledOptions}
     </div>
@@ -936,7 +940,10 @@ async function screenEmployeeDetail(employeeId) {
         role: roleVal,
         department_id: deptVal ? Number(deptVal) : null,
         brigade_id: brigadeVal ? Number(brigadeVal) : null,
-        manager_id: root.querySelector("#f-manager").value ? Number(root.querySelector("#f-manager").value) : null,
+        ...(isMebelEmployee ? {} : {
+          manager_id: root.querySelector("#f-manager").value
+            ? Number(root.querySelector("#f-manager").value) : null,
+        }),
       };
       if (roleVal === "brigadier") {
         body.led_department_ids = Array.from(root.querySelectorAll(".f-led:checked")).map((el) => Number(el.value));
@@ -1385,16 +1392,23 @@ async function screenDepartments() {
 }
 
 async function screenDepartmentEdit(department, allDepartments) {
+  // Mebel ("Fasad seh") MUZLATILGAN: SPEC.md kiritgan sozlamalar (SLA,
+  // navbat, blok, sex guruhi) unga umuman qo'llanmaydi — backend ularni
+  // baribir e'tiborsiz qoldiradi, shuning uchun maydonlarni ko'rsatish
+  // faqat chalg'itardi.
+  const specFields = department.module !== "mebel";
   setScreen(`
     <p class="page-title">${esc(department.name)}</p>
     <div class="field"><label>${esc(t("departmentNameField"))}</label><input id="f-name" type="text" value="${esc(department.name)}" /></div>
     <div class="field"><label>${esc(t("trelloListIdField"))}</label><input id="f-trello-list" type="text" value="${esc(department.trello_list_id || "")}" /></div>
+    ${specFields ? `
     <div class="field"><label>${esc(t("defaultSlaHoursField"))}</label><input id="f-sla" type="number" min="1" value="${department.default_sla_hours ?? ""}" /><p class="hint">${esc(t("defaultSlaHoursHint"))}</p></div>
     <div class="field"><label>${esc(t("slaUrgentHoursField"))}</label><input id="f-sla-urgent" type="number" min="1" value="${department.sla_urgent_hours ?? ""}" /></div>
     <div class="field"><label>${esc(t("dailyQuotaOrdersField"))}</label><input id="f-quota" type="number" min="1" value="${department.daily_quota_orders ?? ""}" /></div>
     <div class="field"><label>${esc(t("slaOverQuotaHoursField"))}</label><input id="f-sla-over" type="number" min="1" value="${department.sla_over_quota_hours ?? ""}" /><p class="hint">${esc(t("slaQuotaHint"))}</p></div>
     <div class="field"><label>${esc(t("slaBlockIdField"))}</label><input id="f-sla-block" type="text" value="${esc(department.sla_block_id || "")}" /><p class="hint">${esc(t("slaBlockIdHint"))}</p></div>
     <div class="field"><label>${esc(t("telegramChatIdField"))}</label><input id="f-chat-id" type="text" value="${esc(department.telegram_chat_id || "")}" /><p class="hint">${esc(t("telegramChatIdHint"))}</p></div>
+    ` : ""}
     <label class="check-row"><input type="checkbox" id="f-autoreassign" ${department.auto_reassign_after_48h ? "checked" : ""} />${esc(t("autoreassignNav"))}</label>
     <label class="check-row"><input type="checkbox" id="f-starts-stopped" ${department.starts_stopped ? "checked" : ""} />${esc(t("startsStoppedField"))}</label>
     <div class="field"><label>${esc(t("autoResumeHoursField"))}</label><input id="f-auto-resume" type="number" min="1" value="${department.stopped_auto_resume_after_hours ?? ""}" /></div>
@@ -1415,10 +1429,14 @@ async function screenDepartmentEdit(department, allDepartments) {
       return;
     }
     const autoResumeRaw = root.querySelector("#f-auto-resume").value.trim();
-    const slaRaw = root.querySelector("#f-sla").value.trim();
     const num = (sel) => {
-      const raw = root.querySelector(sel).value.trim();
+      const el = root.querySelector(sel);
+      const raw = el ? el.value.trim() : "";
       return raw ? Number(raw) : null;
+    };
+    const txt = (sel) => {
+      const el = root.querySelector(sel);
+      return el ? el.value.trim() || null : null;
     };
     const app = tg();
     app.MainButton.showProgress();
@@ -1428,12 +1446,14 @@ async function screenDepartmentEdit(department, allDepartments) {
         body: JSON.stringify({
           name,
           trello_list_id: root.querySelector("#f-trello-list").value.trim() || null,
-          default_sla_hours: slaRaw ? Number(slaRaw) : null,
-          sla_urgent_hours: num("#f-sla-urgent"),
-          daily_quota_orders: num("#f-quota"),
-          sla_over_quota_hours: num("#f-sla-over"),
-          sla_block_id: root.querySelector("#f-sla-block").value.trim() || null,
-          telegram_chat_id: root.querySelector("#f-chat-id").value.trim() || null,
+          ...(specFields ? {
+            default_sla_hours: num("#f-sla"),
+            sla_urgent_hours: num("#f-sla-urgent"),
+            daily_quota_orders: num("#f-quota"),
+            sla_over_quota_hours: num("#f-sla-over"),
+            sla_block_id: txt("#f-sla-block"),
+            telegram_chat_id: txt("#f-chat-id"),
+          } : {}),
           auto_reassign_after_48h: root.querySelector("#f-autoreassign").checked,
           starts_stopped: root.querySelector("#f-starts-stopped").checked,
           stopped_auto_resume_after_hours: autoResumeRaw ? Number(autoResumeRaw) : null,

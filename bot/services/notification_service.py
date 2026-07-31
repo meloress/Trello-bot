@@ -55,23 +55,42 @@ async def _department_name(session, department_id: int | None) -> str | None:
     return department.name if department is not None else None
 
 
+async def _is_mebel(session, department_id: int | None) -> bool:
+    """Mebel moduli ("Fasad seh") MUZLATILGAN — SPEC.md kiritgan yangi
+    xabarnoma kanallari (sex guruhi, rahbar zanjiri) unga umuman
+    qo'llanmaydi. Ustunlarni bo'sh qoldirish yetarli emas: admin Mini
+    App'dan mebel bo'limiga guruh ID yoki mebel xodimiga rahbar yozib
+    qo'ysa, muzlatilgan modulning xabar oqimi jimgina o'zgarib ketardi.
+    Shu sabab tekshiruv ma'lumotda emas, KODDA."""
+    if department_id is None:
+        return False
+    department = await DepartmentRepository(session).get_by_id(department_id)
+    return department is not None and department.module == "mebel"
+
+
 async def _department_chat_id(session, department_id: int | None) -> str | None:
     """SPEC.md §8: "har sexning o'z Telegram guruhi bor" —
     `departments.telegram_chat_id`. NULL = guruh sozlanmagan, guruhga
-    hech narsa yuborilmaydi (xato emas, standart holat)."""
+    hech narsa yuborilmaydi (xato emas, standart holat). Mebel bo'limlari
+    uchun har doim `None` (`_is_mebel` izohiga qarang)."""
     if department_id is None:
         return None
     department = await DepartmentRepository(session).get_by_id(department_id)
-    return department.telegram_chat_id if department is not None else None
+    if department is None or department.module == "mebel":
+        return None
+    return department.telegram_chat_id
 
 
-async def _add_managers(session, recipients: dict) -> None:
+async def _add_managers(session, recipients: dict, department_id: int | None) -> None:
     """SPEC.md §7/§8: "rahbar (`user.manager_id`) ham xabarnomaga ulanadi".
-    Mavjud qabul qiluvchilarning bevosita rahbarlarini qo'shadi.
+    Mavjud qabul qiluvchilarning bevosita rahbarlarini qo'shadi. Mebel
+    vazifasi bo'lsa hech narsa qilmaydi (`_is_mebel` izohiga qarang).
 
     ponytail: bitta pog'ona — rahbarning rahbari qo'shilmaydi. Butun
     ierarxiya kerak bo'lsa shu yerda tsiklga aylantiriladi (halqadan
     himoya bilan); hozircha tashkilotda ikki pog'ona bor."""
+    if await _is_mebel(session, department_id):
+        return
     employee_repo = EmployeeRepository(session)
     for employee_id in list(recipients):
         employee = await employee_repo.get_by_id(employee_id)
@@ -275,12 +294,16 @@ async def notify_penalty_applied(bot: Bot, kpi_log_id: int) -> None:
 
         # SPEC.md §7: "rahbar ham xabarnomaga ulanishi mumkin". Faqat JARIMA
         # (manfiy ball) — bonus xodimning o'z ishi, rahbarni har musbat ball
-        # bilan bezovta qilishning ma'nosi yo'q.
-        manager = (
-            await employee_repo.get_by_id(employee.manager_id)
-            if kpi_log.score < 0 and employee.manager_id is not None
-            else None
-        )
+        # bilan bezovta qilishning ma'nosi yo'q. Mebel xodimlari uchun bu
+        # kanal umuman yo'q (`_is_mebel` izohiga qarang) — bu yerda xodimning
+        # O'Z bo'limi tekshiriladi, chunki KPI yozuvida vazifa/bo'lim yo'q.
+        manager = None
+        if (
+            kpi_log.score < 0
+            and employee.manager_id is not None
+            and not await _is_mebel(session, employee.department_id)
+        ):
+            manager = await employee_repo.get_by_id(employee.manager_id)
 
     title = "🎁 Sizga bonus ball yozildi" if kpi_log.score > 0 else "⚠️ Sizga jarima ball yozildi"
     text = f"{title}: {kpi_log.score:+d} ball\nSabab: {kpi_log.reason}"
@@ -389,7 +412,7 @@ async def notify_task_overdue(bot: Bot, task_id: int) -> None:
             recipients[admin.id] = admin.telegram_id
 
         # SPEC.md §8: "Muddat o'tdi -> Mas'ul + rahbar + sex guruhi".
-        await _add_managers(session, recipients)
+        await _add_managers(session, recipients, task.current_department_id)
         group_chat_id = await _department_chat_id(session, task.current_department_id)
 
     text = f"🔴 \"{task.title}\" vazifasining muddati o'tib ketdi!\nMuddat: {_format_dt(task.deadline)}"

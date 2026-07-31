@@ -67,6 +67,22 @@ def month_bounds(reference: date) -> tuple[datetime, datetime]:
     return start, end
 
 
+async def _penalize_all_for_task(session, task) -> bool:
+    """SPEC.md §7 sozlamasi (`penalize_all_assignees`) QAYSI modulga
+    tegishli ekanini hal qiladi.
+
+    Mebel ("Fasad seh") MUZLATILGAN: u yerda ball har doim barcha
+    javobgarga yoziladi, admin sozlamani o'chirib qo'ysa ham. Sozlama
+    `app_settings`da yagona global qator bo'lgani uchun, guardsiz uni
+    o'chirish mebelning KPI hisobini ham jimgina o'zgartirib yuborardi."""
+    department_id = getattr(task, "current_department_id", None)
+    if department_id is not None:
+        department = await DepartmentRepository(session).get_by_id(department_id)
+        if department is not None and department.module == "mebel":
+            return True
+    return (await settings_service.get_settings()).penalize_all_assignees
+
+
 async def _write_scores_for_employees(
     session, *, employee_ids: list[int], score: int, reason: str, task_id: int, task_title: str,
     brigade_share_ratio: float, penalize_all: bool = True,
@@ -174,7 +190,7 @@ async def apply_penalty_for_employees(
             task_id=task_id,
             task_title=task_title,
             brigade_share_ratio=app_settings.brigade_share_ratio,
-            penalize_all=app_settings.penalize_all_assignees,  # SPEC.md §7
+            penalize_all=await _penalize_all_for_task(session, task),  # SPEC.md §7
         )
         await session.commit()
         result_employee_ids = [log.employee_id for log in created_logs]
@@ -206,7 +222,7 @@ async def apply_plus_ball_for_employees(*, task_id: int, employee_ids: list[int]
             task_id=task_id,
             task_title=task_title,
             brigade_share_ratio=app_settings.brigade_share_ratio,
-            penalize_all=app_settings.penalize_all_assignees,  # SPEC.md §7
+            penalize_all=await _penalize_all_for_task(session, task),  # SPEC.md §7
         )
         await session.commit()
         result_employee_ids = [log.employee_id for log in created_logs]

@@ -15,6 +15,8 @@ Qamrab olingan holatlar:
        - teskari/nol oraliq        -> None (muddat ORQAGA surilmaydi)
   §5.2 chizish navbat qoidasi (srochniy / norma ichida / normadan oshgan)
   §5.3 blok SLA — muddat ko'chadi, jarima faqat blokdan chiqishda
+  §5.4/§7 MEBEL MUZLATILGANLIGI — sozlanuvchan ogohlantirish oynasi va
+       "jarima faqat asosiy mas'ulga" sozlamasi mebelga TEGMASLIGI
 """
 
 import asyncio
@@ -105,6 +107,29 @@ async def _spawn_with(department, *, created_today=0, previous_task=None, depart
         task_service.DepartmentRepository = original_dept_repo
         task_service.TaskRepository = original_task_repo
     return task_repo.kwargs
+
+
+class _FakeSettings:
+    """`settings_service` modulining o'rniga qo'yiladigan soxta obyekt —
+    faqat `get_settings()` kerak."""
+
+    def __init__(self, **fields):
+        self._snapshot = SimpleNamespace(**fields)
+
+    async def get_settings(self):
+        return self._snapshot
+
+
+_real_settings_service = penalty_service.settings_service
+
+
+async def _penalize_all(department, task):
+    original = penalty_service.DepartmentRepository
+    penalty_service.DepartmentRepository = lambda _s: _FakeDepartmentRepo(department)
+    try:
+        return await penalty_service._penalize_all_for_task(None, task)
+    finally:
+        penalty_service.DepartmentRepository = original
 
 
 async def _inside_block(departments, task):
@@ -226,6 +251,26 @@ async def main() -> None:
         "Malyarka — blokning chiqishi, jarima shu yerda hisoblanishi kerak"
     )
     assert await _inside_block(chain, _task(department_id=4)) is False, "Dostavka bloksiz"
+
+    # --- MEBEL MUZLATILGAN: §7 sozlamasi mebel ballariga tegmaydi ---
+    # Admin `penalize_all_assignees`ni O'CHIRIB qo'ysa ham, mebel vazifasi
+    # uchun `True` qaytishi kerak (aks holda bitta global sozlama mebelning
+    # KPI hisobini jimgina o'zgartirib yuborardi).
+    penalty_service.settings_service = _FakeSettings(penalize_all_assignees=False)
+    try:
+        mebel_task = _task(department_id=1)
+        got = await _penalize_all(_dept(1, module="mebel"), mebel_task)
+        assert got is True, "mebelda ball har doim barcha javobgarga yozilishi kerak"
+
+        nazorat_task = _task(department_id=1)
+        got = await _penalize_all(_dept(1, module="fasad_sex"), nazorat_task)
+        assert got is False, "Nazorat Trello'da sozlama hurmat qilinishi kerak"
+
+        # Bo'limsiz (MISC) vazifa — sozlamaga bo'ysunadi (mebel emas)
+        got = await _penalize_all(_dept(1, module="fasad_sex"), _task(department_id=None))
+        assert got is False, "bo'limsiz vazifa sozlamaga bo'ysunadi"
+    finally:
+        penalty_service.settings_service = _real_settings_service
 
     print("test_sla_engine: HAMMASI O'TDI")
 

@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 
 from db.models.department import Department
 from db.models.task import Task
@@ -8,6 +8,13 @@ from db.repositories.base import BaseRepository
 from utils.enums import MiscCategory, TaskStatus, TaskType
 
 _OPEN_STATUSES = [TaskStatus.ACTIVE, TaskStatus.STOPPED]
+
+# Mebel moduli ("Fasad seh") MUZLATILGAN: uning "1 kun qoldi" ogohlantirishi
+# har doim 24 soat bo'lib qoladi. SPEC.md §5.4 kiritgan sozlanuvchan oyna
+# (`app_settings.deadline_warning_hours`, standarti 4) FAQAT boshqa
+# modullarga tegishli — aks holda bitta global sozlama mebelning yillar
+# davomida ishlab turgan xabar vaqtini jimgina o'zgartirib yuborardi.
+MEBEL_DEADLINE_WARNING_HOURS = 24
 
 
 def _timer_running():
@@ -102,11 +109,18 @@ class TaskRepository(BaseRepository[Task]):
 
     async def list_deadline_approaching(self, *, now: datetime, within_hours: int = 24) -> list[Task]:
         """7.2-band: muddat tugashiga oz qoldi — hali signal yuborilmagan
-        (`day_left_notified_at IS NULL`), muddati [now, now+within_hours)
-        oralig'ida bo'lgan faol vazifalar (`overdue_watch_job`, soatiga bir
-        marta). `within_hours` SPEC.md §5.4 bo'yicha sozlanadi
-        (`app_settings.deadline_warning_hours`) — chaqiruvchi uzatadi."""
-        threshold = now + timedelta(hours=within_hours)
+        (`day_left_notified_at IS NULL`), muddati oynada bo'lgan faol
+        vazifalar (`overdue_watch_job`, soatiga bir marta).
+
+        Ogohlantirish oynasi MODULGA QARAB har xil:
+        - `mebel` (Mini App'da "Fasad seh") — `MEBEL_DEADLINE_WARNING_HOURS`,
+          ya'ni o'zgarishsiz 24 soat ("1 kun qoldi"). Bu modul muzlatilgan.
+        - qolganlari (`fasad_sex`/"Nazorat Trello") — chaqiruvchi uzatgan
+          `within_hours` (SPEC.md §5.4, `app_settings.deadline_warning_hours`,
+          standarti 4 soat).
+
+        Bo'limi yo'q vazifalar (MISC) `coalesce` orqali mebel qoidasiga
+        tushadi — ular uchun ham xatti-harakat o'zgarmaydi."""
         result = await self.session.execute(
             select(Task)
             .outerjoin(Department, Task.current_department_id == Department.id)
@@ -115,7 +129,14 @@ class TaskRepository(BaseRepository[Task]):
                 _timer_running(),
                 Task.deadline.isnot(None),
                 Task.deadline > now,
-                Task.deadline <= threshold,
+                Task.deadline
+                <= case(
+                    (
+                        func.coalesce(Department.module, "mebel") == "mebel",
+                        now + timedelta(hours=MEBEL_DEADLINE_WARNING_HOURS),
+                    ),
+                    else_=now + timedelta(hours=within_hours),
+                ),
                 Task.day_left_notified_at.is_(None),
             )
         )
