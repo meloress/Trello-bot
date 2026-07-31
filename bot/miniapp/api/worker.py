@@ -268,10 +268,14 @@ async def finish_task(request: web.Request) -> web.Response:
         else:
             new_tasks = [result]
 
-        try:
-            await notification_service.notify_client_stage_advanced(bot, task.id)
-        except Exception:
-            logger.exception("notify_client_stage_advanced xatosi (task_id=%s)", task.id)
+        if result is not None:
+            # `result is None` means either the order is fully terminal or a
+            # join is still waiting on sibling branches — "bosqich o'tdi" would
+            # be misleading in both cases, so skip the client notification.
+            try:
+                await notification_service.notify_client_stage_advanced(bot, task.id)
+            except Exception:
+                logger.exception("notify_client_stage_advanced xatosi (task_id=%s)", task.id)
 
         for next_task in new_tasks:
             try:

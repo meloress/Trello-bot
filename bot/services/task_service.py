@@ -17,6 +17,8 @@ import logging
 from collections import deque
 from datetime import datetime, timezone
 
+from sqlalchemy import text
+
 from config import settings
 from core.database import async_session
 from db.models.task import Task
@@ -189,7 +191,7 @@ async def create_task(
     created_by_employee_id: int | None = None,
     seller_ids: list[int] | None = None,
 ) -> Task:
-    seller_ids = seller_ids or []
+    seller_ids = list(dict.fromkeys(seller_ids or []))
     if len(seller_ids) > 3:
         raise ValueError("Bitta buyurtmaga ko'pi bilan 3 ta sotuvchi biriktirish mumkin")
 
@@ -459,6 +461,7 @@ async def advance_task_stage(completed_task_id: int) -> Task | list[Task] | None
         target_department_ids: list[int] = []
         next_department_id: int | None = None
         next_list_id: str | None = None
+        is_join = False
         if fork_targets:
             mode = "fork"
             target_department_ids = [ft.target_department_id for ft in fork_targets]
@@ -484,6 +487,7 @@ async def advance_task_stage(completed_task_id: int) -> Task | list[Task] | None
                 siblings = await task_repo.list_by_previous_task_id(completed_task.previous_task_id)
                 if all(s.status == TaskStatus.COMPLETED for s in siblings):
                     mode = "advance"  # oxirgi tarmoq — join bosqichini yaratamiz
+                    is_join = True
                 else:
                     mode = "wait"  # boshqa tarmoqlar hali tugamagan
             else:
@@ -541,6 +545,22 @@ async def advance_task_stage(completed_task_id: int) -> Task | list[Task] | None
             ]
             await session.commit()
             return new_tasks
+
+        if is_join and card_id:
+            # Race guard: two branches finishing near-simultaneously can both
+            # pass the "all siblings COMPLETED" check above before either has
+            # created the join task. A plain check-then-insert here isn't
+            # enough — both concurrent calls can pass the check before either
+            # commits. pg_advisory_xact_lock serializes them: the second call
+            # blocks here until the first commits (and releases the lock at
+            # commit/rollback), so its re-check below correctly sees the
+            # first call's already-created join task.
+            await session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:card_id))"), {"card_id": card_id})
+            # `get_by_trello_card_id` returns the card's current (non-COMPLETED)
+            # row, which is exactly the join task if a racing call beat us to it.
+            current_for_card = await task_repo.get_by_trello_card_id(card_id)
+            if current_for_card is not None and current_for_card.current_department_id == next_department_id:
+                return current_for_card
 
         next_task = await _spawn_pending_stage(
             session,
