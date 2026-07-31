@@ -1,125 +1,83 @@
-# 1. Haqiqiy Fasad sex zanjirini yaratish
+# 1. Haqiqiy Fasad sex zanjiri — qolgan ishlar
 
-## ✅ 2026-07-24: asosiy zanjir yaratildi
+Asosiy zanjir (17 department, `module="fasad_sex"`, yangi Trello board,
+to'liq chiziqli/fork/join bog'lanish) DB'da allaqachon yaratilgan va
+tekshirilgan (bajarilgan ish tarixi git logda). Real DB tekshiruvida
+tasdiqlandi: barcha 17 bo'limda `trello_list_id` bor, fork (`Fayl
+yig'ish`→3 filial) va join (`Korpus sexi`) to'g'ri bog'langan. Qolgan
+qism — faqat quyidagilar:
 
-17 ta department (module="fasad_sex", factory_name=NULL — bitta zavod),
-yangi Trello board'da ("Fasad sex — Ishlab chiqarish", 17 list + "Stopda"),
-DB'da to'liq chiziqli/fork/join bog'lanishlar bilan yaratildi va real
-DB'ga qarshi smoke-test orqali tekshirildi (zanjir shakli + starts_stopped
-+ auto-resume — barchasi OK). Kelishilgan qarorlar:
-
-- Yangi, toza board (mavjud "Test"/"Fasad seh"ga tegilmadi).
-- Bitta zavod hozircha (`factory_name=NULL`).
-- Shpon→Shkurka→Kraska→Malyarka — bitta chiziqli ketma-ketlik.
-- 7-band ("Ta'minot") va 8-band (material shabloni NAMUNASI) chain'ga
-  KIRITILMADI — 7 o'zi "tizimga ta'siri yo'q" deb belgilangan, 8 esa
-  1.3-band material-turi shablonining o'zi (pastga qarang, hali ochiq).
-- Malyarka ichidagi 24 soatlik sub-bosqich hozircha ALOHIDA department emas.
-- Sklad: `starts_stopped=True` + `stopped_auto_resume_after_hours=24`.
-  **Bu kod o'zgarishini talab qildi** (avval `starts_stopped` faqat
-  buyurtmaning ENG BIRINCHI bosqichida ishlar edi, Sklad esa mid-chain) —
-  `task_service.activate_pending_stage()` endi buni ham qo'llab-quvvatlaydi,
-  va `jobs/overdue_watch_job.py`ga yangi soatlik qism qo'shildi
-  (`_process_stopped_auto_resume`). Migratsiya: `f3a7c1d9e4b6`. Batafsil:
-  `shared/db-schema.md`ning `departments.stopped_auto_resume_after_hours`
-  qatori.
-- Shkurka: `stop_target_list_id` = "Stopda" list.
-
-**Hali qolgan qism** (quyidagi asl reja matnida saqlanadi, endi faqat
-ochiq qismlar dolzarb):
-- **1.3 — Material turlari shabloni**: hali kiritilmadi, aniq nomlar
-  (Laminoks, Eman/dub va h.k.) rahbardan so'ralishi kerak.
-- **1.4 — Ikkinchi zavod**: hozircha yo'q, kerak bo'lganda shu hujjatdagi
-  1.4-bandga qarab ikkinchi marta yaratiladi.
-- **1.5 — Xodimlarni bog'lash**: ATAYLAB qilinmadi —
-  `03-fasad-sex-real-ekranlari.md` hal qilinmaguncha faqat ADMIN/SUPERVISOR
-  shu bo'limlarga tayinlanishi kerak (boshqa rol 403 ko'radi).
-
----
-
-**Original reja matni (tarixiy kontekst uchun saqlanadi):**
-
-Barcha kerakli backend tayyor edi (`.claude/plans/09-fasad-sex-modul.md`
-Phase 2/3/4), lekin hech kim haqiqiy bosqichlarni kiritmagan edi.
-
-## 1.1. Old shart: Trello board/list'lar
-
-TZ hujjatida (`Nazorat_Trello_Bot_TZ_v1.2_sxemalar_bilan.pdf`, 12-bo'lim)
-haqiqiy "nazorat trello" boardi (51 ta list) tahlil qilingan edi. Bu bot
-qaysi Trello boardga ulanadi — QAROR KERAK (`05-tz-ochiq-savollar.md`,
-savol #9 bilan bog'liq):
-
-- Agar mavjud haqiqiy boarddan foydalanilsa — har bir bosqich uchun
-  `trello_list_id`larni o'sha boarddan olish kerak.
-- Agar yangi, toza board yaratilsa (`TrelloClient.create_board`, xuddi
-  `bot/_seed_demo_data.py` qilgani kabi) — barcha list'lar noldan
-  yaratiladi.
-
-⚠️ Ikkalasida ham ish miqdori bir xil — faqat list ID manbai farq qiladi.
-Bu qaror kelmaguncha zanjir yaratib bo'lmaydi.
-
-## 1.2. To'liq bosqichlar ro'yxati (TZ 2-bo'lim jadvalidan)
-
-Har biri — bitta `departments` qatori, Mini App'ning "Bo'limlar" →
-"Yangi bo'lim qo'shish" formasi orqali (yoki men to'g'ridan-to'g'ri
-bajarib beraman):
-
-| # | Bosqich nomi | Maxsus sozlama | Izoh |
-|---|---|---|---|
-| 1 | Zakaz tushdi | `starts_stopped=True` | "Joy tayyor" kelgunga qadar STOPPED holatda ochiladi |
-| 2 | Kontrol | — | 1-2 kishi (`activate_pending_stage`da tanlanadi) |
-| 3 | Start | — | Alohida punkt, "Stop"dan keyin ish boshlash |
-| 4 | Stolyarka | — | 48/72 soat (qo'lda kiritiladi) |
-| 5 | Gip-lab | — | 24 soat |
-| 6 | Fayl yig'ish | **fork nuqtasi** (3 target: Korpus/Ichki/Fasad qismi) | `POST /departments/{id}/fork-targets` orqali sozlanadi |
-| 7 | Ta'minot | — | 2 holat (shoshilinch/emas) — sotuvchi tanlaydi, tizimga ta'siri yo'q |
-| 8 | Laminoks / [Material] fayl tashaldi | — | Har material turi uchun "Yangi material turi" formasi orqali 3talik shablon |
-| 9a | Korpus qismi | fork filiali | `previous_task_id` orqali "Fayl yig'ish"ga bog'lanadi |
-| 9b | Ichki qism | fork filiali | " |
-| 9c | Fasad qismi | fork filiali | " |
-| 10 | Korpus sexi (upakovka) | `requires_join=True` | 3 filial ham tugagach avtomatik ochiladi |
-| 11 | Sklad | `starts_stopped=True`? | STOP holatida kutadi (aniqlashtirish kerak — 24 soat ichida muammo yo'q bo'lsa avtomatik davom etadimi, yoki qo'lda resume qilinadimi) |
-| 12 | Shpon | — | 15 SUTKA (real boarddan tasdiqlangan) |
-| 13 | Shkurka | `stop_target_list_id` = "stopda" list | Chiqishda Stop bosilsa alohida list'ga ko'chadi |
-| 14 | Kraska | — | 72 soat |
-| 15 | Malyarka | — | 15 kun (yumshoq) + ichki 24 soat sub-bosqich (ALOHIDA department sifatida qo'shilishi kerakmi — aniqlashtirish) |
-| 16 | Dostavka (Logistika) | — | 24 soat, guruh xabari |
-| 17 | Montaj (Ustanovka) | — | Brigada asosida |
-
-Statistika/taymer Kraska-Quritish-O'rash bosqichidan keyin TO'XTAYDI (TZ
-11-bo'lim) — Dostavka/Montaj alohida statistika turkumida. Bu — kodga
-ta'sir qilmaydi (mavjud tizim allaqachon har bosqichni alohida hisoblaydi),
-faqat statistika ko'rsatishda inobatga olinishi kerak bo'lgan izoh.
-
-## 1.3. Material turlari (parallel shablon)
+## 1.3. Material turlari (parallel shablon) — ✅ BAJARILDI (2026-07-31)
 
 TZ 12.5-bo'limida tasdiqlangan: har material turi (Laminoks, Eman/dub,
-va h.k.) uchun bir xil 3 bosqichli shablon. Mini App'da tayyor forma bor
-("Yangi material turi") — faqat material nomlarini bilish kerak (kamida
-Laminoks va Eman, TZ boshqa turlarni ham eslatgan, aniq ro'yxat rahbardan
-so'ralishi kerak).
+va h.k.) uchun bir xil 3 bosqichli shablon. Rahbar tasdiqladi: hozircha
+**Laminoks va Eman/dub** bilan boshlash (to'liq ro'yxat keyinroq
+qo'shiladi). DB'ga to'g'ridan-to'g'ri yaratildi (`module="fasad_sex"` —
+Mini App'ning `screenAddMaterialTemplate` formasi orqali EMAS, chunki
+o'sha forma `POST /admin/departments`ni `module`siz chaqiradi va
+natijada yangi bo'lim sukut bo'yicha `module="mebel"`ga tushib qolar
+edi — bu shu jarayonda topilgan haqiqiy nuqson, hali tuzatilmagan, ниже
+"Texnik qarz"ga qarang):
+- **Laminoks**: fayl tashaldi (id 94) → ishlab chiqarishda tasdiqlandi
+  (id 95) → 100% tayyor (id 96)
+- **Eman/dub**: fayl tashaldi (id 97) → ishlab chiqarishda tasdiqlandi
+  (id 98) → 100% tayyor (id 99)
 
-## 1.4. Ikkinchi zavod (agar kerak bo'lsa)
+Trello list bog'lanmagan (`trello_list_id=NULL`) — asl `screenAddMaterialTemplate`
+formasi ham buni so'ramaydi, shuning uchun ataylab shunday qoldirildi.
 
-Agar ikkinchi zavod ham hoziroq ishga tushirilsa — yuqoridagi butun
-zanjir **ikkinchi marta**, `factory_name` boshqa qiymat bilan
-yaratilishi kerak (masalan `factory_name="zavod_2"`). `module="fasad_sex"`
-ikkalasida ham bir xil qoladi — `factory_name` ular orasidagi statistika
-ajratuvchi teg.
+## 1.4. Ikkinchi zavod (agar kerak bo'lsa) — qaror qayd etildi, yaratish keyinga qoldirildi
 
-## 1.5. Xodimlarni bog'lash
+Rahbar javobi (2026-07-31): **ikkala zavod ham Toshkent shahrida, bitta
+Trello workspace ichida** bo'ladi — `05-tz-ochiq-savollar.md` savol #1
+shu bilan hal bo'ldi (alohida Trello workspace kerak emas).
 
-Zanjir yaratilgach:
-- Har bosqich uchun `trello_list_id` to'ldirilishi kerak (bo'sh bo'lsa
-  `create_task()` xato beradi).
-- Xodimlar (`employees.department_id`) tegishli bo'limlarga
-  tayinlanishi kerak — ⚠️ lekin **buni `03-fasad-sex-real-ekranlari.md`
-  hal qilinmaguncha ADMIN/SUPERVISOR'dan boshqa rolga qilmang** — aks
-  holda ular Mini App ochganda 403 xatosini ko'radi.
+Lekin zanjirni **hoziroq ikkinchi marta** (`factory_name="zavod_2"`)
+yaratish so'ralmadi — 1-zavod hali amalda ishlamayotgan ekan (1.5-band
+hali ochiq), ikkinchisini oldindan yaratish YAGNI bo'lardi. 1-zavod
+to'liq ishga tushgach, shu qarorga asosan bir buyruq bilan yaratiladi.
+
+## 1.5. Xodimlarni bog'lash — ENG MUHIM OCHIQ BAND (davom etmoqda)
+
+Real DB tekshiruvida tasdiqlandi: 17 ta `fasad_sex` bo'limining **hech
+birida faol xodim yo'q** (0 xodim), va shu bo'limlarda **birorta ham
+task yaratilmagan** — ya'ni zanjir texnik jihatdan tayyor, lekin modul
+hali amalda ishlatilmagan. Hozirgi 12 faol xodim (2 brigadir + 10
+ishchi) barchasi allaqachon `mebel` bo'limlariga (38/39/40) tayinlangan
+— fasad_sex uchun bo'sh xodim yo'q, demak bu **yangi ro'yxatdan
+o'tkaziladigan yoki mebel'dan ko'chiriladigan** xodimlar bo'lishi kerak.
+
+**2026-07-31 progress:**
+- DB'da 17 bo'lim hozircha **haqiqiy, bo'sh "Fasad sex — Ishlab
+  chiqarish" boardga** ulangan holicha qoldi (`trello_list_id`lar
+  o'zgarmagan) — bu board 0 karta bilan, sinov uchun xavfsiz.
+- Rahbar ko'rsatgan **haqiqiy, jonli** "nazorat trello" board
+  (`https://trello.com/b/fOC82usT/nazorat-trello`, 51 ochiq list, 4029
+  ochiq karta, real mijoz ma'lumotlari — 2018-yildan buyon ishlatilib
+  kelinmoqda) topildi va tegilmadi. Uning **struktura nusxasi**
+  (faqat 51 list nomi/tartibi, kartasiz) "Nazorat Trello demo"
+  (`https://trello.com/b/Y3eXUO8Q/nazorat-trello-demo`) nomi bilan
+  yaratildi.
+- **Ochiq**: "nazorat trello"dagi 51 nomariy list DB'dagi 17 formal
+  bo'lim nomiga to'g'ridan-to'g'ri mos kelmaydi (masalan "Montaj
+  (Ustanovka)" o'rniga alohida brigada listlari — Odil ustanovka,
+  Abdulaziz brigada, Bahodir omil-brigadasi, Olim brigada, Xasan aka
+  Brigada, Mirodilla ustanovka, Aziz ustanovka bor). Rahbar bu
+  moslashtirishni o'zi berishga rozi bo'ldi — hali kelmagan. Ro'yxat
+  kelgach: 17 bo'limning `trello_list_id`si demo boarddagi mos
+  listlarga ulanadi (sinov uchun), keyin xuddi shu moslashtirish bilan
+  haqiqiy "nazorat trello" boardga ulanadi ("tugagach haqiqiysini
+  ulaymiz" bosqichi).
+- Xodimlar (`employees.department_id`) tegishli `fasad_sex` bo'limlarga
+  tayinlanishi kerak (Mini App'ning xodim tahrirlash ekrani orqali) —
+  buning uchun kamida bitta real xodim botga `/start` orqali ro'yxatdan
+  o'tishi kerak (bu bot orqali qilib bo'lmaydi, foydalanuvchi/hamkasb
+  Telegram'da o'zi bajarishi kerak).
+- Shundan keyingina zanjir haqiqiy tsiklda (`6.2` — to'liq E2E test,
+  rahbar Mini App orqali o'zi sinaydi) sinaladi.
 
 ## Kim nima qiladi
 
-Bu bosqich — asosan **ma'lumot/qaror** ishi (qaysi Trello board, qaysi
-list ID'lar, xodimlar kimlar). Texnik bajarilishi (formalarni to'ldirish
-yoki men API orqali to'g'ridan-to'g'ri yaratib berishim) tez — asosiy
-vaqt shu qarorlarni aniqlashtirishga ketadi.
+Bu bosqich — asosan **ma'lumot/qaror** ishi (material nomlari, ikkinchi
+zavod kerakmi, kimlar qaysi bo'limga tayinlanadi). Texnik bajarilishi
+(Mini App orqali yoki men API orqali to'g'ridan-to'g'ri) tez.

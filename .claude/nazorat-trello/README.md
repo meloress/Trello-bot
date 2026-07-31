@@ -1,50 +1,66 @@
 # Nazorat Trello (Fasad sex) — hali qilinmagan ishlar
 
-Bu papka `.claude/plans/09-fasad-sex-modul.md`dan FARQLI: o'sha hujjat
-BAJARILGAN 10 bosqichning tarixini (review natijalari, commit'lar bilan)
-saqlaydi. Bu papka esa faqat **HALI QOLGAN, bajarilishi kerak bo'lgan**
-ishlarni jamlaydi — kod tomondan modul to'liq qurilgan va production'da
+Bu papka **loyihadagi YAGONA faol ish ro'yxati**. `.claude/plans/`
+(mebel/"Fasad seh" yo'l xaritasi) 2026-07-31'da o'chirildi — o'sha modul
+100% tugagan va muzlatilgan, unga tegilmaydi. Bu papka faqat **HALI
+QOLGAN, bajarilishi kerak bo'lgan** ishlarni jamlaydi — kod tomondan modul to'liq qurilgan va production'da
 jonli (`main` branch, Railway'da deploy qilingan), lekin haqiqiy Fasad sex
 liniyasi ishlashi uchun quyidagi ishlar hali kerak.
+
+Bajarilgan ikkita band (frontend boshqaruv tugmalari, real rol-ekranlari)
+to'liq yopilgani uchun bu papkadan o'chirildi — tarixi git logda saqlanadi.
 
 ## Holat jadvali
 
 | # | Hujjat | Mazmuni | Muhimlik |
 |---|---|---|---|
-| 1 | [01-haqiqiy-zanjir-yaratish.md](01-haqiqiy-zanjir-yaratish.md) | ✅ 2026-07-24: asosiy 17-bosqichli zanjir yaratildi (yangi Trello board, DB'da to'liq fork/join). Ochiq qoldi: material turlari (1.3), 2-zavod (1.4), xodim biriktirish (1.5, #3ga bog'liq) | ✅ ASOSIY QISM BAJARILDI |
-| 2 | [02-frontend-boshqaruv-tugmalari.md](02-frontend-boshqaruv-tugmalari.md) | ✅ 2026-07-24: bo'lim tahrirlash ekrani, fork-target tanlagich, sotuvchi multi-select qo'shildi (2.1/chain va material-shablon aslida allaqachon bor ekan — hujjat eskirgan edi) | ✅ BAJARILDI |
-| 3 | [03-fasad-sex-real-ekranlari.md](03-fasad-sex-real-ekranlari.md) | ✅ 2026-07-27: root cause frontend marshrutlashda edi (`tabDefsForRole` hamma rolni `screenAdminHome`ga yo'naltirardi) — tuzatildi, endi ROL bo'yicha odatdagi ekranlar ishlaydi | ✅ BAJARILDI |
-| 4 | [04-texnik-qarz-topilmalar.md](04-texnik-qarz-topilmalar.md) | Review'lardan qolgan kichik (Minor) topilmalar — texnik qarz ro'yxati | O'RTA — hozircha xavfsiz, lekin yig'ilib qolmasin |
-| 5 | [05-tz-ochiq-savollar.md](05-tz-ochiq-savollar.md) | TZning o'z ochiq savollari (rahbardan javob kutilmoqda) — `09z-fasad-sex-ochiq-savollar.md`ga havola | O'ZGARUVCHAN — javob kelgach kod bo'shashadi |
-| 6 | [06-production-tayyorgarlik.md](06-production-tayyorgarlik.md) | Deploy/keshlash/test — jonli tizimni ishonchli qilish uchun qolgan ishlar | O'RTA |
+| 1 | [01-haqiqiy-zanjir-yaratish.md](01-haqiqiy-zanjir-yaratish.md) | Zanjirning o'zi DB'da tayyor. 1.3 ✅ bajarildi, 1.4 qaror qayd etildi (yaratish keyinga qoldirildi), **xodim biriktirish (1.5) davom etmoqda** — demo Trello board tayyor, bo'lim-list moslashtirish va xodim ro'yxatdan o'tishi kutilmoqda | 🔴 ENG MUHIM — modul hali amalda ishlatilmagan |
+| 2 | [04-texnik-qarz-topilmalar.md](04-texnik-qarz-topilmalar.md) | **✅ 2026-07-31: HAMMASI YOPILDI.** Join-race (`pg_advisory_xact_lock`), fork-targets validatsiya, factory_name filtri, seller_ids dedup, MISC N+1, `module` bug, va xavfsizlik testi (`test_miniapp_authz.py`, 18 tekshiruv). Qolgani — "qasddan shunday" izohlari | ✅ YOPILDI |
+| 3 | [05-tz-ochiq-savollar.md](05-tz-ochiq-savollar.md) | TZning o'z ochiq savollari — **✅ 2026-07-31: HAMMASI YOPILDI** (14/14). Qismi rahbar javobi bilan, qismi haqiqiy board ustidan empirik tekshiruv bilan. Kunlik rasm/video hisobot funksiyasi butunlay o'chirildi | ✅ YOPILDI |
+| 4 | [06-production-tayyorgarlik.md](06-production-tayyorgarlik.md) | **✅ 2026-07-31: kod tomondan tugadi.** Cache-Control tuzatildi (+test), 6.3/6.5 mavzudan chiqdi. Qolgan 6.2/6.4 — kod emas, haqiqiy foydalanish sinovi (01 §1.5 ga bog'liq) | ✅ Kod tayyor |
 
-## Qisqa xulosa (2026-07-24 holatiga)
+## Tekshirilgan holat (2026-07-31, real kod + real DB)
 
-- Kod: **100% tayyor** (+ shu sessiyada Sklad uchun kichik qo'shimcha:
-  `activate_pending_stage()`ning mid-chain `starts_stopped` qo'llab-
-  quvvatlashi va `overdue_watch_job`ning auto-resume qismi).
-- Baza: **100% migratsiya qilingan** (`f3a7c1d9e4b6`gacha, shu jumladan
-  yangi `stopped_auto_resume_after_hours` ustuni).
-- Haqiqiy Fasad sex zanjiri: **✅ asosiy qismi yaratildi** (17 department,
-  yangi Trello board). Ochiq qoldi: material turlari shabloni, ikkinchi
-  zavod (kerak bo'lsa), xodimlarni bog'lash (#3ga bog'liq).
-- Mini App'da "Fasad sex" tugmasini bosganda endi zanjir DB'da mavjud, va
-  #3 ham 2026-07-27'da bajarildi: muammo aslida "ekranlar yo'q" emas,
-  frontend marshrutlash xatosi edi (`tabDefsForRole` fasad_sex modulida
-  ROLdan qat'iy nazar hamma uchun ADMIN-only `screenAdminHome`ni
-  qaytarardi) — mavjud worker/brigadier/seller ekranlari allaqachon
-  modul-agnostik ekan, shu sabab yangi ekran yozishga hojat bo'lmadi, faqat
-  marshrutlash tuzatildi. Endi worker/brigadier xodim shu bo'limga
-  tayinlansa, 403 ko'rmaydi. Qolgan yagona ochiq band — #1'dagi xodim
-  biriktirishning o'zi (1.5), bu endi kod jihatidan bloklanmagan, faqat
-  amaliy qadam.
-- #2 (frontend boshqaruv) ham shu sessiyada bajarildi: bo'lim
-  ro'yxatidagi har bir qator endi bosiladi va to'liq tahrirlash ekranini
-  ochadi (nom, Trello list ID, auto-reassign, starts_stopped,
-  auto-resume soat, requires_join, factory_name, stop_target_list_id),
-  undan ichkariga fork-target multi-select ekrani qo'shildi, va yangi
-  buyurtma formasiga sotuvchi(lar) (≤3) checkbox ro'yxati qo'shildi.
-  Yon-tuzatish: `update_department` endi `_department_scope_ok` bilan
-  himoyalangan (avval SUPERVISOR har qanday bo'limni tahrirlay olardi —
-  2026-07-22 auditda topilgan naqsh, shu endpoint o'sha safar
-  qochirilgan edi).
+Quyidagilar taxmin emas — kod va production DB ustidan tekshirilgan:
+
+- **Kod tuzatishlari**: 9/9 tuzatish kodda mavjudligi grep bilan
+  tasdiqlandi (factory_name guard, `pg_advisory_xact_lock`, fork-targets
+  validatsiya, notify guard, seller_ids dedup, capacity docstring,
+  `module` parametri, cache middleware, MISC N+1).
+- **Testlar**: 5/5 o'tadi (`test_brigade_membership`, `test_miniapp_authz`,
+  `test_miniapp_cache_headers`, `test_penalty_responsible`,
+  `test_trello_board_map`). Importlar va JS sintaksisi toza.
+- **Ikkita yangi test sabotaj bilan tekshirildi** — ataylab buzilganda
+  yiqilishi tasdiqlandi (bo'sh test emas).
+- **Material shablonlari (1.3)**: DB'da 6 ta bo'lim, hammasi
+  `module='fasad_sex'`, zanjir to'g'ri bog'langan (94→95→96, 97→98→99).
+- **17-bosqichli asosiy zanjir**: hammasida `trello_list_id` bor,
+  fork/join to'g'ri, asl boardga ulangan (demo repoint qaytarilgan).
+- **Test qoldiqlari tozalangan**: `JOIN-RACE-SMOKE` vazifalari 0 ta.
+- **1.5 hali ochiq**: `fasad_sex` bo'limlarida **0 faol xodim, 0 vazifa**.
+
+## ⚠️ Yakuniy xulosa: kod tugadi, ish ma'lumotga qoldi
+
+**Bo'lim holati:**
+
+| Bo'lim | Holat |
+|---|---|
+| `01` Zanjir | 1.3 ✅ · 1.4 ✅ (qaror) · **1.5 ⏳ OCHIQ** |
+| `04` Texnik qarz | ✅ Hammasi yopildi (xavfsizlik testi ham yozildi) |
+| `05` TZ savollari | ✅ 14/14 yopildi |
+| `06` Production | ✅ Kod tugadi (6.2/6.4 sinov — 1.5 ga bog'liq) |
+
+**Qolgan yagona bloklovchi — `01` §1.5, va u kod emas:**
+
+1. 17 ta `fasad_sex` bo'limi qaysi "nazorat trello" listiga mos kelishi
+   (rahbar beradi — nomlar bir xil emas, masalan "Montaj (Ustanovka)"
+   o'rniga boardda 7 ta alohida brigada listi bor).
+2. Kamida bitta real xodim botga `/start` orqali ro'yxatdan o'tib, o'sha
+   bo'limlardan biriga tayinlanishi.
+
+Shu ikkitasidan keyingina 6.2 (E2E sinov) va 6.4 (job'lar kuzatuvi)
+boshlanadi. Sinov uchun demo board tayyor:
+`https://trello.com/b/Y3eXUO8Q/nazorat-trello-demo` (haqiqiy boardning
+51 listi, kartasiz).
+
+**Ochiq qolgan texnik kamchilik yo'q.**

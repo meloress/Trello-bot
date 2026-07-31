@@ -73,7 +73,7 @@ Fork/join zanjiri uchun (`b7c1e4f9a83d` migratsiyasi). `next_department_id` bitt
 | next_payment_date | DATE | default: joriy oyning 15-sanasi (8.5-band); tizim minus ball to'planganda buni siljitib boradi |
 | is_active | BOOLEAN | default: true; ishdan bo'shatilganda false qilinadi ("O'CHIRISH" tugmasi soft-delete) |
 | language | VARCHAR(2) | default: 'uz' (`a1c9f3e7d502` migratsiyasi); Mini App profil ekranidagi til tanlovi ("uz"/"ru") — `bot/miniapp/api/common.py`ning `POST /me/language`si yozadi |
-| daily_report_required | BOOLEAN | Fasad sex TZ, Phase 8 (`83d73ef87edc`): shu xodim kunlik rasm/video hisobot ro'yxatida (default: false). FAQAT kuzatuv — `penalty_service.py`ga tegishli emas. `POST /admin/employees/{id}` orqali tahrirlanadi |
+| daily_report_required | BOOLEAN | ⚠️ **ISHLATILMAYDI** — Fasad sex TZ, Phase 8 (`83d73ef87edc`). Kunlik rasm/video hisobot funksiyasi 2026-07-31'da koddan butunlay o'chirilgan; bu ustun DB'da qoldi, lekin `Employee` modelida YO'Q va hech qayerdan o'qilmaydi/yozilmaydi (`server_default='false'`) |
 | created_at / updated_at | TIMESTAMPTZ | |
 
 **Bog'lanishlar**: `department` (M-1), `brigade` (M-1, a'zolik), `led_brigades`
@@ -318,7 +318,7 @@ formulasidan tabiiy kelib chiqadi: dayIndex=0 -> jarima yo'q.
 | sales_board_lists | JSON | 6.1-band (`ff165aafd9b1`, 5-bosqich): `{"ezza": {"new_lead": list_id, "contacted": ..., "offer_sent": ..., "agreed": ..., "closed": ...}, "melores": {...}}` — har (brand, bosqich) juftligi uchun Trello list ID. `departments.trello_list_id` bilan bir xil naqsh: bot UI orqali EMAS, to'g'ridan-to'g'ri bazada sozlanadi. Default: hamma qiymat `NULL` (haqiqiy Ezza/Melores boardlari hali yaratilmagan) |
 | daily_quota_points_per_worker | INTEGER | Fasad sex TZ, Phase 6 (`7b3d4bf8afe4`): kunlik norma — har ISHCHI kuniga shuncha "punkt" ishlab chiqarishi kutiladi ("5 punkt ≈ 100 kv.m", default: 5). FAQAT stats/dashboard uchun (`stats_service.get_capacity_vs_actual()`) — timer/jarima sifatida MAJBURIY QILINMAYDI, `penalty_service.py`ga tegishli emas |
 | speed_tier_schedule | JSON | Fasad sex TZ, Phase 7 (`a3f7c9d02b41`): tezlik-darajali to'lov taklifi jadvali — `[{"max_days": N, "tier": "<nom>", "pay_multiplier": X}, ...]`. Default: bo'sh ro'yxat (admin to'ldirmaguncha xususiyat harakatsiz) |
-| daily_report_time | VARCHAR(5) | Fasad sex TZ, Phase 8 (`83d73ef87edc`): kunlik rasm/video hisobot SO'ROVI shu vaqtda (HH:MM, Toshkent) `daily_report_required=true` xodimlarga yuboriladi (`jobs/daily_report_job.py`, default: `09:00`) — `report_time` bilan bir xil naqsh |
+| daily_report_time | VARCHAR(5) | ⚠️ **ISHLATILMAYDI** — Fasad sex TZ, Phase 8 (`83d73ef87edc`). Kunlik hisobot funksiyasi 2026-07-31'da o'chirilgan; ustun DB'da qoldi, lekin `AppSetting` modelida ham, `AppSettingsSnapshot`da ham YO'Q (`server_default='09:00'`) |
 | created_at / updated_at | TIMESTAMPTZ | |
 
 `f490887dee10` migratsiyasi orqali yaratilgan va bitta seed qator bilan
@@ -341,7 +341,27 @@ Melores Trello boardlari yaratilgach).
 `penalty_service.py`da hali konstanta bo'lib qolmoqda, chunki so'ralgan 4 ta
 sozlama ro'yxatiga kirmagan edi.
 
-### daily_report_submissions — Kunlik rasm/video hisobot muvofiqligi (Fasad sex TZ, Phase 8)
+### daily_report_submissions — ⚠️ KOD TOMONDAN O'CHIRILGAN (2026-07-31)
+
+> **Bu jadval DB'da bor, lekin unga murojaat qiladigan hech qanday kod
+> qolmagan.** Rahbar talabiga ko'ra ("kunlik rasm/video umuman kerak
+> emas") butun funksiya koddan olib tashlandi: `services/daily_report_service.py`,
+> `jobs/daily_report_job.py`, `handlers/common/daily_report.py`, model va
+> repository fayllari, `GET /admin/daily-reports` route'i va Mini App
+> ekrani. `employees.daily_report_required` va `app_settings.daily_report_time`
+> ustunlari ham modellardan olib tashlandi (ikkalasida `server_default`
+> bor, shuning uchun xavfsiz) — lekin DB'da qoldi.
+>
+> O'chirish xavfsiz edi: o'sha paytda jadvalda **0 ta yozuv**, bayroq
+> yoqilgan **0 ta xodim** bor edi. Bu 8.6-band "Moliyaviy takliflar"
+> o'chirilishi (2026-07-27) bilan bir xil naqsh — jadval/ustunlarni
+> haqiqatan tashlash uchun alohida so'ralgan Alembic migratsiyasi kerak.
+>
+> Quyidagi tavsif tarixiy — funksiya qayta kerak bo'lsa ma'lumotnoma
+> sifatida qoldirildi.
+
+<details><summary>Tarixiy tavsif (funksiya ishlagan paytdagi)</summary>
+
 | Ustun | Tur | Izoh |
 |---|---|---|
 | id | PK | |
@@ -363,6 +383,8 @@ kamera/galereya tugmasi Mini App WebView fayl-inputidan qulayroq), Mini App
 faqat `GET /admin/daily-reports` orqali muvofiqlik holatini KO'RSATADI.
 
 **Bog'lanishlar**: `employee` (M-1).
+
+</details>
 
 ### financial_suggestions — Moliyaviy javobgarlik TAKLIFLARI (8.6-band, 3-bosqich)
 | Ustun | Tur | Izoh |
