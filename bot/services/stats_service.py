@@ -17,7 +17,7 @@ skanerlanmaydi.
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from core.database import async_session
 from db.models.department import Department
@@ -188,6 +188,7 @@ async def get_monthly_stats(
     factory_name: str | None = None,
     since: datetime | None = None,
     until: datetime | None = None,
+    module: str | None = None,
 ) -> list[EmployeeStats]:
     """Barcha FAOL xodimlar uchun oy statistikasi (10-band, admin/stats/
     dashboard) — rol bo'yicha filtrlanmagan (dashboard'ning "faol xodim"
@@ -207,15 +208,28 @@ async def get_monthly_stats(
     `since`/`until` — SPEC.md §11 "davr bo'yicha filtr": ixtiyoriy aniq
     oraliq. IKKALASI birga berilishi kerak; berilmasa (barcha mavjud
     chaqiruvchilar) avvalgidek `reference_month` oyi olinadi, ya'ni
-    funksiya nomi ham, standart xatti-harakati ham o'zgarmaydi."""
+    funksiya nomi ham, standart xatti-harakati ham o'zgarmaydi.
+
+    `module` — "mebel" ("Fasad seh") va "fasad_sex" ("Nazorat Trello")
+    ALOHIDA korxona: bittasining statistikasi ikkinchisinikini o'z ichiga
+    olmasligi kerak. Bo'limi YO'Q xodim (bo'lim biriktirilmagan admin/
+    nazoratchi) hech qaysi modulga tegishli emas — ikkalasida ham qoladi
+    (`miniapp/util.in_module` bilan bir xil qoida)."""
     if since is None or until is None:
         since, until = _month_bounds(reference_month or datetime.now(timezone.utc))
 
     async with async_session() as session:
         query = select(Employee.id, Employee.full_name, Employee.role).where(Employee.is_active.is_(True))
+        if factory_name is not None or module is not None:
+            # OUTER join: `factory_name` uchun xatti-harakat o'zgarmaydi
+            # (NULL bo'limli qator baribir `== factory_name` shartidan
+            # o'tmaydi), `module` esa bo'limsiz xodimni saqlab qola oladi.
+            query = query.outerjoin(Department, Department.id == Employee.department_id)
         if factory_name is not None:
-            query = query.join(Department, Department.id == Employee.department_id).where(
-                Department.factory_name == factory_name
+            query = query.where(Department.factory_name == factory_name)
+        if module is not None:
+            query = query.where(
+                or_(Department.module == module, Employee.department_id.is_(None))
             )
         employees = (await session.execute(query)).all()
 

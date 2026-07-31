@@ -22,7 +22,7 @@ from db.repositories import (
 )
 from config import settings
 from jobs import reminder_job, report_job
-from miniapp.util import err
+from miniapp.util import current_module, err, in_module, module_scope
 from services import (
     claim_service,
     client_service,
@@ -76,7 +76,7 @@ async def _active_brigadier_ids(session, brigades) -> set[int]:
 
 @routes.get("/dashboard")
 async def dashboard(request: web.Request) -> web.Response:
-    stats = await stats_service.get_monthly_stats()
+    stats = await stats_service.get_monthly_stats(module=current_module(request))
     active_employees = len(stats)
     completed_total = sum(s.completed_tasks for s in stats)
     # O'rtacha ball/yetakchi faqat KPI oladigan rollardan (rahbar/nazoratchi/
@@ -99,6 +99,8 @@ async def dashboard(request: web.Request) -> web.Response:
 async def list_departments(request: web.Request) -> web.Response:
     async with async_session() as session:
         departments = await DepartmentRepository(session).list_all()
+        scope = await module_scope(request, session)
+    departments = [d for d in departments if in_module(scope, d.id)]
     return web.json_response(
         [
             {
@@ -380,6 +382,8 @@ async def list_brigades(request: web.Request) -> web.Response:
         brigades = (
             await repo.list_by_department(int(department_id)) if department_id else await repo.list_all()
         )
+        scope = await module_scope(request, session)
+    brigades = [b for b in brigades if in_module(scope, b.department_id)]
     return web.json_response([{"id": b.id, "name": b.name} for b in brigades])
 
 
@@ -495,6 +499,8 @@ async def list_employees(request: web.Request) -> web.Response:
             else await employee_repo.list_all()
         )
         departments = {d.id: d.name for d in await department_repo.list_all()}
+        scope = await module_scope(request, session)
+    employees = [e for e in employees if in_module(scope, e.department_id)]
 
     return web.json_response(
         [
@@ -742,15 +748,18 @@ async def list_admin_misctasks(request: web.Request) -> web.Response:
         # Xodim ismlari bir marta yuklanadi: ilgari har biriktirish uchun
         # alohida `get_by_id()` ketardi (vazifa x biriktirish = N*M so'rov).
         # Xodimlar soni bu tashkilotda yuzlab — bitta ro'yxat arzon.
-        employee_names = {e.id: e.full_name for e in await EmployeeRepository(session).list_all()}
+        employees = {e.id: e for e in await EmployeeRepository(session).list_all()}
+        scope = await module_scope(request, session)
         items = []
         for task in tasks:
             assignments = await assignment_repo.list_by_task(task.id)
-            names = [
-                employee_names[a.employee_id]
-                for a in assignments
-                if a.employee_id in employee_names
-            ]
+            assignees = [employees[a.employee_id] for a in assignments if a.employee_id in employees]
+            # MISC vazifada bo'lim umuman yo'q (`create_misc_task` uni
+            # so'ramaydi) — modul chegarasi shu sabab BIRIKTIRILGAN XODIM
+            # bo'limidan olinadi, vazifanikidan emas.
+            if scope is not None and not any(in_module(scope, e.department_id) for e in assignees):
+                continue
+            names = [e.full_name for e in assignees]
             items.append(
                 {
                     "id": task.id,
@@ -779,7 +788,7 @@ async def full_stats(request: web.Request) -> web.Response:
         (
             s
             for s in await stats_service.get_monthly_stats(
-                factory_name=factory_name, since=since, until=until
+                factory_name=factory_name, since=since, until=until, module=current_module(request)
             )
             if s.role in stats_service.KPI_ROLES
         ),
@@ -958,7 +967,11 @@ async def export_stats(request: web.Request) -> web.Response:
     stats = sorted(
         (
             s
-            for s in await stats_service.get_monthly_stats(factory_name=factory_name)
+            # `since`/`until` ham uzatiladi: ilgari ular faqat fayl nomi va
+            # izohga tushardi, CSV ichi esa doim JORIY oy bo'lib qolardi.
+            for s in await stats_service.get_monthly_stats(
+                factory_name=factory_name, since=since, until=until, module=current_module(request)
+            )
             if s.role in stats_service.KPI_ROLES
         ),
         key=lambda s: s.total_score,
@@ -1133,6 +1146,7 @@ async def list_pending_setup(request: web.Request) -> web.Response:
     async with async_session() as session:
         tasks = await TaskRepository(session).list_by_status(TaskStatus.PENDING_SETUP)
         department_repo = DepartmentRepository(session)
+        scope = await module_scope(request, session)
         items = []
         for task in tasks:
             department = (
@@ -1141,6 +1155,8 @@ async def list_pending_setup(request: web.Request) -> web.Response:
                 else None
             )
             if not _department_scope_ok(request, task.current_department_id):
+                continue
+            if not in_module(scope, task.current_department_id):
                 continue
             items.append(
                 {
@@ -1216,9 +1232,12 @@ async def list_reassign_candidates(request: web.Request) -> web.Response:
     async with async_session() as session:
         tasks = await TaskRepository(session).list_awaiting_reassignment_review()
         department_repo = DepartmentRepository(session)
+        scope = await module_scope(request, session)
         items = []
         for task in tasks:
             if not _department_scope_ok(request, task.current_department_id):
+                continue
+            if not in_module(scope, task.current_department_id):
                 continue
             department = (
                 await department_repo.get_by_id(task.current_department_id)
@@ -1310,10 +1329,13 @@ async def list_pending_claims(request: web.Request) -> web.Response:
         task_repo = TaskRepository(session)
         employee_repo = EmployeeRepository(session)
         department_repo = DepartmentRepository(session)
+        scope = await module_scope(request, session)
 
         items = []
         for claim in claims:
             task = await task_repo.get_by_id(claim.task_id)
+            if task is not None and not in_module(scope, task.current_department_id):
+                continue
             claimant = await employee_repo.get_by_id(claim.employee_id)
             department = (
                 await department_repo.get_by_id(task.current_department_id)

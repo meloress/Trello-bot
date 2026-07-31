@@ -230,6 +230,9 @@ async function api(path, opts = {}) {
   const app = tg();
   const headers = Object.assign({ "Content-Type": "application/json" }, opts.headers || {});
   if (app && app.initData) headers["X-Telegram-Init-Data"] = app.initData;
+  // Ikkala modul (Fasad seh / Nazorat Trello) ma'lumoti aralashmasligi uchun
+  // backend joriy modulni SHU sarlavhadan biladi (`miniapp/util.module_scope`).
+  if (nav.module) headers["X-Module"] = nav.module;
   const res = await fetch(API_BASE + path, Object.assign({}, opts, { headers }));
   let body = null;
   try {
