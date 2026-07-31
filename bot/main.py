@@ -7,10 +7,8 @@ from config import settings
 from core.logger import setup_logging
 from core.scheduler import scheduler
 from handlers.common.client_link import router as common_client_link_router
-from handlers.common.daily_report import router as common_daily_report_router
 from handlers.common.start import router as common_start_router
 from jobs import (
-    daily_report_job,
     daily_sync_job,
     lead_follow_up_job,
     overdue_watch_job,
@@ -28,22 +26,20 @@ async def main() -> None:
     bot = Bot(token=settings.bot_token)
     dp = Dispatcher()
 
-    # Chat endi FAQAT `/start` (ro'yxatdan o'tish + Mini App tugmasi),
-    # `/mijoz` (mijozlar Mini App'ga kira olmaydi) va kunlik rasm/video
-    # hisobot (Telegram'ning tabiiy kamera tugmasi uchun) qo'llab-quvvatlaydi
-    # — qolgan HAMMA funksiya Mini App ichida (`bot/miniapp/`).
+    # Chat endi FAQAT `/start` (ro'yxatdan o'tish + Mini App tugmasi) va
+    # `/mijoz` (mijozlar Mini App'ga kira olmaydi) qo'llab-quvvatlaydi —
+    # qolgan HAMMA funksiya Mini App ichida (`bot/miniapp/`).
     #
     # TARTIB MUHIM: `common_start_router`ning oxirgi handleri
     # `StateFilter(None)` — HOLAT yo'q holatdagi HAR QANDAY xabarni ushlaydi
     # (aiogram bitta routerning o'z handlerlarini ro'yxatga olish tartibida
     # sinab ko'radi, birinchisi mos kelsa — TO'XTAYDI, keyingi router UMUMAN
     # chaqirilmaydi). Shu sabab `common_start_router` ENG OXIRIDA ro'yxatdan
-    # o'tkaziladi — aks holda masalan yangi "/mijoz" yoki rasm/video xabari
-    # (ikkalasi ham HOLAT=None holatda keladi) shu catch-all'ga tushib qolib,
-    # o'ziga mo'ljallangan routerga umuman yetib bormaydi (tekshirilgan:
-    # avvalgi tartibda — `common_start_router` birinchi — aynan shu sodir
-    # bo'lardi, `_test_router_order.py` repro orqali tasdiqlangan).
-    dp.include_router(common_daily_report_router)
+    # o'tkaziladi — aks holda masalan yangi "/mijoz" xabari (HOLAT=None
+    # holatda keladi) shu catch-all'ga tushib qolib, o'ziga mo'ljallangan
+    # routerga umuman yetib bormaydi (tekshirilgan: avvalgi tartibda —
+    # `common_start_router` birinchi — aynan shu sodir bo'lardi,
+    # `_test_router_order.py` repro orqali tasdiqlangan).
     dp.include_router(common_client_link_router)
     dp.include_router(common_start_router)
 
@@ -64,7 +60,6 @@ async def main() -> None:
     app_settings = await settings_service.get_settings()
     reminder_job.schedule_all(bot, app_settings.reminder_schedule)
     report_job.schedule_all(bot, app_settings.report_time)
-    daily_report_job.schedule_all(bot, app_settings.daily_report_time)
 
     scheduler.add_job(
         daily_sync_job.run, "cron", hour=1, minute=0, args=[bot], id="daily_sync_job"

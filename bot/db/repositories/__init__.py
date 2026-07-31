@@ -3,7 +3,6 @@ from db.repositories.base import BaseRepository
 from db.repositories.brigade_repo import BrigadeRepository
 from db.repositories.call_log_repo import CallLogRepository
 from db.repositories.client_repo import ClientRepository
-from db.repositories.daily_report_submission_repo import DailyReportSubmissionRepository
 from db.repositories.department_fork_target_repo import DepartmentForkTargetRepository
 from db.repositories.department_repo import DepartmentRepository
 from db.repositories.employee_repo import EmployeeRepository
@@ -22,7 +21,6 @@ __all__ = [
     "BrigadeRepository",
     "CallLogRepository",
     "ClientRepository",
-    "DailyReportSubmissionRepository",
     "DepartmentForkTargetRepository",
     "DepartmentRepository",
     "EmployeeRepository",

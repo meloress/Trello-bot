@@ -2,7 +2,6 @@ from db.models.app_setting import AppSetting
 from db.models.brigade import Brigade
 from db.models.call_log import CallLog
 from db.models.client import Client
-from db.models.daily_report_submission import DailyReportSubmission
 from db.models.department import Department
 from db.models.department_fork_target import DepartmentForkTarget
 from db.models.employee import Employee
@@ -20,7 +19,6 @@ __all__ = [
     "Brigade",
     "CallLog",
     "Client",
-    "DailyReportSubmission",
     "Department",
     "DepartmentForkTarget",
     "Employee",

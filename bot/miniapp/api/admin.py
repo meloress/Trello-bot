@@ -3,14 +3,13 @@ faqat Role.ADMIN/Role.SUPERVISOR (`server.py`da route bo'yicha
 `require_roles` orqali ulanadi)."""
 
 import logging
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 
 from aiohttp import web
 
 from core.database import async_session
 from db.repositories import (
     BrigadeRepository,
-    DailyReportSubmissionRepository,
     DepartmentForkTargetRepository,
     DepartmentRepository,
     EmployeeRepository,
@@ -19,12 +18,11 @@ from db.repositories import (
     TaskRepository,
 )
 from config import settings
-from jobs import daily_report_job, reminder_job, report_job
+from jobs import reminder_job, report_job
 from miniapp.util import err
 from services import (
     claim_service,
     client_service,
-    daily_report_service,
     employee_service,
     notification_service,
     penalty_service,
@@ -131,6 +129,7 @@ async def create_department(request: web.Request) -> web.Response:
         repo = DepartmentRepository(session)
         department = await repo.create(
             name=name,
+            module=body.get("module", "mebel"),
             trello_list_id=body.get("trello_list_id"),
             auto_reassign_after_48h=bool(body.get("auto_reassign_after_48h", False)),
             starts_stopped=bool(body.get("starts_stopped", False)),
@@ -142,6 +141,7 @@ async def create_department(request: web.Request) -> web.Response:
         {
             "id": department.id,
             "name": department.name,
+            "module": department.module,
             "next_department_id": department.next_department_id,
             "auto_reassign_after_48h": department.auto_reassign_after_48h,
             "starts_stopped": department.starts_stopped,
@@ -260,17 +260,25 @@ async def set_fork_targets(request: web.Request) -> web.Response:
     if not _department_scope_ok(request, department_id):
         return err("bu bo'lim sizning doirangizda emas", 403)
     body = await request.json()
-    target_ids = body.get("target_department_ids") or []
+    try:
+        target_ids = [int(t) for t in (body.get("target_department_ids") or [])]
+    except (TypeError, ValueError):
+        return err("target_department_ids noto'g'ri")
+    if department_id in target_ids:
+        return err("bo'lim o'zini o'ziga fork qila olmaydi")
 
     async with async_session() as session:
         dept_repo = DepartmentRepository(session)
         fork_repo = DepartmentForkTargetRepository(session)
         if await dept_repo.get_by_id(department_id) is None:
             return err("not_found", 404)
+        for tid in target_ids:
+            if await dept_repo.get_by_id(tid) is None:
+                return err(f"target_department_id {tid} topilmadi")
         for row in await fork_repo.list_by_department(department_id):
             await fork_repo.delete(row)
         for tid in target_ids:
-            await fork_repo.create(department_id=department_id, target_department_id=int(tid))
+            await fork_repo.create(department_id=department_id, target_department_id=tid)
         await session.commit()
 
     return web.json_response(
@@ -470,7 +478,6 @@ async def employee_detail(request: web.Request) -> web.Response:
             "led_department_ids": led_department_ids,
             "is_active": employee.is_active,
             "telegram_linked": employee.telegram_id is not None,
-            "daily_report_required": employee.daily_report_required,
         }
     )
 
@@ -522,8 +529,6 @@ async def update_employee(request: web.Request) -> web.Response:
     elif "department_id" in body:
         # bo'lim o'zgarganda eski brigada mos kelmasligi mumkin (chat bilan bir xil qoida)
         fields["brigade_id"] = None
-    if "daily_report_required" in body:
-        fields["daily_report_required"] = bool(body["daily_report_required"])
 
     # Qo'shimcha rahbarlik bo'limlari (masalan Kraska brigadiri Shkurkaga ham
     # qarasa) — har biri uchun brigada avtomatik yaratiladi/biriktiriladi.
@@ -658,15 +663,18 @@ async def list_admin_misctasks(request: web.Request) -> web.Response:
         tasks = [t for t in tasks if _department_scope_ok(request, t.current_department_id)]
 
         assignment_repo = TaskAssignmentRepository(session)
-        employee_repo = EmployeeRepository(session)
+        # Xodim ismlari bir marta yuklanadi: ilgari har biriktirish uchun
+        # alohida `get_by_id()` ketardi (vazifa x biriktirish = N*M so'rov).
+        # Xodimlar soni bu tashkilotda yuzlab — bitta ro'yxat arzon.
+        employee_names = {e.id: e.full_name for e in await EmployeeRepository(session).list_all()}
         items = []
         for task in tasks:
             assignments = await assignment_repo.list_by_task(task.id)
-            names = []
-            for a in assignments:
-                employee = await employee_repo.get_by_id(a.employee_id)
-                if employee is not None:
-                    names.append(employee.full_name)
+            names = [
+                employee_names[a.employee_id]
+                for a in assignments
+                if a.employee_id in employee_names
+            ]
             items.append(
                 {
                     "id": task.id,
@@ -689,7 +697,7 @@ async def full_stats(request: web.Request) -> web.Response:
     `?factory_name=` query parametri (Fasad sex TZ §9) natijani shu zavodga
     tegishli bo'limlardagi xodimlar bilan cheklaydi — berilmasa, avvalgidek
     filtrsiz."""
-    factory_name = request.query.get("factory_name")
+    factory_name = request.query.get("factory_name") or None
     stats = sorted(
         (
             s
@@ -719,8 +727,9 @@ async def capacity_stats(request: web.Request) -> web.Response:
     """Fasad sex TZ, Phase 6: kunlik norma (5 punkt/ishchi) — bo'lim uchun
     reja (`planned_points`) va bajarilgan vazifa soni (`actual_points`,
     PROKSI, haqiqiy kv.m emas) yonma-yon. `?department_id=` majburiy;
-    `?since=`/`?until=` ixtiyoriy ISO 8601 — berilmasa, joriy oy
-    (`stats_service._month_bounds` bilan bir xil qoida)."""
+    `?since=`/`?until=` ixtiyoriy ISO 8601 (ikkalasi birga berilishi kerak,
+    aks holda ikkalasi ham joriy oyga tushadi — `penalty_service.month_bounds`
+    bilan bir xil qoida)."""
     department_id = request.query.get("department_id")
     if not department_id:
         return err("department_id majburiy")
@@ -780,7 +789,7 @@ def _parse_setting_value(field: str, value: object) -> object:
         value = int(value)
         if value <= 0:
             raise ValueError
-    elif field in ("report_time", "daily_report_time"):
+    elif field == "report_time":
         settings_service.validate_time_str(value)
     else:
         raise ValueError(f"noma'lum sozlama: {field}")
@@ -815,8 +824,6 @@ async def update_settings(request: web.Request) -> web.Response:
     updated = await settings_service.update_setting(**fields)
     if "report_time" in fields:
         report_job.schedule_all(request.config_dict["bot"], updated.report_time)
-    if "daily_report_time" in fields:
-        daily_report_job.schedule_all(request.config_dict["bot"], updated.daily_report_time)
 
     return web.json_response(
         {field: _serialize_setting(getattr(updated, field)) for field in _SETTING_FIELDS}
@@ -972,36 +979,6 @@ async def list_reassign_candidates(request: web.Request) -> web.Response:
                 }
             )
     return web.json_response(items)
-
-
-@routes.get("/daily-reports")
-async def daily_reports_compliance(request: web.Request) -> web.Response:
-    """Fasad sex TZ, Phase 8: kunlik rasm/video hisobot muvofiqligi —
-    `daily_report_required=True` FAOL xodimlar ikki guruhga bo'linadi
-    (yuborgan/yubormagan). `date` so'rov parametri bo'lmasa — bugun
-    (Toshkent vaqti)."""
-    date_param = request.query.get("date")
-    try:
-        report_date = date.fromisoformat(date_param) if date_param else daily_report_service.today_tashkent()
-    except ValueError:
-        return err("date noto'g'ri formatda (YYYY-MM-DD kerak)")
-
-    async with async_session() as session:
-        required = await EmployeeRepository(session).list_daily_report_required()
-        submissions = await DailyReportSubmissionRepository(session).list_by_date(report_date)
-    submitted_ids = {s.employee_id for s in submissions}
-    required = [e for e in required if _department_scope_ok(request, e.department_id)]
-
-    def _brief(e) -> dict:
-        return {"id": e.id, "full_name": e.full_name, "department_id": e.department_id}
-
-    return web.json_response(
-        {
-            "date": report_date.isoformat(),
-            "submitted": [_brief(e) for e in required if e.id in submitted_ids],
-            "missing": [_brief(e) for e in required if e.id not in submitted_ids],
-        }
-    )
 
 
 @routes.get("/tasks/{task_id}/reassign-brigades")

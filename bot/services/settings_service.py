@@ -32,7 +32,6 @@ class AppSettingsSnapshot:
     lead_follow_up_threshold_days: int
     sales_board_lists: dict
     daily_quota_points_per_worker: int
-    daily_report_time: str
     # Mebel moduli, Trello sinxronizatsiyasi. Ikkalasi ham None bo'lishi mumkin:
     # board_id yo'q = sinxronizatsiya butunlay o'chiq (xavfsiz standart),
     # ingest_start_at yo'q = eski kartalar uchun chegara yo'q.
@@ -91,7 +90,6 @@ async def _load_from_db() -> AppSettingsSnapshot:
         lead_follow_up_threshold_days=row.lead_follow_up_threshold_days,
         sales_board_lists=row.sales_board_lists,
         daily_quota_points_per_worker=row.daily_quota_points_per_worker,
-        daily_report_time=row.daily_report_time,
         mebel_trello_board_id=row.mebel_trello_board_id,
         mebel_ingest_start_at=row.mebel_ingest_start_at,
     )
@@ -119,8 +117,6 @@ async def update_setting(**fields: object) -> AppSettingsSnapshot:
         validate_reminder_schedule(fields["reminder_schedule"])
     if "report_time" in fields:
         validate_time_str(fields["report_time"])
-    if "daily_report_time" in fields:
-        validate_time_str(fields["daily_report_time"])
 
     async with async_session() as session:
         repo = AppSettingRepository(session)

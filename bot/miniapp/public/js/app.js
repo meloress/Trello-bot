@@ -599,7 +599,6 @@ async function screenAdminHome() {
     ${pendingSetup.length ? `<button class="alert-card" id="nav-pending-setup"><span class="ic">${icon("clock")}</span><span class="grow">${esc(t("pendingSetupAlert", pendingSetup.length))}</span><span class="chev">›</span></button>` : ""}
     ${reassignCandidates.length ? `<button class="alert-card" id="nav-reassign"><span class="ic">${icon("repeat")}</span><span class="grow">${esc(t("reassignAlert", reassignCandidates.length))}</span><span class="chev">›</span></button>` : ""}
     ${pendingClaims.length ? `<button class="alert-card" id="nav-pending-claims"><span class="ic">${icon("list")}</span><span class="grow">${esc(t("pendingClaimsAlert", pendingClaims.length))}</span><span class="chev">›</span></button>` : ""}
-    ${mebelOnly ? "" : `<button class="nav-card" id="nav-daily-reports"><span class="ic">${icon("camera")}</span><span class="grow">${esc(t("dailyReportsNav"))}</span><span class="chev">›</span></button>`}
     ${mebelOnly ? "" : `<button class="nav-card" id="nav-misctasks"><span class="ic">${icon("folder")}</span><span class="grow">${esc(t("miscTasksNav"))}</span><span class="chev">›</span></button>`}
   `);
   root.querySelector("#nav-newtask").onclick = () => show(screenNewTaskForm);
@@ -609,8 +608,6 @@ async function screenAdminHome() {
   if (reassignBtn) reassignBtn.onclick = () => show(screenReassignList);
   const claimsBtn = root.querySelector("#nav-pending-claims");
   if (claimsBtn) claimsBtn.onclick = () => show(screenPendingClaims);
-  const dailyReportsBtn = root.querySelector("#nav-daily-reports");
-  if (dailyReportsBtn) dailyReportsBtn.onclick = () => show(screenDailyReports);
   const miscTasksBtn = root.querySelector("#nav-misctasks");
   if (miscTasksBtn) miscTasksBtn.onclick = () => show(screenAdminMiscTasks);
 }
@@ -646,25 +643,6 @@ async function screenAdminMiscTasks(category) {
   `);
   const filterSel = root.querySelector("#f-category-filter");
   if (filterSel) filterSel.onchange = () => replaceTop(screenAdminMiscTasks, filterSel.value || undefined);
-}
-
-async function screenDailyReports() {
-  setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
-  const data = await api("/admin/daily-reports");
-  setScreen(`
-    <p class="page-title">${esc(t("dailyReportsTitle"))}</p>
-    <p class="page-sub">${esc(data.date)}</p>
-    ${!data.submitted.length && !data.missing.length ? `<p class="empty-state">${esc(t("noDailyReportEmployees"))}</p>` : `
-      <p class="section-lbl">${esc(t("submittedLabel"))} (${data.submitted.length})</p>
-      ${data.submitted.map((e) => `
-        <div class="stat-row"><span class="rank">${icon("check")}</span><span class="nm">${esc(e.full_name)}</span><span class="score"></span></div>
-      `).join("")}
-      <p class="section-lbl">${esc(t("missingLabel"))} (${data.missing.length})</p>
-      ${data.missing.map((e) => `
-        <div class="stat-row"><span class="rank">${icon("x")}</span><span class="nm">${esc(e.full_name)}</span><span class="score"></span></div>
-      `).join("")}
-    `}
-  `);
 }
 
 async function screenNewTaskForm(kind) {
@@ -887,10 +865,7 @@ async function screenEmployeeDetail(employeeId) {
     );
   }
   const brigadeOptions = await renderBrigadeOptions(employee.department_id, employee.brigade_id);
-  // Mebel ("Fasad seh"): kunlik hisobot faqat Nazorat Trello (fasad_sex)
-  // uchun qoldi — mebel bo'limidagi xodim uchun bu bayroq umuman ko'rsatilmaydi.
   const employeeDepartment = departments.find((d) => d.id === employee.department_id);
-  const hideDailyReport = employeeDepartment && employeeDepartment.module === "mebel";
   // Bitta brigadir bir nechta bo'limga rahbarlik qilishi mumkin (Kraska +
   // Shkurka) — tanlangan har bir bo'lim uchun brigada avtomatik yaratiladi.
   const ledIds = employee.led_department_ids || [];
@@ -913,7 +888,6 @@ async function screenEmployeeDetail(employeeId) {
     <div class="field" id="led-block" ${employee.role === "brigadier" ? "" : "hidden"}>
       <label>${esc(t("ledDepartments"))}</label>${ledOptions}
     </div>
-    ${hideDailyReport ? "" : `<label class="check-row"><input type="checkbox" id="f-daily-report" ${employee.daily_report_required ? "checked" : ""} />${esc(t("dailyReportRequiredField"))}</label>`}
     <button class="btn ${employee.is_active ? "danger" : "primary"}" id="btn-toggle">${employee.is_active ? esc(t("deactivate")) : esc(t("activate"))}</button>
   `);
 
@@ -941,7 +915,6 @@ async function screenEmployeeDetail(employeeId) {
     try {
       const deptVal = root.querySelector("#f-dept").value;
       const brigadeVal = root.querySelector("#f-brigade").value;
-      const dailyReportEl = root.querySelector("#f-daily-report");
       const roleVal = root.querySelector("#f-role").value;
       const body = {
         full_name: root.querySelector("#f-name").value.trim(),
@@ -954,7 +927,6 @@ async function screenEmployeeDetail(employeeId) {
       if (roleVal === "brigadier") {
         body.led_department_ids = Array.from(root.querySelectorAll(".f-led:checked")).map((el) => Number(el.value));
       }
-      if (dailyReportEl) body.daily_report_required = dailyReportEl.checked;
       await api(`/admin/employees/${employeeId}`, { method: "POST", body: JSON.stringify(body) });
       app.HapticFeedback && app.HapticFeedback.notificationOccurred("success");
       await goBack();
@@ -1153,7 +1125,7 @@ async function screenCapacityStats(departmentId, departmentName) {
 const SETTING_FIELDS = [
   "default_penalty_multiplier", "brigade_share_ratio", "balls_per_day_shift",
   "plus_ball_per_day", "plus_ball_max_days", "report_time",
-  "lead_follow_up_threshold_days", "daily_quota_points_per_worker", "daily_report_time",
+  "lead_follow_up_threshold_days", "daily_quota_points_per_worker",
 ];
 
 async function screenSettings() {
@@ -1437,7 +1409,7 @@ async function screenAddMaterialTemplate() {
     try {
       const created = [];
       for (const name of stageNames) {
-        created.push(await api("/admin/departments", { method: "POST", body: JSON.stringify({ name }) }));
+        created.push(await api("/admin/departments", { method: "POST", body: JSON.stringify({ name, module: nav.module }) }));
         done++;
       }
       for (let i = 0; i < created.length - 1; i++) {

@@ -67,10 +67,11 @@ class AppSetting(TimestampedBase):
     # stats/dashboard'da ko'rsatish uchun — timer/jarima sifatida MAJBURIY
     # QILINMAYDI (stats_service.get_capacity_vs_actual()).
     daily_quota_points_per_worker: Mapped[int] = mapped_column(Integer, nullable=False)
-    # Fasad sex TZ, Phase 8: kunlik rasm/video hisobot SO'ROVI shu vaqtda
-    # (HH:MM, Toshkent) `daily_report_required=True` xodimlarga yuboriladi
-    # (`jobs/daily_report_job.py`) — `report_time` bilan bir xil naqsh.
-    daily_report_time: Mapped[str] = mapped_column(String(5), nullable=False)
+    # Eslatma: `daily_report_time` ustuni DB'da hali bor, lekin kunlik
+    # rasm/video hisobot funksiyasi 2026-07-31'da rahbar talabiga ko'ra
+    # butunlay olib tashlangan (faqat kod — ustun/jadval tegilmagan,
+    # 8.6-band "Moliyaviy takliflar" o'chirilishi bilan bir xil naqsh).
+    # `server_default='09:00'` bo'lgani uchun modelda bo'lmasligi xavfsiz.
     # Mebel moduli: bot kuzatadigan Trello DOSKASI (butun doska, bitta ro'yxat
     # emas). Ro'yxatlar bu yerda SAQLANMAYDI — `jobs/trello_ingest_job.py` har
     # pollda doskadagi ro'yxatlarni qaytadan o'qiydi va NOMIGA qarab tasniflaydi
