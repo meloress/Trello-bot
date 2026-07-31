@@ -14,6 +14,7 @@ from core.database import async_session
 from db.models.stop_log import StopLog
 from db.models.task import Task
 from db.repositories import DepartmentRepository, StopLogRepository, TaskAssignmentRepository, TaskRepository
+from services import trello_sync_service
 from trello.client import TrelloClient
 from utils.enums import TaskStatus
 
@@ -50,6 +51,37 @@ async def start_task(task_id: int, employee_ids: list[int]) -> Task:
 
         await session.commit()
         return task
+
+
+async def _sync_stop_label(card_id: str, department_id: int, *, stopped: bool, deadline) -> None:
+    """SPEC.md §6.2: "STOP bosilganda kartaga vizual belgi qo'yiladi
+    (Trello'da rangli label)". Stop'da "To'xtatilgan" (orange), Resume'da
+    muddatga mos odatiy status rangi qaytariladi.
+
+    `jobs/daily_sync_job.py` ham xuddi shu labelni qo'yadi, lekin u KUNIGA
+    bir marta ishlaydi — bu yerdagi chaqiruv belgini DARHOL ko'rsatadi.
+    Ikkalasi bir xil `trello_sync_service.update_card_label()` orqali
+    ketadi, ya'ni ikkinchisi birinchisini bekor qilmaydi.
+
+    Mebel MUZLATILGAN: u modulda label oqimi butunlay boshqacha (karta
+    ro'yxatlar bo'ylab yuradi) va Stop rahbar tasdig'iga bog'langan —
+    tegilmaydi. Ikkinchi-darajali effekt: xatosi Stop/Resume amalini
+    bekor qilmaydi."""
+    async with async_session() as session:
+        department = await DepartmentRepository(session).get_by_id(department_id)
+    if department is None or department.module == "mebel":
+        return
+    if not stopped and deadline is None:
+        return  # muddatsiz vazifa uchun status rangi aniqlanmaydi
+    status = (
+        trello_sync_service.CardStatus.STOPPED
+        if stopped
+        else trello_sync_service.determine_status(deadline)
+    )
+    try:
+        await trello_sync_service.update_card_label(card_id, status)
+    except Exception:
+        logger.exception("Task kartasi (%s) status labeli yangilanmadi", card_id)
 
 
 async def _move_card_to_stop_list(card_id: str, department_id: int) -> None:
@@ -133,6 +165,7 @@ async def stop_task(task_id: int, employee_id: int, reason: str, stopped_at: dat
     # muvaffaqiyatsiz bo'lsa ham Stop amali o'zi muvaffaqiyatli hisoblanadi.
     if card_id and department_id is not None:
         await _move_card_to_stop_list(card_id, department_id)
+        await _sync_stop_label(card_id, department_id, stopped=True, deadline=task.deadline)
 
     return stop_log
 
@@ -209,6 +242,7 @@ async def resume_task(task_id: int, employee_id: int | None = None) -> Task:
     # commit qilingan, karta ko'chirishi ikkinchi-darajali effekt.
     if card_id and department_id is not None:
         await _move_card_back_from_stop_list(card_id, department_id)
+        await _sync_stop_label(card_id, department_id, stopped=False, deadline=task.deadline)
 
     return task
 

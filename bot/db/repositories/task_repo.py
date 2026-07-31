@@ -158,6 +158,15 @@ class TaskRepository(BaseRepository[Task]):
         )
         return list(result.scalars().all())
 
+    async def count_by_department(self, department_id: int) -> int:
+        """SPEC.md §10 (bo'limni o'chirish): shu bo'limga bog'langan vazifalar
+        soni — HOLATIDAN QAT'I NAZAR (yakunlanganlari ham hisobga olinadi,
+        chunki ular KPI tarixining bir qismi)."""
+        result = await self.session.execute(
+            select(func.count(Task.id)).where(Task.current_department_id == department_id)
+        )
+        return result.scalar_one()
+
     async def count_created_in_department_since(self, *, department_id: int, since: datetime) -> int:
         """SPEC.md §5.2 navbat qoidasi: shu bo'limda `since`dan beri necha ta
         ORDER bosqichi ochilgan. Chaqiruvchi `since`ni Toshkent kalendar

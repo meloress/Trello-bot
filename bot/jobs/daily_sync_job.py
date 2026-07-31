@@ -25,6 +25,7 @@ from db.models.task import Task
 from db.repositories import TaskRepository
 from services import penalty_service, trello_sync_service
 from trello.client import TrelloAPIError, TrelloClient
+from utils.enums import TaskStatus
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,15 @@ async def _update_label(task: Task) -> None:
     kutilmagan xatolar bu yerda emas, chaqiruvchi tsiklda ushlanadi —
     shunda bitta vazifadagi label xatosi qolganlarni tekshirishni
     to'xtatmaydi."""
-    status = trello_sync_service.determine_status(task.deadline)
+    # SPEC.md §6.2: to'xtatilgan vazifada muddat emas, HOLAT hal qiladi —
+    # aks holda bu kunlik job "To'xtatilgan" labelini har kuni muddatga
+    # asoslangan rangga almashtirib yuborardi (STOP belgisi bir kunda
+    # yo'qolardi).
+    status = (
+        trello_sync_service.CardStatus.STOPPED
+        if task.status == TaskStatus.STOPPED
+        else trello_sync_service.determine_status(task.deadline)
+    )
     await trello_sync_service.update_card_label(task.trello_card_id, status)
 
 

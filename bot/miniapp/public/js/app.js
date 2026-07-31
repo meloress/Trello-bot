@@ -1060,7 +1060,7 @@ function statRowsHtml(stats) {
   return stats.map((s, i) => `
     <div class="stat-row">
       <span class="rank">${i + 1}</span>
-      <span class="nm">${esc(s.full_name)}<div class="completed">${s.completed_tasks} ${esc(t("completedThisMonth"))} · ${s.penalty_count} ${esc(t("penaltyCountLbl")).toLowerCase()}</div></span>
+      <span class="nm">${esc(s.full_name)}<div class="completed">${s.completed_tasks} ${esc(t("completedThisMonth"))} · ${s.penalty_count} ${esc(t("penaltyCountLbl")).toLowerCase()}${s.avg_completion_hours ? ` · ~${s.avg_completion_hours}${esc(t("hourShort"))}` : ""}</div></span>
       <span class="score ${scoreClass(s.total_score)}">${scoreSigned(s.total_score)}</span>
     </div>
   `).join("");
@@ -1076,7 +1076,7 @@ async function screenFullStats() {
   // ko'rsatilmaydi, fasad_sex uchun to'liq qoladi.
   const mebelOnly = nav.module === "mebel";
   setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
-  const stats = await api("/admin/stats");
+  const stats = await api(`/admin/stats?${periodQuery()}`);
   if (!stats.length) {
     setScreen(`<p class="page-title">${esc(t("fullStatsTitle"))}</p><p class="empty-state">${esc(t("noStats"))}</p>`);
     return;
@@ -1084,6 +1084,7 @@ async function screenFullStats() {
   const roles = Object.keys(ROLE_LABELS[state.lang]).filter((r) => stats.some((s) => s.role === r));
   setScreen(`
     <p class="page-title">${esc(t("fullStatsTitle"))}</p>
+    ${periodPickerHtml()}
     ${roles.length > 1 ? roles.map((r) => `
         <button class="nav-card" data-role="${r}">
           <span class="ic">${icon(ROLE_ICONS[r])}</span><span class="grow">${esc(ROLE_LABELS[state.lang][r])}</span><span class="badge">${stats.filter((s) => s.role === r).length}</span><span class="chev">›</span>
@@ -1094,6 +1095,7 @@ async function screenFullStats() {
       <button class="nav-card" id="nav-funnel"><span class="ic">${icon("factory")}</span><span class="grow">${esc(t("funnelNav"))}</span><span class="chev">›</span></button>
       <button class="nav-card" id="nav-bottleneck"><span class="ic">${icon("clock")}</span><span class="grow">${esc(t("bottleneckNav"))}</span><span class="chev">›</span></button>
       <button class="nav-card" id="nav-stopstats"><span class="ic">${icon("stop")}</span><span class="grow">${esc(t("stopStatsNav"))}</span><span class="chev">›</span></button>
+      <button class="nav-card" id="nav-stopped-orders"><span class="ic">${icon("inbox")}</span><span class="grow">${esc(t("stoppedOrdersNav"))}</span><span class="chev">›</span></button>
     `}
     <button class="nav-card" id="nav-export"><span class="ic">${icon("inbox")}</span><span class="grow">${esc(t("exportCsv"))}</span><span class="chev">›</span></button>
     <p class="section-lbl">${esc(t("overallRanking"))}</p>
@@ -1124,6 +1126,47 @@ async function screenFullStats() {
   if (bottleneckBtn) bottleneckBtn.onclick = () => show(screenBottlenecks);
   const stopStatsBtn = root.querySelector("#nav-stopstats");
   if (stopStatsBtn) stopStatsBtn.onclick = () => show(screenStopStats);
+  const stoppedOrdersBtn = root.querySelector("#nav-stopped-orders");
+  if (stoppedOrdersBtn) stoppedOrdersBtn.onclick = () => show(screenStoppedOrders);
+  bindPeriodPicker(() => replaceTop(screenFullStats));
+}
+
+/* ---------- SPEC.md §11: davr bo'yicha filtr ----------
+   Uchta tayyor oraliq yetarli (kalendar tanlagich emas) — rahbar amalda
+   "shu oy / oxirgi hafta / oxirgi oy" kesimida qaraydi. Tanlov `nav`da
+   emas, alohida holatda: ekranlar orasida saqlanadi, lekin back-stack'ga
+   ta'sir qilmaydi. */
+
+const STATS_PERIODS = {
+  month: () => {
+    const now = new Date();
+    return [new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)), new Date()];
+  },
+  week: () => [new Date(Date.now() - 7 * 864e5), new Date()],
+  days30: () => [new Date(Date.now() - 30 * 864e5), new Date()],
+};
+let statsPeriod = "month";
+
+function periodQuery() {
+  const [since, until] = STATS_PERIODS[statsPeriod]();
+  return `since=${encodeURIComponent(since.toISOString())}&until=${encodeURIComponent(until.toISOString())}`;
+}
+
+function periodPickerHtml() {
+  return `<div class="segmented" id="period-picker">${Object.keys(STATS_PERIODS).map((k) => `
+    <button data-period="${k}" aria-selected="${k === statsPeriod}">${esc(t("period_" + k))}</button>
+  `).join("")}</div>`;
+}
+
+function bindPeriodPicker(rerender) {
+  const picker = root.querySelector("#period-picker");
+  if (!picker) return;
+  picker.querySelectorAll("button").forEach((el) => {
+    el.onclick = () => {
+      statsPeriod = el.dataset.period;
+      rerender();
+    };
+  });
 }
 
 /* ---------- SPEC.md §11: voronka / bottleneck / STOP statistikasi ----------
@@ -1148,9 +1191,10 @@ async function screenFunnel() {
 
 async function screenBottlenecks() {
   setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
-  const stages = await api(`/admin/stats/bottlenecks?module=${encodeURIComponent(nav.module)}`);
+  const stages = await api(`/admin/stats/bottlenecks?module=${encodeURIComponent(nav.module)}&${periodQuery()}`);
   setScreen(`
     <p class="page-title">${esc(t("bottleneckTitle"))}</p>
+    ${periodPickerHtml()}
     <p class="hint">${esc(t("bottleneckHint"))}</p>
     ${stages.length ? stages.map((s) => {
       // Reja belgilanmagan bo'lsa taqqoslash umuman ko'rsatilmaydi — soxta
@@ -1165,13 +1209,15 @@ async function screenBottlenecks() {
         </div>`;
     }).join("") : `<p class="empty-state">${esc(t("noStats"))}</p>`}
   `);
+  bindPeriodPicker(() => replaceTop(screenBottlenecks));
 }
 
 async function screenStopStats() {
   setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
-  const s = await api(`/admin/stats/stops?module=${encodeURIComponent(nav.module)}`);
+  const s = await api(`/admin/stats/stops?module=${encodeURIComponent(nav.module)}&${periodQuery()}`);
   setScreen(`
     <p class="page-title">${esc(t("stopStatsTitle"))}</p>
+    ${periodPickerHtml()}
     <div class="hero-row">
       <div class="hero-tile"><span class="num">${s.task_count}</span><span class="lbl">${esc(t("stopTaskCountLabel"))}</span></div>
       <div class="hero-tile"><span class="num">${s.total_hours}</span><span class="lbl">${esc(t("stopHoursLabel"))}</span></div>
@@ -1180,6 +1226,23 @@ async function screenStopStats() {
     ${s.reasons.length ? s.reasons.map((r) => `
       <div class="settings-row"><span class="lbl">${esc(r.reason)}</span><span class="val">${r.count}</span></div>
     `).join("") : `<p class="empty-state">${esc(t("noStats"))}</p>`}
+  `);
+  bindPeriodPicker(() => replaceTop(screenStopStats));
+}
+
+/* SPEC.md §6: "STOP bosilgan zakazlar" — alohida ro'yxat. */
+async function screenStoppedOrders() {
+  setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
+  const orders = await api(`/admin/stopped-orders?module=${encodeURIComponent(nav.module)}`);
+  setScreen(`
+    <p class="page-title">${esc(t("stoppedOrdersTitle"))}</p>
+    ${orders.length ? orders.map((o) => `
+      <div class="stat-row">
+        <span class="rank">${icon("stop")}</span>
+        <span class="nm">${esc(o.title)}<div class="completed">${esc(o.department || "—")} · ${esc(o.reason)}</div></span>
+        <span class="score neg">${o.stopped_hours}${esc(t("hourShort"))}</span>
+      </div>
+    `).join("") : `<p class="empty-state">${esc(t("noStoppedOrders"))}</p>`}
   `);
 }
 
@@ -1418,7 +1481,30 @@ async function screenDepartmentEdit(department, allDepartments) {
     <p class="section-lbl">${esc(t("departmentAdvancedSection"))}</p>
     <button class="nav-card" id="nav-dept-chain"><span class="ic">${icon("link")}</span><span class="grow">${esc(t("departmentChainNav"))}</span><span class="chev">›</span></button>
     <button class="nav-card" id="nav-dept-fork"><span class="ic">${icon("branch")}</span><span class="grow">${esc(t("forkTargetsNav"))}</span><span class="chev">›</span></button>
+    ${specFields ? `<button class="btn danger" id="btn-dept-delete">${esc(t("deleteDepartment"))}</button>` : ""}
   `);
+  // SPEC.md §10 "Sexlarni yaratish/o'chirish". Backend faqat BO'SH bo'limni
+  // o'chiradi (vazifa/xodim/brigada/zanjir bo'lsa 409 + sabab) — bu yerda
+  // qo'shimcha tekshiruv takrorlanmaydi, xato matni to'g'ridan-to'g'ri
+  // ko'rsatiladi. Mebelda tugma umuman yo'q (`specFields`).
+  const deleteBtn = root.querySelector("#btn-dept-delete");
+  if (deleteBtn) {
+    deleteBtn.onclick = async () => {
+      const app = tg();
+      const confirmed = await new Promise((resolve) => {
+        if (app.showConfirm) app.showConfirm(t("deleteDepartmentConfirm"), resolve);
+        else resolve(window.confirm(t("deleteDepartmentConfirm")));
+      });
+      if (!confirmed) return;
+      try {
+        await api(`/admin/departments/${department.id}`, { method: "DELETE" });
+        app.HapticFeedback && app.HapticFeedback.notificationOccurred("success");
+        await goBack();
+      } catch (e) {
+        showError(e.message);
+      }
+    };
+  }
   root.querySelector("#nav-dept-chain").onclick = () => show(screenDepartmentChainEdit, department, allDepartments);
   root.querySelector("#nav-dept-fork").onclick = () => show(screenDepartmentForkTargets, department, allDepartments);
 

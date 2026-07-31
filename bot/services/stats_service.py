@@ -46,6 +46,10 @@ class EmployeeStats:
     completed_tasks: int
     total_score: int
     penalty_count: int
+    # SPEC.md §11: "har bir xodim: ... o'rtacha bajarish vaqti". Soatda,
+    # STOP vaqti CHIQARIB TASHLANGAN (§6) — `stopped_seconds_total`.
+    # `0.0` = shu davrda yakunlangan vazifa yo'q.
+    avg_completion_hours: float
 
 
 @dataclass(frozen=True)
@@ -110,6 +114,30 @@ async def _compute_stats(
             ).all()
         )
 
+        # SPEC.md §11: o'rtacha bajarish vaqti — `completed_by_employee` bilan
+        # BIR XIL filtr, faqat count o'rniga avg. Alohida so'rov, chunki
+        # `count(distinct)` va `avg` bitta guruhlashda birga to'g'ri
+        # ishlamaydi (bir vazifaga bir nechta tayinlov bo'lsa avg buziladi).
+        worked_seconds = func.extract("epoch", Task.finished_at - Task.started_at) - func.coalesce(
+            Task.stopped_seconds_total, 0
+        )
+        avg_hours_by_employee = dict(
+            (
+                await session.execute(
+                    select(TaskAssignment.employee_id, func.avg(worked_seconds))
+                    .join(Task, Task.id == TaskAssignment.task_id)
+                    .where(
+                        TaskAssignment.employee_id.in_(employee_ids),
+                        Task.status == TaskStatus.COMPLETED,
+                        Task.finished_at.isnot(None),
+                        Task.finished_at >= since,
+                        Task.finished_at < until,
+                    )
+                    .group_by(TaskAssignment.employee_id)
+                )
+            ).all()
+        )
+
         score_by_employee = dict(
             (
                 await session.execute(
@@ -147,13 +175,19 @@ async def _compute_stats(
             completed_tasks=completed_by_employee.get(employee_id, 0),
             total_score=score_by_employee.get(employee_id, 0),
             penalty_count=penalty_count_by_employee.get(employee_id, 0),
+            avg_completion_hours=round(
+                max(float(avg_hours_by_employee.get(employee_id) or 0), 0) / 3600, 1
+            ),
         )
         for employee_id, full_name, role in employees
     ]
 
 
 async def get_monthly_stats(
-    reference_month: datetime | None = None, factory_name: str | None = None
+    reference_month: datetime | None = None,
+    factory_name: str | None = None,
+    since: datetime | None = None,
+    until: datetime | None = None,
 ) -> list[EmployeeStats]:
     """Barcha FAOL xodimlar uchun oy statistikasi (10-band, admin/stats/
     dashboard) — rol bo'yicha filtrlanmagan (dashboard'ning "faol xodim"
@@ -168,8 +202,14 @@ async def get_monthly_stats(
     filtr, `NULL` zavodli bo'limlar ham (barcha eski bo'limlar) natijada
     qoladi, xatti-harakat o'zgarishsiz — barcha mavjud chaqiruvchilar
     (masalan `jobs/report_job.py`) hech narsani o'zgartirmasdan ishlashda
-    davom etadi."""
-    since, until = _month_bounds(reference_month or datetime.now(timezone.utc))
+    davom etadi.
+
+    `since`/`until` — SPEC.md §11 "davr bo'yicha filtr": ixtiyoriy aniq
+    oraliq. IKKALASI birga berilishi kerak; berilmasa (barcha mavjud
+    chaqiruvchilar) avvalgidek `reference_month` oyi olinadi, ya'ni
+    funksiya nomi ham, standart xatti-harakati ham o'zgarmaydi."""
+    if since is None or until is None:
+        since, until = _month_bounds(reference_month or datetime.now(timezone.utc))
 
     async with async_session() as session:
         query = select(Employee.id, Employee.full_name, Employee.role).where(Employee.is_active.is_(True))
@@ -339,6 +379,58 @@ class StopStats:
     task_count: int
     total_hours: float
     reasons: list[tuple[str, int]]  # (sabab, nechta marta) — ko'pdan kamga
+
+
+@dataclass(frozen=True)
+class StoppedOrder:
+    """SPEC.md §6: ""STOP bosilgan zakazlar" degan alohida ro'yxat/filtr
+    bo'ladi" — hozir to'xtatilgan holatda turgan har bir buyurtma, sababi
+    va qancha vaqtdan beri to'xtab turgani bilan."""
+
+    task_id: int
+    title: str
+    department_name: str | None
+    reason: str
+    stopped_at: datetime
+    stopped_hours: float
+
+
+async def get_stopped_orders(module: str = "fasad_sex") -> list[StoppedOrder]:
+    """SPEC.md §6: hozir STOP holatida turgan buyurtmalar — eng uzoq
+    to'xtab turganidan boshlab. Har biri uchun faol `StopLog`dan sabab va
+    boshlanish vaqti olinadi (faol stop yo'q bo'lsa qator o'tkazib
+    yuboriladi — bunday holat `starts_stopped` oqimida bo'lmasligi kerak,
+    lekin ma'lumot nomuvofiqligi butun ekranni yiqitmasin)."""
+    now = datetime.now(timezone.utc)
+    async with async_session() as session:
+        rows = (
+            await session.execute(
+                select(Task.id, Task.title, Department.name, StopLog.reason, StopLog.stopped_at)
+                .join(Department, Task.current_department_id == Department.id)
+                .join(StopLog, StopLog.task_id == Task.id)
+                .where(
+                    Department.module == module,
+                    Task.status == TaskStatus.STOPPED,
+                    StopLog.resumed_at.is_(None),
+                )
+            )
+        ).all()
+
+    return sorted(
+        (
+            StoppedOrder(
+                task_id=task_id,
+                title=title,
+                department_name=department_name,
+                reason=(reason or "").strip() or "—",
+                stopped_at=stopped_at,
+                stopped_hours=round(max((now - stopped_at).total_seconds(), 0) / 3600, 1),
+            )
+            for task_id, title, department_name, reason, stopped_at in rows
+        ),
+        key=lambda o: o.stopped_hours,
+        reverse=True,
+    )
 
 
 async def get_order_funnel(module: str = "fasad_sex") -> list[FunnelStage]:

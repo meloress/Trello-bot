@@ -182,6 +182,51 @@ DEPARTMENT_UPDATABLE_FIELDS = (
 )
 
 
+@routes.delete("/departments/{department_id}")
+async def delete_department(request: web.Request) -> web.Response:
+    """SPEC.md §10: "Sexlarni yaratish/o'chirish".
+
+    O'chirish FAQAT bo'lim butunlay bo'sh bo'lganda mumkin — unga bog'langan
+    vazifa, xodim, brigada yoki uni ko'rsatuvchi zanjir/fork bo'lmasa.
+    Kaskad qilib o'chirish ATAYLAB QILINMAGAN: bitta bo'limni o'chirish
+    yillik KPI tarixini va tugallangan buyurtmalarni olib ketardi. Band
+    bo'lim uchun 409 va aniq sabab qaytariladi — admin avval xodimlarni
+    ko'chirishi kerak."""
+    department_id = int(request.match_info["department_id"])
+    if not _department_scope_ok(request, department_id):
+        return err("bu bo'lim sizning doirangizda emas", 403)
+
+    async with async_session() as session:
+        repo = DepartmentRepository(session)
+        department = await repo.get_by_id(department_id)
+        if department is None:
+            return err("not_found", 404)
+
+        blockers = []
+        if await TaskRepository(session).count_by_department(department_id):
+            blockers.append("vazifalar")
+        if await EmployeeRepository(session).list_by_department(department_id):
+            blockers.append("xodimlar")
+        if await BrigadeRepository(session).list_by_department(department_id):
+            blockers.append("brigadalar")
+        # Zanjirda oldingi bo'lim sifatida ko'rsatilgan bo'lsa ham o'chirilmaydi —
+        # aks holda `next_department_id` osilib qolardi (FK NULL emas, mavjud
+        # id'ga ishora qiladi).
+        if await repo.list_referencing_as_next(department_id):
+            blockers.append("zanjir")
+        fork_repo = DepartmentForkTargetRepository(session)
+        if await fork_repo.list_by_department(department_id) or await fork_repo.list_by_target_department(department_id):
+            blockers.append("fork")
+
+        if blockers:
+            return err(f"bo'lim bo'sh emas ({', '.join(blockers)}) — avval ularni ko'chiring", 409)
+
+        await repo.delete(department)
+        await session.commit()
+
+    return web.json_response({"deleted": True})
+
+
 @routes.post("/departments/{department_id}")
 async def update_department(request: web.Request) -> web.Response:
     """Qisman yangilash: so'rov tanasida FAQAT kelgan maydonlar yoziladi
@@ -729,10 +774,13 @@ async def full_stats(request: web.Request) -> web.Response:
     tegishli bo'limlardagi xodimlar bilan cheklaydi — berilmasa, avvalgidek
     filtrsiz."""
     factory_name = request.query.get("factory_name") or None
+    since, until = _period_from_query(request)
     stats = sorted(
         (
             s
-            for s in await stats_service.get_monthly_stats(factory_name=factory_name)
+            for s in await stats_service.get_monthly_stats(
+                factory_name=factory_name, since=since, until=until
+            )
             if s.role in stats_service.KPI_ROLES
         ),
         key=lambda s: s.total_score,
@@ -747,6 +795,7 @@ async def full_stats(request: web.Request) -> web.Response:
                 "completed_tasks": s.completed_tasks,
                 "total_score": s.total_score,
                 "penalty_count": s.penalty_count,
+                "avg_completion_hours": s.avg_completion_hours,  # SPEC.md §11
             }
             for s in stats
         ]
@@ -806,6 +855,26 @@ def _period_from_query(request: web.Request) -> tuple[datetime, datetime]:
         except ValueError:
             pass
     return penalty_service.month_bounds(datetime.now(timezone.utc))
+
+
+@routes.get("/stopped-orders")
+async def stopped_orders(request: web.Request) -> web.Response:
+    """SPEC.md §6: ""STOP bosilgan zakazlar" degan alohida ro'yxat/filtr
+    bo'ladi" — hozir to'xtatilgan buyurtmalar, eng uzoq turganidan boshlab."""
+    orders = await stats_service.get_stopped_orders(module=request.query.get("module", "fasad_sex"))
+    return web.json_response(
+        [
+            {
+                "task_id": o.task_id,
+                "title": o.title,
+                "department": o.department_name,
+                "reason": o.reason,
+                "stopped_at": o.stopped_at.isoformat(),
+                "stopped_hours": o.stopped_hours,
+            }
+            for o in orders
+        ]
+    )
 
 
 @routes.get("/stats/funnel")
@@ -898,11 +967,14 @@ async def export_stats(request: web.Request) -> web.Response:
 
     buffer = io.StringIO()
     writer = csv.writer(buffer, delimiter=";")  # Excel (ru/uz lokal) `;` kutadi
-    writer.writerow(["Xodim", "Rol", "Bajarilgan", "Jami ball", "Jarimalar soni"])
+    writer.writerow(
+        ["Xodim", "Rol", "Bajarilgan", "Jami ball", "Jarimalar soni", "O'rtacha bajarish (soat)"]
+    )
     for s in stats:
-        writer.writerow(
-            [s.full_name, ROLE_LABELS.get(s.role, s.role.value), s.completed_tasks, s.total_score, s.penalty_count]
-        )
+        writer.writerow([
+            s.full_name, ROLE_LABELS.get(s.role, s.role.value), s.completed_tasks,
+            s.total_score, s.penalty_count, s.avg_completion_hours,
+        ])
 
     employee = request["employee"]
     if employee.telegram_id is None:

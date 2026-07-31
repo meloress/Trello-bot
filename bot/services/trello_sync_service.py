@@ -21,6 +21,12 @@ class CardStatus:
     IN_PROGRESS = "in_progress"
     DUE_TODAY = "due_today"
     OVERDUE = "overdue"
+    # SPEC.md §6.2: "STOP bosilganda kartaga vizual belgi qo'yiladi
+    # (Trello'da rangli label)". Muddatdan kelib chiqmaydi — vazifaning
+    # HOLATIDAN, shuning uchun `determine_status()` uni qaytarmaydi;
+    # chaqiruvchi holatni o'zi tekshiradi (`daily_sync_job._update_label`,
+    # `timer_service.stop_task`).
+    STOPPED = "stopped"
 
 
 # status -> (label nomi, Trello rang kodi). Trello rang palitrasi fiksirlangan
@@ -29,6 +35,7 @@ _LABEL_SPECS: dict[str, tuple[str, str]] = {
     CardStatus.IN_PROGRESS: ("Bajarilmoqda", "green"),
     CardStatus.DUE_TODAY: ("Bugun tugaydi", "yellow"),
     CardStatus.OVERDUE: ("Muddati o'tgan", "red"),
+    CardStatus.STOPPED: ("To'xtatilgan", "orange"),
 }
 _STATUS_LABEL_NAMES = {name for name, _color in _LABEL_SPECS.values()}
 
