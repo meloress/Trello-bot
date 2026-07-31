@@ -140,6 +140,39 @@ adding): §3 `Company`/multi-tenant and §10 tariff plans (SaaS was dropped),
 #5 was answered **calendar hours (24/7)**, #2/#3 are answered by SPEC itself,
 #4 by the existing `penalty_rules`, #6/#8 are data/SaaS, not code.
 
+### Nazorat Trello configuration (2026-08-01) — pointed at the DEMO board
+
+The 23 `fasad_sex` departments are now wired to **"Nazorat Trello demo"**
+(`6a6b9b185fcbec9605db82a0`, 51 lists — a copy of the real `nazorat trello`
+board, cards not copied), at the user's explicit instruction. They previously
+pointed at "Fasad sex — Ishlab chiqarish"; that board is no longer referenced.
+
+SLA values came from two sources, in this order: **the demo board's own list
+names** ("kraska seh 72 soat" → 72, "Shpon sehta yasalvotti 15 sutka" → 360),
+then SPEC.md §4 where the board is silent. Four values are **guesses awaiting
+confirmation** — Korpus qismi 24, Ichki qism 24, Shkurka 72, Montaj 48 (SPEC
+§13 #6 is still unanswered). §5.2's queue rule is on **"Start"** only (norma 5,
+urgent 24, over-quota 72).
+
+Two things were deliberately left unset:
+- **`telegram_chat_id`** — real Telegram group ids can't be invented; the bot
+  has to be added to each group first.
+- **`sla_block_id`** — SPEC §5.3 wants shkurka+kraska+malyarka as one 15-day
+  block, but the board gives those stages their own hours (kraska 72, malyarka
+  24). The two are mutually exclusive (a block overrides per-stage deadlines),
+  so per-stage won and the block is one field-edit away.
+
+The three fork branches (Korpus qismi / Ichki qism / Fasad qismi) have
+`trello_list_id = NULL` on purpose — the real board has no list for them, and
+a card never moves on fork, so NULL is correct rather than a stale id pointing
+at a different board.
+
+**Verified end-to-end on the demo board** (2026-08-01): a real card was created,
+stopped/resumed (deadline shifted by the paused span), advanced two stages with
+deadlines auto-computed from `default_sla_hours` (Kontrol +24h, Start +48h), and
+confirmed to physically move into the right list. The card and all DB rows were
+deleted afterwards — `fasad_sex` is back to 0 tasks, 0 employees.
+
 ### What is left
 
 Only `.claude/nazorat-trello/` — **read its `README.md` first**. As of
