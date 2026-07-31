@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import DateTime, Enum, ForeignKey, JSON, String, Text
+from sqlalchemy import DateTime, Enum, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from db.base import TimestampedBase
@@ -90,6 +90,20 @@ class Task(TimestampedBase):
     # Karta claim tasdiqlanishidan OLDIN keyingi bo'limga ko'chirilganda
     # belgilanadi (eski bosqich hali "tasdiqlanmagan" holatda ochiq qoladi).
     advanced_without_finish_claim_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # SPEC.md §6: "Stop" holatida o'tgan JAMI vaqt (soniyada). Har "Resume"da
+    # o'sha to'xtash davomiyligi qo'shiladi va SHU QADAR `deadline` ham
+    # oldinga suriladi — taymer haqiqatda muzlaydi, ishchi kutilgan vaqt
+    # uchun jarima olmaydi. Statistikada ham shu qiymat ish vaqtidan
+    # chiqariladi (§6 oxirgi band).
+    #
+    # Faqat `fasad_sex` bo'limlarida yangilanadi — mebelda "Stop" bugungicha
+    # muddatga umuman tegmaydi (`timer_service.resume_task()` guard'i).
+    stopped_seconds_total: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # SPEC.md §5.4: "kechikish davom etsa, har M soatda takroriy eslatma".
+    # Oxirgi takroriy kechikish eslatmasi yuborilgan payt (`overdue_watch_job`).
+    # NULL = hali takroriy eslatma yuborilmagan (birinchisi `status=OVERDUE`ga
+    # o'tishda `notify_task_overdue` orqali ketadi).
+    last_overdue_reminder_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     current_department: Mapped[Optional["Department"]] = relationship(back_populates="tasks")
     client: Mapped[Optional["Client"]] = relationship()

@@ -83,6 +83,16 @@ class Department(TimestampedBase):
     # qo'shilsa — keyingi pollda o'zi Shpon bo'limiga tushadi, hech qanday
     # sozlash kerak emas. NULL = bu bo'lim Trello'dan sinxronlanmaydi.
     trello_list_keywords: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    # SPEC.md §5.1: bosqichning standart SLA'si (soatda). Buyurtma shu
+    # bo'limga o'tgan ANIQ paytdan boshlab `deadline = entered_at + shu qiymat`
+    # avtomatik hisoblanadi (`task_service._spawn_pending_stage()`), ya'ni
+    # soat nazoratchi tugma bosgan paytdan emas, buyurtma haqiqatda bosqichga
+    # kirgan paytdan ketadi.
+    #
+    # NULL = SLA yo'q (bugungi xatti-harakat: muddat butunlay qo'lda
+    # kiritiladi). Mebel modulida bu ustun UMUMAN o'qilmaydi — u yerda muddat
+    # Trello kartadan/list nomidan keladi (`trello_board_map.parse_hours`).
+    default_sla_hours: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     brigades: Mapped[list["Brigade"]] = relationship(back_populates="department")
     employees: Mapped[list["Employee"]] = relationship(back_populates="department")

@@ -16,7 +16,7 @@ from aiogram import Bot
 
 from core.database import async_session
 from db.repositories import DepartmentRepository, StopLogRepository, TaskClaimRepository, TaskRepository
-from services import notification_service, timer_service
+from services import notification_service, settings_service, timer_service
 from utils.enums import TaskStatus
 
 logger = logging.getLogger(__name__)
@@ -27,9 +27,12 @@ _CLAIM_REMINDER_THRESHOLDS = {1: 2, 2: 6, 3: 24}
 
 
 async def _process_deadline_approaching(bot: Bot, now: datetime) -> int:
+    """SPEC.md §5.4: ogohlantirish oynasi endi kodga tikilgan 24 soat emas,
+    `app_settings.deadline_warning_hours` (standart 4)."""
+    within_hours = (await settings_service.get_settings()).deadline_warning_hours
     async with async_session() as session:
         task_repo = TaskRepository(session)
-        tasks = await task_repo.list_deadline_approaching(now=now)
+        tasks = await task_repo.list_deadline_approaching(now=now, within_hours=within_hours)
         task_ids = []
         for task in tasks:
             await task_repo.update(task, day_left_notified_at=now)
@@ -60,6 +63,36 @@ async def _process_newly_overdue(bot: Bot, now: datetime) -> int:
             await notification_service.notify_task_overdue(bot, task_id)
         except Exception:
             logger.exception("overdue_watch_job: notify_task_overdue xatosi (task_id=%s)", task_id)
+
+    return len(task_ids)
+
+
+async def _process_overdue_repeat_reminders(bot: Bot, now: datetime) -> int:
+    """SPEC.md §5.4: "kechikish davom etsa, har M soatda takroriy eslatma"
+    (`app_settings.overdue_repeat_hours`, standart 12; 0 = o'chirilgan).
+
+    Birinchi "muddat o'tdi" xabari `_process_newly_overdue()`da bir marta
+    ketadi — bu faza faqat KEYINGI takrorlarni yuboradi, shu sabab hisob
+    `last_overdue_reminder_at`dan, u bo'lmasa `deadline`ning o'zidan
+    boshlanadi (ya'ni birinchi takror muddatdan M soat keyin)."""
+    repeat_hours = (await settings_service.get_settings()).overdue_repeat_hours
+    if repeat_hours <= 0:
+        return 0
+
+    async with async_session() as session:
+        task_repo = TaskRepository(session)
+        tasks = await task_repo.list_overdue_for_repeat_reminder(now=now, repeat_hours=repeat_hours)
+        task_ids = []
+        for task in tasks:
+            await task_repo.update(task, last_overdue_reminder_at=now)
+            task_ids.append(task.id)
+        await session.commit()
+
+    for task_id in task_ids:
+        try:
+            await notification_service.notify_task_overdue(bot, task_id)
+        except Exception:
+            logger.exception("overdue_watch_job: takroriy notify_task_overdue xatosi (task_id=%s)", task_id)
 
     return len(task_ids)
 
@@ -179,6 +212,12 @@ async def run(bot: Bot) -> None:
         overdue = 0
 
     try:
+        repeats = await _process_overdue_repeat_reminders(bot, now)
+    except Exception:
+        logger.exception("overdue_watch_job: takroriy kechikish eslatmasi bosqichida xatolik")
+        repeats = 0
+
+    try:
         reassignment = await _process_reassignment_signals(bot, now)
     except Exception:
         logger.exception("overdue_watch_job: reassignment-signal bosqichida xatolik")
@@ -197,7 +236,8 @@ async def run(bot: Bot) -> None:
         stale_claims = 0
 
     logger.info(
-        "overdue_watch_job yakunlandi: %s ta '1 kun qoldi', %s ta yangi OVERDUE, "
-        "%s ta reassignment signali, %s ta avto-resume, %s ta claim eslatmasi",
-        approaching, overdue, reassignment, auto_resumed, stale_claims,
+        "overdue_watch_job yakunlandi: %s ta 'muddat yaqin', %s ta yangi OVERDUE, "
+        "%s ta takroriy kechikish eslatmasi, %s ta reassignment signali, "
+        "%s ta avto-resume, %s ta claim eslatmasi",
+        approaching, overdue, repeats, reassignment, auto_resumed, stale_claims,
     )

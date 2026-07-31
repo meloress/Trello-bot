@@ -110,6 +110,7 @@ async def list_departments(request: web.Request) -> web.Response:
                 "requires_join": d.requires_join,
                 "factory_name": d.factory_name,
                 "stop_target_list_id": d.stop_target_list_id,
+                "default_sla_hours": d.default_sla_hours,
             }
             for d in departments
         ]
@@ -164,6 +165,7 @@ DEPARTMENT_UPDATABLE_FIELDS = (
     "requires_join",
     "stop_target_list_id",
     "stopped_auto_resume_after_hours",
+    "default_sla_hours",  # SPEC.md §5.1
 )
 
 
@@ -204,6 +206,7 @@ async def update_department(request: web.Request) -> web.Response:
             "requires_join": department.requires_join,
             "factory_name": department.factory_name,
             "stop_target_list_id": department.stop_target_list_id,
+            "default_sla_hours": department.default_sla_hours,
         }
     )
 
@@ -785,9 +788,16 @@ def _parse_setting_value(field: str, value: object) -> object:
     elif field in (
         "plus_ball_per_day", "plus_ball_max_days",
         "lead_follow_up_threshold_days", "daily_quota_points_per_worker",
+        "deadline_warning_hours",  # SPEC.md §5.4
     ):
         value = int(value)
         if value <= 0:
+            raise ValueError
+    elif field == "overdue_repeat_hours":
+        # SPEC.md §5.4: 0 = takroriy eslatma o'chirilgan (yuqoridagilardan
+        # farqli, bu yerda nol haqiqiy va foydali qiymat).
+        value = int(value)
+        if value < 0:
             raise ValueError
     elif field == "report_time":
         settings_service.validate_time_str(value)
@@ -903,6 +913,10 @@ async def list_pending_setup(request: web.Request) -> web.Response:
                     "title": task.title,
                     "department": department.name if department else None,
                     "department_id": task.current_department_id,
+                    # SPEC.md §5.1: bo'lim SLA'si muddatni allaqachon
+                    # hisoblagan bo'lishi mumkin — Mini App uni oldindan
+                    # to'ldirib ko'rsatadi, nazoratchi qayta yozishi shart emas.
+                    "deadline": task.deadline.isoformat() if task.deadline else None,
                 }
             )
     return web.json_response(items)
@@ -918,17 +932,24 @@ async def activate_pending_stage(request: web.Request) -> web.Response:
     brigadier_id = body.get("brigadier_id")
     if not brigadier_id:
         return err("brigadier_id majburiy")
-    try:
-        deadline = datetime.fromisoformat(body["deadline"])
-    except (KeyError, ValueError):
-        return err("deadline noto'g'ri formatda (ISO 8601 kerak)")
-    if deadline <= datetime.now(deadline.tzinfo):
-        return err("deadline kelajakda bo'lishi kerak")
+    # SPEC.md §5.1: bo'lim `default_sla_hours` sozlagan bo'lsa, muddat
+    # bosqich yaratilganda allaqachon hisoblangan — nazoratchi uni qayta
+    # kiritishi shart emas (`deadline` yuborilmasa mavjudi saqlanadi).
+    deadline = None
+    if body.get("deadline"):
+        try:
+            deadline = datetime.fromisoformat(body["deadline"])
+        except ValueError:
+            return err("deadline noto'g'ri formatda (ISO 8601 kerak)")
+        if deadline <= datetime.now(deadline.tzinfo):
+            return err("deadline kelajakda bo'lishi kerak")
 
     async with async_session() as session:
         task = await TaskRepository(session).get_by_id(task_id)
         if task is None or task.current_department_id is None:
             return err("not_found", 404)
+        if deadline is None and task.deadline is None:
+            return err("deadline majburiy (bu bo'limda standart SLA sozlanmagan)")
         if not _department_scope_ok(request, task.current_department_id):
             return err("not_found", 404)
         brigades = await BrigadeRepository(session).list_by_department(task.current_department_id)

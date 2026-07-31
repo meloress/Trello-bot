@@ -1126,6 +1126,8 @@ const SETTING_FIELDS = [
   "default_penalty_multiplier", "brigade_share_ratio", "balls_per_day_shift",
   "plus_ball_per_day", "plus_ball_max_days", "report_time",
   "lead_follow_up_threshold_days", "daily_quota_points_per_worker",
+  // SPEC.md §5.4
+  "deadline_warning_hours", "overdue_repeat_hours",
 ];
 
 async function screenSettings() {
@@ -1273,6 +1275,7 @@ async function screenDepartmentEdit(department, allDepartments) {
     <p class="page-title">${esc(department.name)}</p>
     <div class="field"><label>${esc(t("departmentNameField"))}</label><input id="f-name" type="text" value="${esc(department.name)}" /></div>
     <div class="field"><label>${esc(t("trelloListIdField"))}</label><input id="f-trello-list" type="text" value="${esc(department.trello_list_id || "")}" /></div>
+    <div class="field"><label>${esc(t("defaultSlaHoursField"))}</label><input id="f-sla" type="number" min="1" value="${department.default_sla_hours ?? ""}" /><p class="hint">${esc(t("defaultSlaHoursHint"))}</p></div>
     <label class="check-row"><input type="checkbox" id="f-autoreassign" ${department.auto_reassign_after_48h ? "checked" : ""} />${esc(t("autoreassignNav"))}</label>
     <label class="check-row"><input type="checkbox" id="f-starts-stopped" ${department.starts_stopped ? "checked" : ""} />${esc(t("startsStoppedField"))}</label>
     <div class="field"><label>${esc(t("autoResumeHoursField"))}</label><input id="f-auto-resume" type="number" min="1" value="${department.stopped_auto_resume_after_hours ?? ""}" /></div>
@@ -1293,6 +1296,7 @@ async function screenDepartmentEdit(department, allDepartments) {
       return;
     }
     const autoResumeRaw = root.querySelector("#f-auto-resume").value.trim();
+    const slaRaw = root.querySelector("#f-sla").value.trim();
     const app = tg();
     app.MainButton.showProgress();
     try {
@@ -1301,6 +1305,7 @@ async function screenDepartmentEdit(department, allDepartments) {
         body: JSON.stringify({
           name,
           trello_list_id: root.querySelector("#f-trello-list").value.trim() || null,
+          default_sla_hours: slaRaw ? Number(slaRaw) : null,
           auto_reassign_after_48h: root.querySelector("#f-autoreassign").checked,
           starts_stopped: root.querySelector("#f-starts-stopped").checked,
           stopped_auto_resume_after_hours: autoResumeRaw ? Number(autoResumeRaw) : null,
@@ -1527,9 +1532,18 @@ async function screenActivateStage(task) {
   setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
   const brigadiers = task.department_id ? await api(`/admin/departments/${task.department_id}/brigadiers`) : [];
   let selectedBrigadierId = null;
+  // SPEC.md §5.1: bo'limda standart SLA bo'lsa, muddat bosqich ochilgan
+  // paytda allaqachon hisoblangan — shuni oldindan ko'rsatamiz (nazoratchi
+  // xohlasa o'zgartiradi). `datetime-local` mahalliy vaqtni kutadi, shuning
+  // uchun UTC ofseti ayriladi.
+  const preset = task.deadline
+    ? new Date(new Date(task.deadline).getTime() - new Date().getTimezoneOffset() * 60000)
+        .toISOString()
+        .slice(0, 16)
+    : "";
   setScreen(`
     <p class="page-title">${esc(task.title)}</p>
-    <div class="field"><label>${esc(t("deadline"))}</label><input id="f-deadline" type="datetime-local" /></div>
+    <div class="field"><label>${esc(t("deadline"))}</label><input id="f-deadline" type="datetime-local" value="${preset}" /></div>
     <p class="section-lbl">${esc(t("brigadierField"))}</p>
     ${brigadiers.length ? brigadiers.map((b, i) => `
       <button class="radio-row" data-i="${i}">${esc(b.brigadier_name)} <span class="hint">(${esc(b.brigade_name)})</span></button>

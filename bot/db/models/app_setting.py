@@ -89,3 +89,11 @@ class AppSetting(TimestampedBase):
     # a'zo qo'shilsa) `dateLastActivity` yangilanadi va o'zi ishga qo'shiladi.
     # NULL = chegara yo'q (barcha kartalar qabul qilinadi).
     mebel_ingest_start_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # SPEC.md §5.4: muddat tugashiga shuncha soat qolganda ogohlantirish
+    # yuboriladi. Avval bu qiymat `task_repo.list_deadline_approaching()`da
+    # 24 soat qilib kodga tikilgan edi — TZ esa uni sozlanuvchan, standarti
+    # 4 soat deb belgilaydi.
+    deadline_warning_hours: Mapped[int] = mapped_column(Integer, nullable=False)
+    # SPEC.md §5.4: "kechikish davom etsa, har M soatda takroriy eslatma".
+    # 0 = takroriy eslatma o'chirilgan (faqat bir marta, muddat o'tgan payt).
+    overdue_repeat_hours: Mapped[int] = mapped_column(Integer, nullable=False)

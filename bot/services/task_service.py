@@ -15,7 +15,7 @@ bo'lgani uchun foydalanuvchiga soxta xatolik ko'rsatilmaydi.
 
 import logging
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import text
 
@@ -384,15 +384,29 @@ async def _spawn_pending_stage(
     description: str | None,
     client_id: int | None,
 ) -> Task:
-    """Yangi `PENDING_SETUP` bosqich-qatorini yaratadi (muddat/xodim hali YO'Q).
+    """Yangi `PENDING_SETUP` bosqich-qatorini yaratadi (xodim hali YO'Q).
     Chiziqli (bitta bola) va fork (N bola) yo'llari BIR XIL qatorni yaratadi,
-    faqat `department_id`da farq qiladi — shu sabab bitta joyda."""
+    faqat `department_id`da farq qiladi — shu sabab bitta joyda.
+
+    SPEC.md §5.1: bo'lim `default_sla_hours` sozlagan bo'lsa (faqat
+    `fasad_sex`), muddat SHU YERDA — buyurtma bosqichga kirgan aniq paytda —
+    oldindan hisoblanadi: `deadline = now + SLA`. Bosqich baribir
+    `PENDING_SETUP` bo'lib qoladi, chunki u IKKI narsani kutadi (muddat VA
+    xodim) — SLA faqat birinchisini yechadi. Muhim yutuq shunda: taymer
+    nazoratchi tugmani bosgan paytdan emas, buyurtma haqiqatda bosqichga
+    o'tgan paytdan ketadi (TZ aynan shuni talab qiladi). SLA sozlanmagan
+    bo'lsa `None` — muddat butunlay qo'lda kiritiladi (eski xatti-harakat)."""
+    department = await DepartmentRepository(session).get_by_id(department_id)
+    deadline: datetime | None = None
+    if department is not None and department.module != "mebel" and department.default_sla_hours:
+        deadline = datetime.now(timezone.utc) + timedelta(hours=department.default_sla_hours)
+
     return await TaskRepository(session).create(
         trello_card_id=card_id,
         task_type=TaskType.ORDER,
         title=title,
         description=description,
-        deadline=None,
+        deadline=deadline,
         status=TaskStatus.PENDING_SETUP,
         current_department_id=department_id,
         started_at=datetime.now(timezone.utc),
@@ -576,14 +590,23 @@ async def advance_task_stage(completed_task_id: int) -> Task | list[Task] | None
         return next_task
 
 
-async def activate_pending_stage(task_id: int, *, deadline: datetime, employee_ids: list[int]) -> Task:
+async def activate_pending_stage(
+    task_id: int, *, deadline: datetime | None = None, employee_ids: list[int]
+) -> Task:
     """6.1/7.4-band: nazoratchi/admin `PENDING_SETUP` bosqichga muddat va
     xodim(lar)ni belgilagach chaqiriladi. Karta joyi allaqachon
     `advance_task_stage()`da ko'chirilgan — bu yerda faqat muddat/xodim
     yozilib, taymer (`status=ACTIVE`) boshlanadi. 6.2-band: yangi bosqich
     xodimlari kartaga a'zo sifatida qo'shiladi (bu funksiyaga birinchi
     Trello a'zo chaqiruvi — eski bosqichda bu ish `advance_task_stage()`da
-    bajarilgan)."""
+    bajarilgan).
+
+    SPEC.md §5.1: `deadline=None` bo'lsa mavjud muddat SAQLANADI — bo'limning
+    `default_sla_hours`i uni `_spawn_pending_stage()`da allaqachon
+    hisoblagan bo'lishi mumkin, va o'sha qiymat to'g'ri (buyurtma bosqichga
+    kirgan paytdan hisoblangan). Nazoratchi aniq qiymat bersa — bekor
+    qiladi. Ikkalasi ham bo'lmasa vazifa muddatsiz ACTIVE bo'ladi (SLA
+    sozlanmagan bo'lim), bu eski xatti-harakat bilan bir xil."""
     if not employee_ids:
         raise ValueError("Kamida bitta xodim tanlanishi kerak")
 
@@ -611,7 +634,7 @@ async def activate_pending_stage(task_id: int, *, deadline: datetime, employee_i
 
         await task_repo.update(
             task,
-            deadline=deadline,
+            deadline=deadline if deadline is not None else task.deadline,
             status=TaskStatus.STOPPED if starts_stopped else TaskStatus.ACTIVE,
         )
         for employee_id in employee_ids:

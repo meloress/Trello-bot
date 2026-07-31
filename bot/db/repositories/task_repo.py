@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 
 from db.models.department import Department
 from db.models.task import Task
@@ -8,6 +8,25 @@ from db.repositories.base import BaseRepository
 from utils.enums import MiscCategory, TaskStatus, TaskType
 
 _OPEN_STATUSES = [TaskStatus.ACTIVE, TaskStatus.STOPPED]
+
+
+def _timer_running():
+    """SPEC.md §6.1: `fasad_sex`da "Stop" taymerni MUZLATADI, ya'ni to'xtatilgan
+    vazifa muddat o'tgani uchun OVERDUE bo'lmasligi ham, "1 kun qoldi"
+    ogohlantirishini olishi ham kerak emas — to'xtab turgan vaqt
+    `timer_service.resume_task()`da muddatga qo'shib beriladi.
+
+    Mebelda esa "Stop" muddatga umuman ta'sir qilmaydi (u yerda muddat Trello
+    kartadan keladi), shuning uchun STOPPED vazifalar avvalgidek hisobga
+    olinaveradi. `coalesce(..., "mebel")` — bo'limi yo'q vazifalar (MISC)
+    uchun ham eski xatti-harakat saqlanadi.
+
+    LEFT JOIN bilan ishlatiladi, shuning uchun chaqiruvchi `outerjoin` qilishi
+    shart."""
+    return or_(
+        Task.status == TaskStatus.ACTIVE,
+        func.coalesce(Department.module, "mebel") == "mebel",
+    )
 
 
 class TaskRepository(BaseRepository[Task]):
@@ -82,13 +101,18 @@ class TaskRepository(BaseRepository[Task]):
         return list(result.scalars().all())
 
     async def list_deadline_approaching(self, *, now: datetime, within_hours: int = 24) -> list[Task]:
-        """7.2-band: "1 kun qoldi" — hali signal yuborilmagan (`day_left_notified_at
-        IS NULL`), muddati [now, now+within_hours) oralig'ida bo'lgan faol/
-        to'xtatilgan vazifalar (`overdue_watch_job`, soatiga bir marta)."""
+        """7.2-band: muddat tugashiga oz qoldi — hali signal yuborilmagan
+        (`day_left_notified_at IS NULL`), muddati [now, now+within_hours)
+        oralig'ida bo'lgan faol vazifalar (`overdue_watch_job`, soatiga bir
+        marta). `within_hours` SPEC.md §5.4 bo'yicha sozlanadi
+        (`app_settings.deadline_warning_hours`) — chaqiruvchi uzatadi."""
         threshold = now + timedelta(hours=within_hours)
         result = await self.session.execute(
-            select(Task).where(
+            select(Task)
+            .outerjoin(Department, Task.current_department_id == Department.id)
+            .where(
                 Task.status.in_(_OPEN_STATUSES),
+                _timer_running(),
                 Task.deadline.isnot(None),
                 Task.deadline > now,
                 Task.deadline <= threshold,
@@ -99,12 +123,37 @@ class TaskRepository(BaseRepository[Task]):
 
     async def list_newly_overdue(self, *, now: datetime) -> list[Task]:
         """7.2-band: muddati o'tib ketgan, lekin hali `OVERDUE` deb
-        belgilanmagan faol/to'xtatilgan vazifalar."""
+        belgilanmagan vazifalar. To'xtatilgan `fasad_sex` vazifalari bu yerga
+        TUSHMAYDI — `_timer_running()` izohiga qarang."""
         result = await self.session.execute(
-            select(Task).where(
+            select(Task)
+            .outerjoin(Department, Task.current_department_id == Department.id)
+            .where(
                 Task.status.in_(_OPEN_STATUSES),
+                _timer_running(),
                 Task.deadline.isnot(None),
                 Task.deadline < now,
+            )
+        )
+        return list(result.scalars().all())
+
+    async def list_overdue_for_repeat_reminder(self, *, now: datetime, repeat_hours: int) -> list[Task]:
+        """SPEC.md §5.4: "kechikish davom etsa, har M soatda takroriy eslatma".
+        OVERDUE holatda turgan `fasad_sex` vazifalari — oxirgi takroriy
+        eslatmadan (bo'lmasa: muddatning o'zidan) `repeat_hours` o'tgan
+        bo'lsa qaytariladi.
+
+        Mebel chetda: u yerda kechikish eslatmasi Trello oqimi va claim
+        eslatmalari orqali boradi, ikkinchi kanal shovqin bo'lardi."""
+        threshold = now - timedelta(hours=repeat_hours)
+        result = await self.session.execute(
+            select(Task)
+            .join(Department, Task.current_department_id == Department.id)
+            .where(
+                Task.status == TaskStatus.OVERDUE,
+                Department.module != "mebel",
+                Task.deadline.isnot(None),
+                func.coalesce(Task.last_overdue_reminder_at, Task.deadline) < threshold,
             )
         )
         return list(result.scalars().all())

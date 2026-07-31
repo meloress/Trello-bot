@@ -7,7 +7,7 @@ bilan sozlangani uchun qaytarilgan ORM obyektlari commit'dan keyin ham xavfsiz o
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from config import settings
 from core.database import async_session
@@ -137,6 +137,23 @@ async def stop_task(task_id: int, employee_id: int, reason: str, stopped_at: dat
     return stop_log
 
 
+async def _paused_shift(session, task: Task, stopped_at: datetime, resumed_at: datetime) -> timedelta | None:
+    """SPEC.md §6.1: shu "Stop" davri muddatni qancha oldinga surishi kerak.
+    `None` = umuman surilmaydi (mebel moduli, yoki bo'limi noma'lum vazifa).
+
+    Manfiy/nol oraliq ham `None` qaytaradi: `stop_task()` `stopped_at`ni
+    tashqaridan qabul qiladi (claim tasdiqlash oqimi), ya'ni nazariy jihatdan
+    `resumed_at`dan keyingi vaqt kelib qolishi mumkin — bunday holda muddatni
+    ORQAGA surish ishchini jazolagan bo'lardi."""
+    if task.current_department_id is None:
+        return None
+    department = await DepartmentRepository(session).get_by_id(task.current_department_id)
+    if department is None or department.module == "mebel":
+        return None
+    paused = resumed_at - stopped_at
+    return paused if paused.total_seconds() > 0 else None
+
+
 async def resume_task(task_id: int, employee_id: int | None = None) -> Task:
     """To'xtatilgan vazifani davom ettiradi: oxirgi faol stop_log'ni yopadi.
     `employee_id` berilsa (Mini App'dan chaqirilganda shunday) — faqat shu
@@ -164,8 +181,25 @@ async def resume_task(task_id: int, employee_id: int | None = None) -> Task:
         if active_stop is None:
             raise InvalidTaskStateError(f"Task {task_id} uchun faol stop_log topilmadi")
 
-        await stop_repo.update(active_stop, resumed_at=datetime.now(timezone.utc))
-        await task_repo.update(task, status=TaskStatus.ACTIVE)
+        resumed_at = datetime.now(timezone.utc)
+        await stop_repo.update(active_stop, resumed_at=resumed_at)
+
+        # SPEC.md §6.1: "Stop" taymerni MUZLATADI — to'xtab turgan vaqt
+        # muddatga qo'shiladi, ya'ni ishchi kutilgan davr uchun jarima
+        # olmaydi. `stopped_seconds_total` esa o'sha vaqtni statistikadan
+        # chiqarib tashlash uchun jamlanadi (§6 oxirgi band).
+        #
+        # Faqat `fasad_sex`: mebelda muddat Trello kartaning o'zidan keladi
+        # (`trello_ingest_job` har pollda qayta o'qiydi), bu yerda uni
+        # surish ingest bilan urishib qolardi — mebel xatti-harakati
+        # o'zgarishsiz qoladi.
+        paused = await _paused_shift(session, task, active_stop.stopped_at, resumed_at)
+        fields = {"status": TaskStatus.ACTIVE}
+        if paused:
+            fields["stopped_seconds_total"] = (task.stopped_seconds_total or 0) + int(paused.total_seconds())
+            if task.deadline is not None:
+                fields["deadline"] = task.deadline + paused
+        await task_repo.update(task, **fields)
 
         await session.commit()
         card_id = task.trello_card_id

@@ -37,6 +37,10 @@ class AppSettingsSnapshot:
     # ingest_start_at yo'q = eski kartalar uchun chegara yo'q.
     mebel_trello_board_id: str | None
     mebel_ingest_start_at: datetime | None
+    # SPEC.md §5.4 (fasad_sex): ogohlantirish oynasi va takroriy kechikish
+    # eslatmasi oralig'i, ikkalasi ham soatda.
+    deadline_warning_hours: int
+    overdue_repeat_hours: int
 
 
 _cache: AppSettingsSnapshot | None = None
@@ -92,6 +96,8 @@ async def _load_from_db() -> AppSettingsSnapshot:
         daily_quota_points_per_worker=row.daily_quota_points_per_worker,
         mebel_trello_board_id=row.mebel_trello_board_id,
         mebel_ingest_start_at=row.mebel_ingest_start_at,
+        deadline_warning_hours=row.deadline_warning_hours,
+        overdue_repeat_hours=row.overdue_repeat_hours,
     )
 
 
