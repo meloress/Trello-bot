@@ -109,9 +109,31 @@ commits, **all scoped to `fasad_sex`** (design doc:
   to now**, not to the period end (the default period is the current month,
   so `until` is in the future — counting it inflated 6 real hours to 30).
 
-Mebel is untouched: every one of these reads a column mebel never sets, and
-each is additionally behind a `module == "mebel"` guard. `tests/test_sla_engine.py`
-asserts the mebel path explicitly. Deliberately **not** built (confirm before
+**Mebel is untouched, and that is enforced in code, not by leaving columns
+NULL.** Two of these settings live on the *global* `app_settings` singleton
+and therefore reached mebel on their first cut — both were real regressions,
+caught on re-audit and fixed:
+
+- `deadline_warning_hours` silently moved mebel's "1 kun qoldi" notification
+  from 24h to 4h. `task_repo.list_deadline_approaching()` now picks the window
+  per row with a SQL `CASE`: mebel always gets `MEBEL_DEADLINE_WARNING_HOURS`
+  (24), everything else gets the setting.
+- `penalize_all_assignees` would have changed mebel KPI scoring the moment an
+  admin toggled it. `penalty_service._penalize_all_for_task()` returns `True`
+  unconditionally for mebel.
+
+The two notification channels (sex group, manager chain) were likewise moved
+from "the column is NULL for mebel" to an explicit `module == "mebel"` guard
+(`notification_service._is_mebel()`) — an admin *can* browse to a mebel
+department/employee in the Mini App, so data-only safety was not safety. Those
+fields are also hidden from the mebel edit screens. The lesson for future work:
+**a new `app_settings` scalar is shared by both modules by default** — if it
+changes behaviour, it needs a module guard at the read site, not just a
+conservative default. `tests/test_sla_engine.py` pins the mebel path (the
+guard is sabotage-verified), and the per-module warning window was confirmed
+against the real DB.
+
+Deliberately **not** built (confirm before
 adding): §3 `Company`/multi-tenant and §10 tariff plans (SaaS was dropped),
 §7 speed-tier bonus (removed as 8.6-band on 2026-07-27), §3 `NotificationLog`.
 §13's open questions: #1/#7 were already closed in `.claude/nazorat-trello/`,
