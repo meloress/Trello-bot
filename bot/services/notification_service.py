@@ -55,10 +55,38 @@ async def _department_name(session, department_id: int | None) -> str | None:
     return department.name if department is not None else None
 
 
+async def _department_chat_id(session, department_id: int | None) -> str | None:
+    """SPEC.md §8: "har sexning o'z Telegram guruhi bor" —
+    `departments.telegram_chat_id`. NULL = guruh sozlanmagan, guruhga
+    hech narsa yuborilmaydi (xato emas, standart holat)."""
+    if department_id is None:
+        return None
+    department = await DepartmentRepository(session).get_by_id(department_id)
+    return department.telegram_chat_id if department is not None else None
+
+
+async def _add_managers(session, recipients: dict) -> None:
+    """SPEC.md §7/§8: "rahbar (`user.manager_id`) ham xabarnomaga ulanadi".
+    Mavjud qabul qiluvchilarning bevosita rahbarlarini qo'shadi.
+
+    ponytail: bitta pog'ona — rahbarning rahbari qo'shilmaydi. Butun
+    ierarxiya kerak bo'lsa shu yerda tsiklga aylantiriladi (halqadan
+    himoya bilan); hozircha tashkilotda ikki pog'ona bor."""
+    employee_repo = EmployeeRepository(session)
+    for employee_id in list(recipients):
+        employee = await employee_repo.get_by_id(employee_id)
+        if employee is None or employee.manager_id is None:
+            continue
+        manager = await employee_repo.get_by_id(employee.manager_id)
+        if manager is not None:
+            recipients.setdefault(manager.id, manager.telegram_id)
+
+
 async def _send(
-    bot: Bot, telegram_id: int | None, text: str, *, reply_markup: InlineKeyboardMarkup | None = None
+    bot: Bot, telegram_id: int | str | None, text: str, *, reply_markup: InlineKeyboardMarkup | None = None
 ) -> bool:
-    """Bitta xodimga xabar yuboradi. Xato tizimni qulatmaydi — faqat log qiladi."""
+    """Bitta chatga (xodim yoki sex guruhi) xabar yuboradi. Xato tizimni
+    qulatmaydi — faqat log qiladi."""
     if telegram_id is None:
         return False
     try:
@@ -87,6 +115,7 @@ async def notify_task_started(bot: Bot, task_id: int) -> None:
             e for e in [await employee_repo.get_by_id(a.employee_id) for a in assignments] if e is not None
         ]
         department_name = await _department_name(session, task.current_department_id)
+        group_chat_id = await _department_chat_id(session, task.current_department_id)
 
     department_line = f"\nBo'lim: {department_name}" if department_name else ""
     text = (
@@ -97,6 +126,13 @@ async def notify_task_started(bot: Bot, task_id: int) -> None:
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[miniapp_button]]) if miniapp_button else None
     for employee in employees:
         await _send(bot, employee.telegram_id, text, reply_markup=keyboard)
+
+    # SPEC.md §8: "Yangi vazifa biriktirildi -> Mas'ul (shaxsiy) + sex guruhi".
+    # Guruhga Mini App tugmasi qo'yilmaydi — `web_app` tugmasi faqat shaxsiy
+    # chatda ochiladi, guruhda Telegram uni umuman ko'rsatmaydi.
+    if group_chat_id:
+        assignee_names = ", ".join(e.full_name for e in employees) or "—"
+        await _send(bot, group_chat_id, f"{text}\nMas'ul: {assignee_names}")
 
 
 async def notify_task_delegated_via_trello(bot: Bot, task_id: int, brigadier_id: int) -> None:
@@ -231,14 +267,31 @@ async def notify_penalty_applied(bot: Bot, kpi_log_id: int) -> None:
             logger.warning("notify_penalty_applied: kpi_log %s topilmadi", kpi_log_id)
             return
 
-        employee = await EmployeeRepository(session).get_by_id(kpi_log.employee_id)
+        employee_repo = EmployeeRepository(session)
+        employee = await employee_repo.get_by_id(kpi_log.employee_id)
         if employee is None:
             logger.warning("notify_penalty_applied: employee %s topilmadi", kpi_log.employee_id)
             return
 
+        # SPEC.md §7: "rahbar ham xabarnomaga ulanishi mumkin". Faqat JARIMA
+        # (manfiy ball) — bonus xodimning o'z ishi, rahbarni har musbat ball
+        # bilan bezovta qilishning ma'nosi yo'q.
+        manager = (
+            await employee_repo.get_by_id(employee.manager_id)
+            if kpi_log.score < 0 and employee.manager_id is not None
+            else None
+        )
+
     title = "🎁 Sizga bonus ball yozildi" if kpi_log.score > 0 else "⚠️ Sizga jarima ball yozildi"
     text = f"{title}: {kpi_log.score:+d} ball\nSabab: {kpi_log.reason}"
     await _send(bot, employee.telegram_id, text)
+    if manager is not None:
+        await _send(
+            bot,
+            manager.telegram_id,
+            f"⚠️ Bo'ysunuvchingiz {employee.full_name}ga jarima ball yozildi: "
+            f"{kpi_log.score:+d}\nSabab: {kpi_log.reason}",
+        )
 
 
 _REMINDER_HEADERS = {
@@ -335,9 +388,15 @@ async def notify_task_overdue(bot: Bot, task_id: int) -> None:
         for admin in await employee_repo.list_by_role(Role.ADMIN):
             recipients[admin.id] = admin.telegram_id
 
+        # SPEC.md §8: "Muddat o'tdi -> Mas'ul + rahbar + sex guruhi".
+        await _add_managers(session, recipients)
+        group_chat_id = await _department_chat_id(session, task.current_department_id)
+
     text = f"🔴 \"{task.title}\" vazifasining muddati o'tib ketdi!\nMuddat: {_format_dt(task.deadline)}"
     for telegram_id in recipients.values():
         await _send(bot, telegram_id, text)
+    if group_chat_id:
+        await _send(bot, group_chat_id, text)
 
 
 async def notify_reassignment_candidate(bot: Bot, task_id: int) -> None:

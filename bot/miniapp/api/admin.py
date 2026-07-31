@@ -115,6 +115,7 @@ async def list_departments(request: web.Request) -> web.Response:
                 "sla_urgent_hours": d.sla_urgent_hours,
                 "sla_over_quota_hours": d.sla_over_quota_hours,
                 "sla_block_id": d.sla_block_id,
+                "telegram_chat_id": d.telegram_chat_id,
             }
             for d in departments
         ]
@@ -174,6 +175,7 @@ DEPARTMENT_UPDATABLE_FIELDS = (
     "sla_urgent_hours",
     "sla_over_quota_hours",
     "sla_block_id",  # SPEC.md §5.3
+    "telegram_chat_id",  # SPEC.md §8
 )
 
 
@@ -219,6 +221,7 @@ async def update_department(request: web.Request) -> web.Response:
             "sla_urgent_hours": department.sla_urgent_hours,
             "sla_over_quota_hours": department.sla_over_quota_hours,
             "sla_block_id": department.sla_block_id,
+            "telegram_chat_id": department.telegram_chat_id,
         }
     )
 
@@ -492,6 +495,7 @@ async def employee_detail(request: web.Request) -> web.Response:
             "brigade_id": employee.brigade_id,
             "brigade": brigade.name if brigade else None,
             "led_department_ids": led_department_ids,
+            "manager_id": employee.manager_id,  # SPEC.md §7/§8
             "is_active": employee.is_active,
             "telegram_linked": employee.telegram_id is not None,
         }
@@ -540,6 +544,14 @@ async def update_employee(request: web.Request) -> web.Response:
             fields["trello_member_id"] = None
     if "department_id" in body:
         fields["department_id"] = body["department_id"]
+    if "manager_id" in body:
+        # SPEC.md §7/§8: bevosita rahbar. O'z-o'ziga ishora qilish halqa
+        # yaratadi (`_add_managers` cheksiz aylanmaydi, chunki bir pog'ona
+        # o'qiydi — lekin baribir ma'nosiz), shuning uchun rad etiladi.
+        manager_id = body["manager_id"]
+        if manager_id is not None and int(manager_id) == employee_id:
+            return err("xodim o'ziga rahbar bo'la olmaydi")
+        fields["manager_id"] = int(manager_id) if manager_id else None
     if "brigade_id" in body:
         fields["brigade_id"] = body["brigade_id"]
     elif "department_id" in body:
@@ -812,6 +824,8 @@ def _parse_setting_value(field: str, value: object) -> object:
         value = int(value)
         if value < 0:
             raise ValueError
+    elif field == "penalize_all_assignees":  # SPEC.md §7
+        value = bool(value)
     elif field == "report_time":
         settings_service.validate_time_str(value)
     else:

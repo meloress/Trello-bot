@@ -41,6 +41,9 @@ class AppSettingsSnapshot:
     # eslatmasi oralig'i, ikkalasi ham soatda.
     deadline_warning_hours: int
     overdue_repeat_hours: int
+    # SPEC.md §7: jarima hamma javobgarga (True, standart) yoki faqat
+    # birinchi/"asosiy" mas'ulga (False) yozilsinmi.
+    penalize_all_assignees: bool
 
 
 _cache: AppSettingsSnapshot | None = None
@@ -98,6 +101,7 @@ async def _load_from_db() -> AppSettingsSnapshot:
         mebel_ingest_start_at=row.mebel_ingest_start_at,
         deadline_warning_hours=row.deadline_warning_hours,
         overdue_repeat_hours=row.overdue_repeat_hours,
+        penalize_all_assignees=row.penalize_all_assignees,
     )
 
 

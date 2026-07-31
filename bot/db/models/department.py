@@ -113,6 +113,14 @@ class Department(TimestampedBase):
     #
     # NULL = bo'lim hech qanday blokka kirmaydi (standart).
     sla_block_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    # SPEC.md §8: "har sexning o'z Telegram guruhi bor (fasad guruhi, krovat
+    # guruhi va h.k.)". Yangi vazifa biriktirilganda va muddat o'tganda
+    # shaxsiy xabar bilan bir qatorda shu guruhga ham yuboriladi. Bot guruhga
+    # a'zo qilingan bo'lishi kerak. NULL = guruh yo'q, hech narsa yuborilmaydi.
+    # Manfiy son sifatida saqlanadi (Telegram guruh ID'lari `-100...`), lekin
+    # ustun VARCHAR — supergroup ID'lari int32'ga sig'maydi va matn sifatida
+    # saqlash Telegram API uchun ham to'g'ridan-to'g'ri yaroqli.
+    telegram_chat_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
     brigades: Mapped[list["Brigade"]] = relationship(back_populates="department")
     employees: Mapped[list["Employee"]] = relationship(back_populates="department")

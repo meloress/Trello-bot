@@ -54,7 +54,7 @@ def _emp(id_, role, brigade_id=None, name=None):
     )
 
 
-async def _run(employees, employee_ids, score=-2, ratio=0.4):
+async def _run(employees, employee_ids, score=-2, ratio=0.4, penalize_all=True):
     """`_write_scores_for_employees`ni soxta repository'lar bilan chaqiradi."""
     import services.penalty_service as ps
 
@@ -71,6 +71,7 @@ async def _run(employees, employee_ids, score=-2, ratio=0.4):
         logs = await ps._write_scores_for_employees(
             None, employee_ids=employee_ids, score=score,
             reason="test", task_id=1, task_title="Test vazifa", brigade_share_ratio=ratio,
+            penalize_all=penalize_all,
         )
     finally:
         ps.EmployeeRepository, ps.BrigadeRepository, ps.KpiLogRepository = orig
@@ -111,7 +112,17 @@ async def main():
     # 7. Noma'lum employee_id -> jimgina o'tkazib yuboriladi
     assert await _run(everyone, [99999]) == []
 
-    print("test_penalty_responsible: 7/7 OK")
+    # 8. SPEC.md §7: `penalize_all_assignees=False` -> faqat BIRINCHI mas'ul
+    #    ("asosiy mas'ul"), brigadir ulushi ham faqat shundan hisoblanadi.
+    got = await _run(everyone, [91, 92], penalize_all=False)
+    assert got == [(91, -2), (90, -1)], got
+
+    # 9. Faqat brigadirlar bo'lgan holatda ham chegara ishlaydi
+    brigadier_b = _emp(93, Role.BRIGADIER)
+    got = await _run(everyone + [brigadier_b], [90, 93], penalize_all=False)
+    assert got == [(90, -2)], got
+
+    print("test_penalty_responsible: 9/9 OK")
 
 
 if __name__ == "__main__":

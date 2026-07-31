@@ -69,7 +69,7 @@ def month_bounds(reference: date) -> tuple[datetime, datetime]:
 
 async def _write_scores_for_employees(
     session, *, employee_ids: list[int], score: int, reason: str, task_id: int, task_title: str,
-    brigade_share_ratio: float,
+    brigade_share_ratio: float, penalize_all: bool = True,
 ) -> list[KpiLog]:
     """Minus (kechikish) va plus (muddatdan oldin) yo'llarining ikkalasi ham
     shu umumiy yadrodan foydalanadi: berilgan employee_id ro'yxatidagi
@@ -104,6 +104,14 @@ async def _write_scores_for_employees(
 
     workers = [e for e in employees if e.role == Role.WORKER]
     responsible = workers or [e for e in employees if e.role == Role.BRIGADIER]
+
+    # SPEC.md §7: "bir bosqichda 2 kishi biriktirilgan bo'lsa — ikkalasiga ham
+    # yoziladi (yoki konfig bo'yicha faqat asosiy mas'ulga)". `penalize_all`
+    # False bo'lsa faqat BIRINCHISI ("asosiy mas'ul" — tayinlanish tartibi
+    # bo'yicha birinchi) ball oladi. Brigadir ulushi o'z-o'zidan shu bitta
+    # ishchidan hisoblanadi, alohida guard kerak emas.
+    if not penalize_all:
+        responsible = responsible[:1]
 
     created_logs: list[KpiLog] = []
     for employee in responsible:
@@ -166,6 +174,7 @@ async def apply_penalty_for_employees(
             task_id=task_id,
             task_title=task_title,
             brigade_share_ratio=app_settings.brigade_share_ratio,
+            penalize_all=app_settings.penalize_all_assignees,  # SPEC.md §7
         )
         await session.commit()
         result_employee_ids = [log.employee_id for log in created_logs]
@@ -197,6 +206,7 @@ async def apply_plus_ball_for_employees(*, task_id: int, employee_ids: list[int]
             task_id=task_id,
             task_title=task_title,
             brigade_share_ratio=app_settings.brigade_share_ratio,
+            penalize_all=app_settings.penalize_all_assignees,  # SPEC.md §7
         )
         await session.commit()
         result_employee_ids = [log.employee_id for log in created_logs]

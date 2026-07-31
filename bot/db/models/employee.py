@@ -46,6 +46,15 @@ class Employee(TimestampedBase):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     # Mini App profil ekrani: xodim tanlagan interfeys tili ("uz"/"ru").
     language: Mapped[str] = mapped_column(String(2), default="uz", server_default="uz", nullable=False)
+    # SPEC.md §7/§8: bevosita rahbar. Bo'ysunuvchiga jarima ball yozilganda va
+    # uning vazifasi muddatidan kechikkanda rahbar ham xabar oladi
+    # (`notification_service._add_managers` / `notify_penalty_applied`).
+    # `department_id`dan MUSTAQIL: bo'lim — qayerda ishlaydi, `manager_id` —
+    # kimga hisobot beradi (ikkovi ko'pincha mos keladi, lekin har doim emas).
+    # NULL = rahbar belgilanmagan, hech qanday qo'shimcha xabar ketmaydi.
+    manager_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("employees.id", name="fk_employees_manager_id"), nullable=True
+    )
     # Eslatma: `daily_report_required` ustuni DB'da hali bor, lekin kunlik
     # rasm/video hisobot funksiyasi 2026-07-31'da rahbar talabiga ko'ra
     # butunlay olib tashlangan (faqat kod — ustun tegilmagan).
@@ -60,6 +69,9 @@ class Employee(TimestampedBase):
     )
     brigade: Mapped[Optional["Brigade"]] = relationship(
         back_populates="members", foreign_keys=[brigade_id]
+    )
+    manager: Mapped[Optional["Employee"]] = relationship(
+        remote_side="Employee.id", foreign_keys=[manager_id]
     )
     task_assignments: Mapped[list["TaskAssignment"]] = relationship(back_populates="employee")
     kpi_logs: Mapped[list["KpiLog"]] = relationship(back_populates="employee")

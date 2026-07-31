@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, Float, Integer, JSON, String
+from sqlalchemy import Boolean, DateTime, Float, Integer, JSON, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db.base import TimestampedBase
@@ -97,3 +97,9 @@ class AppSetting(TimestampedBase):
     # SPEC.md §5.4: "kechikish davom etsa, har M soatda takroriy eslatma".
     # 0 = takroriy eslatma o'chirilgan (faqat bir marta, muddat o'tgan payt).
     overdue_repeat_hours: Mapped[int] = mapped_column(Integer, nullable=False)
+    # SPEC.md §7: "bir bosqichda 2 kishi biriktirilgan bo'lsa — ikkalasiga ham
+    # yoziladi (yoki konfig bo'yicha faqat asosiy mas'ulga). Sozlanadigan
+    # bo'lsin." True (standart) = bugungi xatti-harakat, hamma javobgarga.
+    # False = faqat BIRINCHI javobgarga (tayinlanish tartibi bo'yicha — u
+    # "asosiy mas'ul" hisoblanadi).
+    penalize_all_assignees: Mapped[bool] = mapped_column(Boolean, nullable=False)

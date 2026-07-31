@@ -852,8 +852,8 @@ async function screenEmployeesByRole(role, departmentId) {
 
 async function screenEmployeeDetail(employeeId) {
   setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
-  const [employee, departments] = await Promise.all([
-    api(`/admin/employees/${employeeId}`), api("/admin/departments"),
+  const [employee, departments, allEmployees] = await Promise.all([
+    api(`/admin/employees/${employeeId}`), api("/admin/departments"), api("/admin/employees"),
   ]);
   const roleOptions = rolesForModule(employee.role)
     .map((r) => `<option value="${r}" ${r === employee.role ? "selected" : ""}>${esc(ROLE_LABELS[state.lang][r])}</option>`).join("");
@@ -875,6 +875,13 @@ async function screenEmployeeDetail(employeeId) {
     .filter((d) => d.module === (employeeDepartment ? employeeDepartment.module : nav.module) && d.id !== employee.department_id)
     .map((d) => `<label class="check-row"><input type="checkbox" class="f-led" value="${d.id}" ${ledIds.includes(d.id) ? "checked" : ""} />${esc(d.name)}</label>`)
     .join("");
+  // SPEC.md §7/§8: rahbar — faqat boshqaruvchi rollar, va xodimning o'zi
+  // ro'yxatda bo'lmaydi (o'ziga rahbar bo'lish backend'da ham rad etiladi).
+  const MANAGER_ROLES = ["brigadier", "supervisor", "admin"];
+  const managerOptions = allEmployees
+    .filter((e) => e.id !== employee.id && MANAGER_ROLES.includes(e.role))
+    .map((e) => `<option value="${e.id}" ${e.id === employee.manager_id ? "selected" : ""}>${esc(e.full_name)} — ${esc(ROLE_LABELS[state.lang][e.role])}</option>`)
+    .join("");
 
   setScreen(`
     <p class="page-title">${esc(employee.full_name)}</p>
@@ -887,6 +894,10 @@ async function screenEmployeeDetail(employeeId) {
       <select id="f-dept"><option value="">—</option>${departments.map((d) => `<option value="${d.id}" ${d.id === employee.department_id ? "selected" : ""}>${esc(d.name)}</option>`).join("")}</select>
     </div>
     <div class="field"><label>${esc(t("brigade"))}</label><select id="f-brigade">${brigadeOptions}</select></div>
+    <div class="field"><label>${esc(t("managerField"))}</label>
+      <select id="f-manager"><option value="">—</option>${managerOptions}</select>
+      <p class="hint">${esc(t("managerHint"))}</p>
+    </div>
     <div class="field" id="led-block" ${employee.role === "brigadier" ? "" : "hidden"}>
       <label>${esc(t("ledDepartments"))}</label>${ledOptions}
     </div>
@@ -925,6 +936,7 @@ async function screenEmployeeDetail(employeeId) {
         role: roleVal,
         department_id: deptVal ? Number(deptVal) : null,
         brigade_id: brigadeVal ? Number(brigadeVal) : null,
+        manager_id: root.querySelector("#f-manager").value ? Number(root.querySelector("#f-manager").value) : null,
       };
       if (roleVal === "brigadier") {
         body.led_department_ids = Array.from(root.querySelectorAll(".f-led:checked")).map((el) => Number(el.value));
@@ -1132,6 +1144,10 @@ const SETTING_FIELDS = [
   "deadline_warning_hours", "overdue_repeat_hours",
 ];
 
+// SPEC.md §7: mantiqiy (ha/yo'q) sozlamalar — matn maydoni emas, belgi
+// sifatida chiziladi va bosilgan zahoti saqlanadi (alohida ekran ochilmaydi).
+const BOOLEAN_SETTING_FIELDS = ["penalize_all_assignees"];
+
 async function screenSettings() {
   setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
   const snapshot = await api("/admin/settings");
@@ -1142,6 +1158,9 @@ async function screenSettings() {
         <span class="lbl">${esc(t("setting_" + field))}</span><span class="val">${esc(snapshot[field])}</span>
       </button>
     `).join("")}
+    ${BOOLEAN_SETTING_FIELDS.map((field) => `
+      <label class="check-row"><input type="checkbox" class="f-bool-setting" data-field="${field}" ${snapshot[field] ? "checked" : ""} />${esc(t("setting_" + field))}</label>
+    `).join("")}
     <p class="section-lbl">${esc(t("management"))}</p>
     <button class="nav-card" id="nav-chain"><span class="ic">${icon("link")}</span><span class="grow">${esc(t("departmentChainNav"))}</span><span class="chev">›</span></button>
     <button class="nav-card" id="nav-autoreassign"><span class="ic">${icon("repeat")}</span><span class="grow">${esc(t("autoreassignNav"))}</span><span class="chev">›</span></button>
@@ -1150,6 +1169,16 @@ async function screenSettings() {
   `);
   root.querySelectorAll(".settings-row").forEach((el) => {
     el.onclick = () => show(screenEditSetting, el.dataset.field, snapshot[el.dataset.field]);
+  });
+  root.querySelectorAll(".f-bool-setting").forEach((el) => {
+    el.onchange = async () => {
+      try {
+        await api("/admin/settings", { method: "POST", body: JSON.stringify({ [el.dataset.field]: el.checked }) });
+      } catch (e) {
+        el.checked = !el.checked;  // saqlanmadi — belgini eski holatiga qaytaramiz
+        showError(e.message);
+      }
+    };
   });
   root.querySelector("#nav-chain").onclick = () => show(screenDepartmentChain);
   root.querySelector("#nav-autoreassign").onclick = () => show(screenAutoreassign);
@@ -1282,6 +1311,7 @@ async function screenDepartmentEdit(department, allDepartments) {
     <div class="field"><label>${esc(t("dailyQuotaOrdersField"))}</label><input id="f-quota" type="number" min="1" value="${department.daily_quota_orders ?? ""}" /></div>
     <div class="field"><label>${esc(t("slaOverQuotaHoursField"))}</label><input id="f-sla-over" type="number" min="1" value="${department.sla_over_quota_hours ?? ""}" /><p class="hint">${esc(t("slaQuotaHint"))}</p></div>
     <div class="field"><label>${esc(t("slaBlockIdField"))}</label><input id="f-sla-block" type="text" value="${esc(department.sla_block_id || "")}" /><p class="hint">${esc(t("slaBlockIdHint"))}</p></div>
+    <div class="field"><label>${esc(t("telegramChatIdField"))}</label><input id="f-chat-id" type="text" value="${esc(department.telegram_chat_id || "")}" /><p class="hint">${esc(t("telegramChatIdHint"))}</p></div>
     <label class="check-row"><input type="checkbox" id="f-autoreassign" ${department.auto_reassign_after_48h ? "checked" : ""} />${esc(t("autoreassignNav"))}</label>
     <label class="check-row"><input type="checkbox" id="f-starts-stopped" ${department.starts_stopped ? "checked" : ""} />${esc(t("startsStoppedField"))}</label>
     <div class="field"><label>${esc(t("autoResumeHoursField"))}</label><input id="f-auto-resume" type="number" min="1" value="${department.stopped_auto_resume_after_hours ?? ""}" /></div>
@@ -1320,6 +1350,7 @@ async function screenDepartmentEdit(department, allDepartments) {
           daily_quota_orders: num("#f-quota"),
           sla_over_quota_hours: num("#f-sla-over"),
           sla_block_id: root.querySelector("#f-sla-block").value.trim() || null,
+          telegram_chat_id: root.querySelector("#f-chat-id").value.trim() || null,
           auto_reassign_after_48h: root.querySelector("#f-autoreassign").checked,
           starts_stopped: root.querySelector("#f-starts-stopped").checked,
           stopped_auto_resume_after_hours: autoResumeRaw ? Number(autoResumeRaw) : null,
