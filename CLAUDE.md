@@ -143,9 +143,24 @@ adding): §3 `Company`/multi-tenant and §10 tariff plans (SaaS was dropped),
 ### Nazorat Trello configuration (2026-08-01) — pointed at the DEMO board
 
 The 23 `fasad_sex` departments are now wired to **"Nazorat Trello demo"**
-(`6a6b9b185fcbec9605db82a0`, 51 lists — a copy of the real `nazorat trello`
+(`6a6b9b185fcbec9605db82a0`, 49 lists — a copy of the real `nazorat trello`
 board, cards not copied), at the user's explicit instruction. They previously
 pointed at "Fasad sex — Ishlab chiqarish"; that board is no longer referenced.
+
+**Re-synced to the real board 2026-08-02** — the demo copy still carried two
+lists the real board had since archived ("Xasan aka Brigada", "Odil
+ustanovka"), and its list order was the exact reverse of the real one. Both
+were archived on the demo board and every list repositioned to match, so the
+two boards now show the same 49 lists in the same order (cards deliberately
+still not copied — the demo's value is that it is card-less and safe to write
+to). Fallout worth knowing: **"Odil ustanovka" was the Montaj (Ustanovka)
+department's `trello_list_id`**, so it was remapped to **"Mirodilla
+ustanovka"** — a *guess*, since the real board splits installation across
+per-installer brigade lists and nothing says which one Montaj means (same
+open question as whether Montaj should be 7 departments). If the demo board
+is ever re-synced again, re-check every `trello_list_id`/`stop_target_list_id`
+against the surviving lists — a stale id doesn't error, the card just never
+moves.
 
 SLA values came from two sources, in this order: **the demo board's own list
 names** ("kraska seh 72 soat" → 72, "Shpon sehta yasalvotti 15 sutka" → 360),
