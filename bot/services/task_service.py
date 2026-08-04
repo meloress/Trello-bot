@@ -462,7 +462,7 @@ async def _spawn_pending_stage(
     previous_task = await TaskRepository(session).get_by_id(previous_task_id) if previous_task_id else None
     deadline = await resolve_stage_deadline(session, department, previous_task)
 
-    return await TaskRepository(session).create(
+    new_task = await TaskRepository(session).create(
         trello_card_id=card_id,
         task_type=TaskType.ORDER,
         title=title,
@@ -478,6 +478,18 @@ async def _spawn_pending_stage(
         # emas — `client_id`/`trello_checklist_id` kabi zanjir bo'ylab ko'chadi.
         is_urgent=bool(previous_task is not None and previous_task.is_urgent),
     )
+
+    # TZ 3.4/5.3-band: sotuvchi ham SHU BUYURTMAGA biriktirilgan, bitta
+    # bosqichiga emas — shuning uchun `client_id` kabi zanjir bo'ylab ko'chadi.
+    # Avval `task_sellers` FAQAT `create_task()`da yozilardi, ya'ni
+    # `notify_task_stopped()` (u joriy bosqich-qatorining sotuvchilarini
+    # o'qiydi) sotuvchini faqat BIRINCHI bosqichda topardi — keyingi 15+
+    # bosqichda "Stop" bosilsa sotuvchiga umuman xabar bormasdi.
+    seller_repo = TaskSellerRepository(session)
+    for seller in await seller_repo.list_by_task(previous_task_id):
+        await seller_repo.create(task_id=new_task.id, employee_id=seller.employee_id)
+
+    return new_task
 
 
 async def advance_task_stage(completed_task_id: int) -> Task | list[Task] | None:

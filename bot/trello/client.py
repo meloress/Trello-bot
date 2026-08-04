@@ -90,6 +90,14 @@ class TrelloClient:
             "GET", f"/cards/{card_id}", params={"fields": "name,closed,due,idBoard,idLabels,idList"}
         )
 
+    async def set_card_due(self, card_id: str, due: datetime) -> None:
+        """TZ 2.3-band: rahbar muddatni qo'lda o'zgartirganda karta ustidagi
+        `due` ham yangilanadi — aks holda Trello'da ko'ringan sana bilan
+        bazadagi (KPI hisoblanadigan) muddat bir-biriga zid bo'lib qolardi.
+        Chaqiruvchi buni IKKINCHI-DARAJALI effekt sifatida ishlatadi:
+        xatosi muddat o'zgartirishning o'zini bekor qilmaydi."""
+        await self._request("PUT", f"/cards/{card_id}", params={"due": due.isoformat()})
+
     async def list_cards_in_list(self, list_id: str) -> list[dict]:
         """Mebel moduli: `jobs/trello_ingest_job.py` shu orqali bitta
         bo'limning Trello ro'yxatidagi barcha kartalarni o'qiydi (ochiq VA

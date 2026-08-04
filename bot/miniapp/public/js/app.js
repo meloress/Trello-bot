@@ -602,6 +602,7 @@ async function screenAdminHome() {
     ${pendingSetup.length ? `<button class="alert-card" id="nav-pending-setup"><span class="ic">${icon("clock")}</span><span class="grow">${esc(t("pendingSetupAlert", pendingSetup.length))}</span><span class="chev">›</span></button>` : ""}
     ${reassignCandidates.length ? `<button class="alert-card" id="nav-reassign"><span class="ic">${icon("repeat")}</span><span class="grow">${esc(t("reassignAlert", reassignCandidates.length))}</span><span class="chev">›</span></button>` : ""}
     ${pendingClaims.length ? `<button class="alert-card" id="nav-pending-claims"><span class="ic">${icon("list")}</span><span class="grow">${esc(t("pendingClaimsAlert", pendingClaims.length))}</span><span class="chev">›</span></button>` : ""}
+    ${mebelOnly ? "" : `<button class="nav-card" id="nav-orders"><span class="ic">${icon("box")}</span><span class="grow">${esc(t("ordersNav"))}</span><span class="chev">›</span></button>`}
     ${mebelOnly ? "" : `<button class="nav-card" id="nav-misctasks"><span class="ic">${icon("folder")}</span><span class="grow">${esc(t("miscTasksNav"))}</span><span class="chev">›</span></button>`}
   `);
   root.querySelector("#nav-newtask").onclick = () => show(screenNewTaskForm);
@@ -613,6 +614,85 @@ async function screenAdminHome() {
   if (claimsBtn) claimsBtn.onclick = () => show(screenPendingClaims);
   const miscTasksBtn = root.querySelector("#nav-misctasks");
   if (miscTasksBtn) miscTasksBtn.onclick = () => show(screenAdminMiscTasks);
+  const ordersBtn = root.querySelector("#nav-orders");
+  if (ordersBtn) ordersBtn.onclick = () => show(screenAdminOrders);
+}
+
+/* TZ 2.3/2.6-band: rahbar uchun OCHIQ buyurtmalar ro'yxati. Ilgari ishlab
+   turgan buyurtmaga hech qayerdan yetib bo'lmasdi — faqat "sozlash
+   kutilmoqda" va "ko'rib chiqish kutilmoqda" navbatlari bor edi. */
+async function screenAdminOrders() {
+  setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
+  const orders = await api("/admin/orders");
+  setScreen(`
+    <p class="page-title">${esc(t("ordersNav"))}</p>
+    ${orders.length ? orders.map((o, i) => `
+      <button class="task-card ${statusClass(o.status)}" data-i="${i}">
+        <p class="t-title">${o.is_urgent ? "🔥 " : ""}${esc(o.title)}</p>
+        <p class="t-sub">${esc(o.department || "")}</p>
+        <span class="t-status">${taskStatusLine(o)}</span>
+      </button>
+    `).join("") : `<p class="empty-state">${esc(t("noOrders"))}</p>`}
+  `);
+  root.querySelectorAll(".task-card").forEach((el) => {
+    el.onclick = () => show(screenAdminOrderDetail, orders[Number(el.dataset.i)]);
+  });
+}
+
+async function screenAdminOrderDetail(order) {
+  // `datetime-local` mahalliy vaqtni kutadi (screenActivateStage bilan bir xil).
+  const preset = order.deadline
+    ? new Date(new Date(order.deadline).getTime() - new Date().getTimezoneOffset() * 60000)
+        .toISOString()
+        .slice(0, 16)
+    : "";
+  setScreen(`
+    <p class="page-title">${esc(order.title)}</p>
+    <p class="page-sub">${esc(order.department || "")} · ${taskStatusLine(order)}</p>
+    <div class="field"><label>${esc(t("deadline"))}</label><input id="f-deadline" type="datetime-local" value="${preset}" /></div>
+    <p class="hint">${esc(t("deadlineEditHint"))}</p>
+    <label class="check-row"><input type="checkbox" id="f-urgent" ${order.is_urgent ? "checked" : ""} />${esc(t("isUrgentField"))}</label>
+    <p class="hint">${esc(t("urgentToggleHint"))}</p>
+  `);
+  setMainButton(`💾 ${t("saveChanges")}`, async () => {
+    const deadlineRaw = root.querySelector("#f-deadline").value;
+    const isUrgent = root.querySelector("#f-urgent").checked;
+    const app = tg();
+    app.MainButton.showProgress();
+    try {
+      // Tartib muhim: srochnost belgisi backendda muddatni bo'limning
+      // srochniy SLA'sidan QAYTA hisoblaydi, shuning uchun u oxirida turadi.
+      //
+      // Solishtiruv AYNAN input formatida (`preset` bilan), server bergan
+      // `order.deadline` bilan EMAS: ular bir xil vaqtni turli matn bilan
+      // yozadi ("...T10:00:00.000Z" va "...T10:00:00+00:00"), ya'ni matn
+      // sifatida hech qachon teng bo'lmaydi va shart HAR DOIM rost chiqardi —
+      // muddat o'zgarmagan bo'lsa ham ishchi/brigadir/nazoratchiga "muddat
+      // o'zgartirildi" degan yolg'on xabar ketardi.
+      //
+      // `getTime()` bilan solishtirish ham to'g'ri emas: `datetime-local`
+      // sekundni saqlamaydi, SLA'dan hisoblangan muddatda esa sekund deyarli
+      // har doim bor — farq baribir har safar chiqardi.
+      if (deadlineRaw && deadlineRaw !== preset) {
+        await api(`/admin/tasks/${order.id}/deadline`, {
+          method: "POST",
+          body: JSON.stringify({ deadline: new Date(deadlineRaw).toISOString() }),
+        });
+      }
+      if (isUrgent !== Boolean(order.is_urgent)) {
+        await api(`/admin/tasks/${order.id}/urgent`, {
+          method: "POST",
+          body: JSON.stringify({ is_urgent: isUrgent }),
+        });
+      }
+      app.HapticFeedback && app.HapticFeedback.notificationOccurred("success");
+      await goBack();
+    } catch (e) {
+      showError(e.message);
+    } finally {
+      app.MainButton.hideProgress();
+    }
+  }, "#4f3ff0");
 }
 
 async function screenAdminMiscTasks(category) {
@@ -721,7 +801,17 @@ async function screenNewTaskForm(kind) {
         </select>
       </div>
       <p class="section-lbl">${esc(t("employeesField"))} (≤3)</p>
-      ${activeEmployees.filter((e) => e.role === "worker" || e.role === "brigadier").map((e) => `
+      ${/* TZ 6.2/6.3-band: vazifa turlaridan biri aynan "OFIS XODIMLARI", va
+            6.3 "rahbar ISTALGAN xodimga vazifa berib, muddat qo'ya oladi"
+            deydi. Ilgari bu ro'yxat worker/brigadir bilan cheklangan edi,
+            ya'ni ofis xodimi (nazoratchi/sotuvchi/kuzatuvchi) tanlanmasdi va
+            `miscCategoryOffice` kategoriyasi amalda ishlatib bo'lmasdi.
+            MEBEL ("Fasad seh") MUZLATILGAN: u yerda 2026-07-29 dagi ataylab
+            qilingan cheklov (faqat worker/brigadir) o'z holicha qoladi —
+            kengaytirish faqat Nazorat Trello talabi. */
+        (nav.module === "mebel"
+          ? activeEmployees.filter((e) => e.role === "worker" || e.role === "brigadier")
+          : activeEmployees).map((e) => `
         <label class="check-row"><input type="checkbox" value="${e.id}" class="f-emp" />${esc(e.full_name)} — ${esc(e.role_label)}</label>
       `).join("")}
     `}
@@ -1322,6 +1412,7 @@ async function screenSettings() {
     <button class="nav-card" id="nav-autoreassign"><span class="ic">${icon("repeat")}</span><span class="grow">${esc(t("autoreassignNav"))}</span><span class="chev">›</span></button>
     <button class="nav-card" id="nav-reminders"><span class="ic">${icon("clock")}</span><span class="grow">${esc(t("remindersNav"))}</span><span class="chev">›</span></button>
     <button class="nav-card" id="nav-departments"><span class="ic">${icon("factory")}</span><span class="grow">${esc(t("departmentsNav"))}</span><span class="chev">›</span></button>
+    <button class="nav-card" id="nav-penalty-rules"><span class="ic">${icon("chart")}</span><span class="grow">${esc(t("penaltyRulesNav"))}</span><span class="chev">›</span></button>
   `);
   root.querySelectorAll(".settings-row").forEach((el) => {
     el.onclick = () => show(screenEditSetting, el.dataset.field, snapshot[el.dataset.field]);
@@ -1340,6 +1431,108 @@ async function screenSettings() {
   root.querySelector("#nav-autoreassign").onclick = () => show(screenAutoreassign);
   root.querySelector("#nav-reminders").onclick = () => show(screenReminders);
   root.querySelector("#nav-departments").onclick = () => show(screenDepartments);
+  root.querySelector("#nav-penalty-rules").onclick = () => show(screenPenaltyRules);
+}
+
+/* TZ 1.3/8.2-band: "har bosqichga jarima balli biriktiriladi" + "hammasi
+   admin paneldan o'zgartiriladi". `penalty_rules` shu paytgacha faqat
+   to'g'ridan-to'g'ri SQL orqali tahrirlanardi. Bo'limi yo'q qator — GLOBAL
+   (zaxira) qoida, bo'limga xos qator undan ustun turadi. */
+async function screenPenaltyRules() {
+  setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
+  const [rules, departments] = await Promise.all([
+    api("/admin/penalty-rules"), api("/admin/departments"),
+  ]);
+  setScreen(`
+    <p class="page-title">${esc(t("penaltyRulesTitle"))}</p>
+    <p class="page-sub">${esc(t("penaltyRulesHint"))}</p>
+    ${rules.length ? rules.map((r, i) => `
+      <button class="fin-card" data-i="${i}" style="cursor:pointer;text-align:left;font:inherit;color:inherit;">
+        <div class="top">
+          <span class="task">${esc(penaltyRuleRange(r))}</span>
+          <span class="score ${scoreClass(r.score)}">${scoreSigned(r.score)}</span>
+        </div>
+        <div class="amount-row">
+          <span class="status-pill neutral">${esc(r.department_name || t("penaltyRuleGlobal"))}</span>
+        </div>
+      </button>
+    `).join("") : `<p class="empty-state">${esc(t("noPenaltyRules"))}</p>`}
+  `);
+  root.querySelectorAll(".fin-card").forEach((el) => {
+    el.onclick = () => show(screenPenaltyRuleForm, rules[Number(el.dataset.i)], departments);
+  });
+  setMainButton(`➕ ${t("addPenaltyRule")}`, () => show(screenPenaltyRuleForm, null, departments), "#4f3ff0");
+}
+
+function penaltyRuleRange(rule) {
+  const max = rule.max_hours_late === null ? "∞" : rule.max_hours_late;
+  return `${rule.min_hours_late}–${max} ${t("hourUnitShort")}`;
+}
+
+async function screenPenaltyRuleForm(rule, departments) {
+  const editing = Boolean(rule);
+  setScreen(`
+    <p class="page-title">${esc(editing ? t("editPenaltyRule") : t("addPenaltyRule"))}</p>
+    <div class="field"><label>${esc(t("penaltyRuleDepartment"))}</label>
+      <select id="f-dept">
+        <option value="">${esc(t("penaltyRuleGlobal"))}</option>
+        ${departments.map((d) => `<option value="${d.id}" ${rule && rule.department_id === d.id ? "selected" : ""}>${esc(d.name)}</option>`).join("")}
+      </select>
+    </div>
+    <div class="field"><label>${esc(t("penaltyRuleMin"))}</label><input id="f-min" type="number" min="0" value="${rule ? rule.min_hours_late : ""}" /></div>
+    <div class="field"><label>${esc(t("penaltyRuleMax"))}</label><input id="f-max" type="number" min="1" value="${rule && rule.max_hours_late !== null ? rule.max_hours_late : ""}" /><p class="hint">${esc(t("penaltyRuleMaxHint"))}</p></div>
+    <div class="field"><label>${esc(t("penaltyRuleScore"))}</label><input id="f-score" type="number" value="${rule ? rule.score : ""}" /><p class="hint">${esc(t("penaltyRuleScoreHint"))}</p></div>
+    ${editing ? `<button class="btn danger" id="btn-delete">${esc(t("deletePenaltyRule"))}</button>` : ""}
+  `);
+
+  const deleteBtn = root.querySelector("#btn-delete");
+  if (deleteBtn) {
+    deleteBtn.onclick = async () => {
+      const app = tg();
+      const confirmed = await new Promise((resolve) => {
+        if (app.showConfirm) app.showConfirm(t("deletePenaltyRuleConfirm"), resolve);
+        else resolve(window.confirm(t("deletePenaltyRuleConfirm")));
+      });
+      if (!confirmed) return;
+      try {
+        await api(`/admin/penalty-rules/${rule.id}`, { method: "DELETE" });
+        app.HapticFeedback && app.HapticFeedback.notificationOccurred("success");
+        await goBack();
+      } catch (e) {
+        showError(e.message);
+      }
+    };
+  }
+
+  setMainButton(`💾 ${t("saveChanges")}`, async () => {
+    const min = root.querySelector("#f-min").value.trim();
+    const score = root.querySelector("#f-score").value.trim();
+    if (min === "" || score === "") {
+      showError(`${t("penaltyRuleMin")}, ${t("penaltyRuleScore")}`);
+      return;
+    }
+    const maxRaw = root.querySelector("#f-max").value.trim();
+    const deptRaw = root.querySelector("#f-dept").value;
+    const app = tg();
+    app.MainButton.showProgress();
+    try {
+      await api(editing ? `/admin/penalty-rules/${rule.id}` : "/admin/penalty-rules", {
+        method: "POST",
+        body: JSON.stringify({
+          department_id: deptRaw ? Number(deptRaw) : null,
+          min_hours_late: Number(min),
+          max_hours_late: maxRaw === "" ? null : Number(maxRaw),
+          score: Number(score),
+        }),
+      });
+      app.HapticFeedback && app.HapticFeedback.notificationOccurred("success");
+      await goBack();
+    } catch (e) {
+      showError(e.message);
+    } finally {
+      app.MainButton.hideProgress();
+    }
+  }, "#4f3ff0");
 }
 
 async function screenEditSetting(field, currentValue) {
@@ -1613,6 +1806,11 @@ async function screenAddDepartment() {
         method: "POST",
         body: JSON.stringify({
           name,
+          // `module` yuborilmasa backend "mebel" qo'yadi (`admin.py`
+          // `create_department`) — ya'ni Nazorat Trello ichida qo'shilgan
+          // yangi bosqich MUZLATILGAN mebel moduliga tushib ketardi va o'z
+          // ro'yxatida umuman ko'rinmasdi.
+          module: nav.module,
           trello_list_id: root.querySelector("#f-trello-list").value.trim() || null,
           auto_reassign_after_48h: root.querySelector("#f-autoreassign").checked,
           starts_stopped: root.querySelector("#f-starts-stopped").checked,
@@ -1781,6 +1979,8 @@ async function screenActivateStage(task) {
   setScreen(`
     <p class="page-title">${esc(task.title)}</p>
     <div class="field"><label>${esc(t("deadline"))}</label><input id="f-deadline" type="datetime-local" value="${preset}" /></div>
+    <label class="check-row"><input type="checkbox" id="f-urgent" ${task.is_urgent ? "checked" : ""} />${esc(t("isUrgentField"))}</label>
+    <p class="hint">${esc(t("urgentToggleHint"))}</p>
     <p class="section-lbl">${esc(t("brigadierField"))}</p>
     ${brigadiers.length ? brigadiers.map((b, i) => `
       <button class="radio-row" data-i="${i}">${esc(b.brigadier_name)} <span class="hint">(${esc(b.brigade_name)})</span></button>
@@ -1806,6 +2006,17 @@ async function screenActivateStage(task) {
         method: "POST",
         body: JSON.stringify({ deadline: new Date(deadlineRaw).toISOString(), brigadier_id: selectedBrigadierId }),
       });
+      // TZ 2.6: srochnost belgisi o'zgargan bo'lsa — faollashtirishdan KEYIN,
+      // chunki backend belgi qo'yilganda muddatni bo'limning srochniy
+      // SLA'sidan qayta hisoblaydi (yuqoridagi qo'lda kiritilgan muddat
+      // ustidan yozadi, TZ aynan shuni talab qiladi).
+      const isUrgent = root.querySelector("#f-urgent").checked;
+      if (isUrgent !== Boolean(task.is_urgent)) {
+        await api(`/admin/tasks/${task.id}/urgent`, {
+          method: "POST",
+          body: JSON.stringify({ is_urgent: isUrgent }),
+        });
+      }
       app.HapticFeedback && app.HapticFeedback.notificationOccurred("success");
       await goBack();
     } catch (e) {

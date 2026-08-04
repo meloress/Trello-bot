@@ -5,7 +5,7 @@ faqat Role.ADMIN/Role.SUPERVISOR (`server.py`da route bo'yicha
 import csv
 import io
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from aiogram.types import BufferedInputFile
 from aiohttp import web
@@ -16,6 +16,7 @@ from db.repositories import (
     DepartmentForkTargetRepository,
     DepartmentRepository,
     EmployeeRepository,
+    PenaltyRuleRepository,
     TaskAssignmentRepository,
     TaskClaimRepository,
     TaskRepository,
@@ -1168,6 +1169,7 @@ async def list_pending_setup(request: web.Request) -> web.Response:
                     # hisoblagan bo'lishi mumkin — Mini App uni oldindan
                     # to'ldirib ko'rsatadi, nazoratchi qayta yozishi shart emas.
                     "deadline": task.deadline.isoformat() if task.deadline else None,
+                    "is_urgent": task.is_urgent,  # TZ 2.6
                 }
             )
     return web.json_response(items)
@@ -1223,6 +1225,366 @@ async def activate_pending_stage(request: web.Request) -> web.Response:
         logger.exception("notify_task_started xatosi (task_id=%s)", task.id)
 
     return web.json_response({"id": task.id, "status": task.status.value})
+
+
+@routes.get("/orders")
+async def list_orders(request: web.Request) -> web.Response:
+    """TZ 2.3/2.6-band uchun kirish nuqtasi: joriy moduldagi OCHIQ
+    buyurtmalar ro'yxati.
+
+    Shu paytgacha rahbar uchun "hamma buyurtma" ekrani umuman yo'q edi —
+    faqat "sozlash kutilmoqda" va "ko'rib chiqish kutilmoqda" navbatlari
+    bor edi, ya'ni ishlab turgan buyurtmaga (muddat o'zgartirish, srochniy
+    qilish) hech qayerdan yetib bo'lmasdi."""
+    open_statuses = (
+        TaskStatus.PENDING_SETUP, TaskStatus.ACTIVE, TaskStatus.STOPPED, TaskStatus.OVERDUE
+    )
+    async with async_session() as session:
+        task_repo = TaskRepository(session)
+        department_repo = DepartmentRepository(session)
+        scope = await module_scope(request, session)
+        items = []
+        for status in open_statuses:
+            for task in await task_repo.list_by_status(status):
+                if task.task_type != TaskType.ORDER:
+                    continue
+                if not _department_scope_ok(request, task.current_department_id):
+                    continue
+                if not in_module(scope, task.current_department_id):
+                    continue
+                department = (
+                    await department_repo.get_by_id(task.current_department_id)
+                    if task.current_department_id
+                    else None
+                )
+                items.append(
+                    {
+                        "id": task.id,
+                        "title": task.title,
+                        "status": task.status.value,
+                        "department": department.name if department else None,
+                        "department_id": task.current_department_id,
+                        "deadline": task.deadline.isoformat() if task.deadline else None,
+                        "is_urgent": task.is_urgent,
+                    }
+                )
+
+    # Muddati yaqinlari birinchi; muddatsizlari (PENDING_SETUP, SLA yo'q) oxirida.
+    items.sort(key=lambda i: (i["deadline"] is None, i["deadline"] or ""))
+    return web.json_response(items)
+
+
+@routes.post("/tasks/{task_id}/deadline")
+async def update_task_deadline(request: web.Request) -> web.Response:
+    """TZ 2.3-band: "muddatni ortga/oldinga QO'LDA o'zgartirish imkoni".
+
+    Shu paytgacha `tasks.deadline` faqat uch joyda yozilardi — vazifa
+    yaratilganda, `PENDING_SETUP` faollashtirilganda va Stop/Resume
+    avtomatik siljishida — ya'ni ishlab turgan vazifaning muddatini
+    umuman o'zgartirib bo'lmasdi.
+
+    `create_task`dan farqli, bu yerda O'TGAN sana ham qabul qilinadi:
+    TZ aynan "ortga ham" deydi (masalan mijoz shoshiltirdi). Bunday holda
+    vazifa keyingi soatlik jobda OVERDUE bo'ladi — bu to'g'ri xatti-harakat.
+
+    Uchta yon ta'sir, hammasi ataylab:
+    1. `day_left_notified_at`/`last_overdue_reminder_at` NULLga qaytariladi —
+       aks holda muddat OLDINGA surilganda "1 kun qoldi" ogohlantirishi
+       qayta ishlamasdi (bir marta yuborilgan deb qolardi).
+    2. Vazifa OVERDUE bo'lib, yangi muddat kelajakda bo'lsa — ACTIVE'ga
+       qaytariladi (`timer_service.reopen_if_owerdue` bilan bir xil mantiq).
+    3. Trello kartaning `due`si ham yangilanadi (ikkinchi-darajali).
+
+    Mebel MUZLATILGAN: u yerda muddat Trello kartadan keladi va har 5
+    daqiqada qayta o'qiladi — bu yerda yozilgani baribir ustidan yozilardi."""
+    task_id = int(request.match_info["task_id"])
+    body = await request.json()
+    try:
+        deadline = datetime.fromisoformat(body["deadline"])
+    except (KeyError, TypeError, ValueError):
+        return err("deadline noto'g'ri formatda (ISO 8601 kerak)")
+
+    async with async_session() as session:
+        task_repo = TaskRepository(session)
+        task = await task_repo.get_by_id(task_id)
+        if task is None:
+            return err("not_found", 404)
+        if not _department_scope_ok(request, task.current_department_id):
+            return err("not_found", 404)
+        if task.status == TaskStatus.COMPLETED:
+            return err("yakunlangan vazifaning muddatini o'zgartirib bo'lmaydi", 409)
+
+        department = (
+            await DepartmentRepository(session).get_by_id(task.current_department_id)
+            if task.current_department_id is not None
+            else None
+        )
+        if department is not None and department.module == "mebel":
+            return err("Bu bo'limda muddat Trello kartadan boshqariladi", 409)
+
+        old_deadline = task.deadline
+        fields = {
+            "deadline": deadline,
+            "day_left_notified_at": None,
+            "last_overdue_reminder_at": None,
+        }
+        if task.status == TaskStatus.OVERDUE and deadline > datetime.now(timezone.utc):
+            fields["status"] = TaskStatus.ACTIVE
+        await task_repo.update(task, **fields)
+        await session.commit()
+        card_id = task.trello_card_id
+
+    # Ball aynan `deadline`dan hisoblanadi, ya'ni bu o'zgarish PUL bilan
+    # bog'liq — kim, qachon, nimadan nimaga o'zgartirgani logda qoladi.
+    logger.info(
+        "Muddat qo'lda o'zgartirildi: task=%s, %s -> %s (kim: employee_id=%s)",
+        task_id, old_deadline, deadline, request["employee"].id,
+    )
+
+    if card_id:
+        try:
+            async with TrelloClient(settings.trello_api_key, settings.trello_token) as trello:
+                await trello.set_card_due(card_id, deadline)
+        except Exception:
+            logger.exception("update_task_deadline: Trello karta muddati yangilanmadi (task=%s)", task_id)
+
+    try:
+        await notification_service.notify_deadline_changed(
+            request.config_dict["bot"], task_id, old_deadline=old_deadline
+        )
+    except Exception:
+        logger.exception("notify_deadline_changed xatosi (task_id=%s)", task_id)
+
+    return web.json_response({"id": task_id, "deadline": deadline.isoformat(), "status": task.status.value})
+
+
+@routes.post("/tasks/{task_id}/urgent")
+async def set_task_urgent(request: web.Request) -> web.Response:
+    """TZ 2.6-band: ""Srochnost" belgisi qo'yilsa — muddat avtomatik tushadi".
+
+    Ilgari `is_urgent` FAQAT buyurtma yaratilayotganda o'qilardi
+    (`POST /tasks`), ya'ni allaqachon yo'lda ketayotgan buyurtmani srochniy
+    qilib bo'lmasdi — TZ esa aynan shu holatni nazarda tutadi (mijoz
+    shoshiltirsa).
+
+    Belgi butun buyurtmaga tegishli, bitta bosqichga emas — shuning uchun u
+    `_spawn_pending_stage()` orqali keyingi bosqichlarga o'zi ko'chib boradi
+    (SPEC.md §5.2), bu yerda faqat JORIY bosqich-qatori yangilanadi.
+
+    Muddat qayta hisoblanishi: bo'limda `sla_urgent_hours` sozlangan bo'lsa
+    `deadline = hozir + shu soat`. Belgi OLIB TASHLANSA muddat tegilmaydi —
+    srochniy davrida bajarilgan ishni "endi kechikdingiz" holatiga qaytarish
+    ishchini nohaq jazolagan bo'lardi.
+
+    Mebel MUZLATILGAN: u yerda muddat Trello kartadan keladi va har pollda
+    qayta o'qiladi, ya'ni bu yerda yozilgan qiymat baribir ustidan yozilardi."""
+    task_id = int(request.match_info["task_id"])
+    body = await request.json()
+    is_urgent = bool(body.get("is_urgent", True))
+
+    async with async_session() as session:
+        task_repo = TaskRepository(session)
+        task = await task_repo.get_by_id(task_id)
+        if task is None:
+            return err("not_found", 404)
+        if not _department_scope_ok(request, task.current_department_id):
+            return err("not_found", 404)
+        if task.status == TaskStatus.COMPLETED:
+            return err("yakunlangan vazifani srochniy qilib bo'lmaydi", 409)
+
+        department = (
+            await DepartmentRepository(session).get_by_id(task.current_department_id)
+            if task.current_department_id is not None
+            else None
+        )
+        if department is not None and department.module == "mebel":
+            return err("Bu bo'limda muddat Trello kartadan boshqariladi", 409)
+
+        fields: dict = {"is_urgent": is_urgent}
+        if is_urgent and department is not None and department.sla_urgent_hours:
+            fields["deadline"] = datetime.now(timezone.utc) + timedelta(
+                hours=department.sla_urgent_hours
+            )
+        await task_repo.update(task, **fields)
+        await session.commit()
+
+    return web.json_response(
+        {
+            "id": task.id,
+            "is_urgent": task.is_urgent,
+            "deadline": task.deadline.isoformat() if task.deadline else None,
+        }
+    )
+
+
+# ---------- TZ 1.3/8.1-band: jarima jadvali (penalty_rules) ----------
+#
+# Bu jadval 8.2-bandning o'zagi ("kechikish -> ball"), lekin bugungacha
+# HECH QANDAY UI/API'si yo'q edi — faqat to'g'ridan-to'g'ri SQL orqali
+# o'zgartirilardi, ya'ni "jarima balli har bosqichga biriktiriladi" talabi
+# amalda bajarilmasdi. `department_id IS NULL` — global (zaxira) qoida,
+# bo'limga xos qator undan ustun turadi (`penalty_rule_repo.py`).
+
+
+def _penalty_rule_json(rule, department_name: str | None = None) -> dict:
+    return {
+        "id": rule.id,
+        "department_id": rule.department_id,
+        "department_name": department_name,
+        "min_hours_late": rule.min_hours_late,
+        "max_hours_late": rule.max_hours_late,
+        "score": rule.score,
+    }
+
+
+def _global_top_rule_survives(rules, *, changed_id: int, new_max_hours, deleting: bool) -> bool:
+    """CLAUDE.md'dagi qat'iy qoida: GLOBAL jadvalda `max_hours_late IS NULL`
+    (ochiq yuqori chegara) qatori DOIM bo'lishi kerak.
+
+    Sababi jim va qimmat: `find_applicable_rule()` ataylab "eng yaqin
+    bracket"ga yopishib qolmaydi — mos qator topilmasa `None` qaytaradi va
+    job yo'llarida bu faqat ogohlantirish logi bo'lib qoladi. Ya'ni ochiq
+    qator o'chirilsa, YETARLICHA ko'p kechikkan har qanday vazifa
+    UMUMAN jarimasiz o'tib ketadi — xato ham chiqmaydi. Shuning uchun bunday
+    tahrir 409 bilan rad etiladi.
+
+    Sof funksiya (bazaga tegmaydi) — `tests/test_penalty_rule_guard.py`."""
+    if not deleting and new_max_hours is None:
+        return True  # tahrirdan keyin ochiq qator baribir shu qatorning o'zi
+    return any(
+        r.department_id is None and r.max_hours_late is None and r.id != changed_id for r in rules
+    )
+
+
+def _parse_penalty_rule_body(body: dict) -> tuple[dict, str | None]:
+    """(maydonlar, xato matni) — validatsiya API va UI'da takrorlanmasin
+    uchun bitta joyda."""
+    try:
+        min_hours = int(body["min_hours_late"])
+        score = int(body["score"])
+    except (KeyError, TypeError, ValueError):
+        return {}, "min_hours_late va score majburiy (butun son)"
+
+    raw_max = body.get("max_hours_late")
+    max_hours = None
+    if raw_max not in (None, ""):
+        try:
+            max_hours = int(raw_max)
+        except (TypeError, ValueError):
+            return {}, "max_hours_late noto'g'ri"
+
+    if min_hours < 0:
+        return {}, "min_hours_late manfiy bo'lishi mumkin emas"
+    if max_hours is not None and max_hours <= min_hours:
+        return {}, "max_hours_late min_hours_late'dan katta bo'lishi kerak"
+    if score == 0:
+        return {}, "score 0 bo'lishi mumkin emas"
+
+    department_id = body.get("department_id")
+    return (
+        {
+            "department_id": int(department_id) if department_id else None,
+            "min_hours_late": min_hours,
+            "max_hours_late": max_hours,
+            "score": score,
+        },
+        None,
+    )
+
+
+@routes.get("/penalty-rules")
+async def list_penalty_rules(request: web.Request) -> web.Response:
+    """Global qoidalar + joriy modul bo'limlarining qoidalari, kechikish
+    oralig'i bo'yicha tartiblangan."""
+    async with async_session() as session:
+        rules = await PenaltyRuleRepository(session).list_all()
+        department_repo = DepartmentRepository(session)
+        names = {}
+        for rule in rules:
+            if rule.department_id is not None and rule.department_id not in names:
+                department = await department_repo.get_by_id(rule.department_id)
+                names[rule.department_id] = department.name if department else None
+        scope = await module_scope(request, session)
+
+    rules = [r for r in rules if r.department_id is None or in_module(scope, r.department_id)]
+    rules.sort(key=lambda r: (r.department_id is not None, r.department_id or 0, r.min_hours_late))
+    return web.json_response([_penalty_rule_json(r, names.get(r.department_id)) for r in rules])
+
+
+@routes.post("/penalty-rules")
+async def create_penalty_rule(request: web.Request) -> web.Response:
+    fields, error = _parse_penalty_rule_body(await request.json())
+    if error:
+        return err(error)
+    if not _department_scope_ok(request, fields["department_id"]):
+        return err("bu bo'lim sizning doirangizda emas", 403)
+
+    async with async_session() as session:
+        if fields["department_id"] is not None:
+            if await DepartmentRepository(session).get_by_id(fields["department_id"]) is None:
+                return err("bo'lim topilmadi", 404)
+        rule = await PenaltyRuleRepository(session).create(**fields)
+        await session.commit()
+
+    return web.json_response(_penalty_rule_json(rule), status=201)
+
+
+@routes.post("/penalty-rules/{rule_id}")
+async def update_penalty_rule(request: web.Request) -> web.Response:
+    rule_id = int(request.match_info["rule_id"])
+    fields, error = _parse_penalty_rule_body(await request.json())
+    if error:
+        return err(error)
+
+    async with async_session() as session:
+        repo = PenaltyRuleRepository(session)
+        rule = await repo.get_by_id(rule_id)
+        if rule is None:
+            return err("not_found", 404)
+        # Eski VA yangi bo'lim — ikkalasi ham chaqiruvchi doirasida bo'lishi kerak.
+        if not _department_scope_ok(request, rule.department_id) or not _department_scope_ok(
+            request, fields["department_id"]
+        ):
+            return err("bu bo'lim sizning doirangizda emas", 403)
+        if rule.department_id is None and not _global_top_rule_survives(
+            await repo.list_all(),
+            changed_id=rule_id,
+            new_max_hours=fields["max_hours_late"],
+            deleting=False,
+        ):
+            return err(
+                "global jadvalda ochiq yuqori chegara (max bo'sh) qatori qolishi shart — "
+                "aks holda juda kech tugagan vazifa umuman jarimasiz o'tib ketadi",
+                409,
+            )
+        await repo.update(rule, **fields)
+        await session.commit()
+
+    return web.json_response(_penalty_rule_json(rule))
+
+
+@routes.delete("/penalty-rules/{rule_id}")
+async def delete_penalty_rule(request: web.Request) -> web.Response:
+    rule_id = int(request.match_info["rule_id"])
+    async with async_session() as session:
+        repo = PenaltyRuleRepository(session)
+        rule = await repo.get_by_id(rule_id)
+        if rule is None:
+            return err("not_found", 404)
+        if not _department_scope_ok(request, rule.department_id):
+            return err("bu bo'lim sizning doirangizda emas", 403)
+        if rule.department_id is None and not _global_top_rule_survives(
+            await repo.list_all(), changed_id=rule_id, new_max_hours=None, deleting=True
+        ):
+            return err(
+                "global jadvalda ochiq yuqori chegara (max bo'sh) qatori qolishi shart — "
+                "aks holda juda kech tugagan vazifa umuman jarimasiz o'tib ketadi",
+                409,
+            )
+        await repo.delete(rule)
+        await session.commit()
+
+    return web.json_response({"deleted": True})
 
 
 @routes.get("/reassign-candidates")

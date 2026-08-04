@@ -101,11 +101,81 @@ async def _add_managers(session, recipients: dict, department_id: int | None) ->
             recipients.setdefault(manager.id, manager.telegram_id)
 
 
+# TZ 5.6-band: bir xil xodim haqida adminlarga qayta-qayta signal
+# yubormaslik uchun — jarayon ichidagi to'plam.
+# ponytail: xotirada, bot qayta ishga tushsa tozalanadi (ya'ni signal bir
+# marta takrorlanadi — bu zarar emas, aksincha eslatma). Doimiy hisob va
+# "necha kundan beri bloklangan" kerak bo'lsa, `employees`ga
+# `notifications_blocked_at` ustuni qo'shiladi.
+_blocked_reported: set[int] = set()
+
+
+async def _report_blocked(bot: Bot, telegram_id: int | str) -> None:
+    """TZ 5.6-band: "xabarnomani foydalanuvchi o'chira olmasligi kerak".
+
+    Telegram'da buni MAJBURLAB bo'lmaydi — har qanday foydalanuvchi chatni
+    "mute" qilishi yoki botni bloklashi mumkin, va Bot API bu holatni
+    so'rash imkonini bermaydi. Majburlab bo'lmaydigan narsani KO'RINADIGAN
+    qilamiz: bloklash `TelegramForbiddenError` orqali BILINADI, shuning
+    uchun bunday xodim aniqlanib, bevosita rahbariga va barcha ADMIN'larga
+    signal yuboriladi. Ya'ni "jimgina o'chirib qo'yish" imkoni yo'qoladi —
+    ilgari bu holat faqat log faylida qolib ketardi, hech kim ko'rmasdi.
+
+    (Mute'ni — ovozsiz rejimni — bot umuman ko'ra olmaydi; unga qarshi
+    yagona chora tashkiliy, texnik emas.)"""
+    try:
+        employee_telegram_id = int(telegram_id)
+    except (TypeError, ValueError):
+        return  # sex guruhi yoki noma'lum chat — xodim emas
+    if employee_telegram_id in _blocked_reported:
+        return
+
+    async with async_session() as session:
+        employee_repo = EmployeeRepository(session)
+        employee = await employee_repo.get_by_telegram_id(employee_telegram_id)
+        if employee is None:
+            return
+        # Mebel ("Fasad seh") MUZLATILGAN: TZ 5.6 — Nazorat Trello talabi, va
+        # bu yangi xabar kanali. Mebel adminlariga ilgari bo'lmagan xabar
+        # yuborish — o'sha modulning xatti-harakatini o'zgartirish demak.
+        # Xodimning O'Z bo'limi tekshiriladi (`notify_penalty_applied` bilan
+        # bir xil naqsh) — bu yerda vazifa/bo'lim konteksti yo'q.
+        if await _is_mebel(session, employee.department_id):
+            return
+        recipients: dict[int, int | None] = {}
+        if employee.manager_id is not None:
+            manager = await employee_repo.get_by_id(employee.manager_id)
+            if manager is not None:
+                recipients[manager.id] = manager.telegram_id
+        for admin in await employee_repo.list_by_role(Role.ADMIN):
+            recipients[admin.id] = admin.telegram_id
+        recipients.pop(employee.id, None)  # bloklagan odamning o'ziga yubormaymiz
+
+    _blocked_reported.add(employee_telegram_id)
+    text = (
+        f"🔕 {employee.full_name} botni bloklagan yoki chatni o'chirgan — "
+        "unga tizim xabarnomalari (vazifa, muddat, jarima) YETIB BORMAYAPTI.\n"
+        "Iltimos, botni qayta ishga tushirishini so'rang."
+    )
+    for admin_telegram_id in recipients.values():
+        # `report_block=False`: adminning o'zi ham bloklagan bo'lsa, cheksiz
+        # rekursiya boshlanib ketmasligi uchun.
+        await _send(bot, admin_telegram_id, text, report_block=False)
+
+
 async def _send(
-    bot: Bot, telegram_id: int | str | None, text: str, *, reply_markup: InlineKeyboardMarkup | None = None
+    bot: Bot,
+    telegram_id: int | str | None,
+    text: str,
+    *,
+    reply_markup: InlineKeyboardMarkup | None = None,
+    report_block: bool = True,
 ) -> bool:
     """Bitta chatga (xodim yoki sex guruhi) xabar yuboradi. Xato tizimni
-    qulatmaydi — faqat log qiladi."""
+    qulatmaydi — faqat log qiladi.
+
+    `report_block=False` — faqat `_report_blocked()` ichidan, rekursiyani
+    to'xtatish uchun."""
     if telegram_id is None:
         return False
     try:
@@ -113,6 +183,11 @@ async def _send(
         return True
     except TelegramForbiddenError:
         logger.warning("Xodim botni bloklagan yoki chatni o'chirgan (telegram_id=%s)", telegram_id)
+        if report_block:
+            try:
+                await _report_blocked(bot, telegram_id)
+            except Exception:
+                logger.exception("_report_blocked xatosi (telegram_id=%s)", telegram_id)
     except TelegramBadRequest as exc:
         logger.warning("Noto'g'ri so'rov, xabar yuborilmadi (telegram_id=%s): %s", telegram_id, exc)
     except TelegramAPIError as exc:
@@ -136,21 +211,38 @@ async def notify_task_started(bot: Bot, task_id: int) -> None:
         department_name = await _department_name(session, task.current_department_id)
         group_chat_id = await _department_chat_id(session, task.current_department_id)
 
+        # TZ 5.2-band: "xodimning RAHBARIGA ham xabar dublikat qilinadi".
+        # Ilgari bu kanal faqat "muddat o'tdi" va "jarima yozildi" hodisalarida
+        # ulangan edi — TZ esa aynan yangi vazifa biriktirilishini nazarda
+        # tutadi. Ijrochilarning o'zi `recipients`dan ayriladi (ular asosiy
+        # matnni allaqachon oladi), rahbarga esa boshqa ohangdagi xabar ketadi.
+        assignee_ids = {e.id for e in employees}
+        with_managers = {e.id: e.telegram_id for e in employees}
+        await _add_managers(session, with_managers, task.current_department_id)
+        manager_chat_ids = [
+            telegram_id
+            for employee_id, telegram_id in with_managers.items()
+            if employee_id not in assignee_ids
+        ]
+
     department_line = f"\nBo'lim: {department_name}" if department_name else ""
     text = (
         f"🆕 Yangi vazifa: {task.title}{department_line}\n"
         f"Muddat: {_format_dt(task.deadline)}\nBatafsil: Mini App'da ko'ring."
     )
+    assignee_names = ", ".join(e.full_name for e in employees) or "—"
     miniapp_button = build_miniapp_button()
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[miniapp_button]]) if miniapp_button else None
     for employee in employees:
         await _send(bot, employee.telegram_id, text, reply_markup=keyboard)
 
+    for telegram_id in manager_chat_ids:
+        await _send(bot, telegram_id, f"👤 Bo'ysunuvchingiz {assignee_names}ga vazifa berildi.\n{text}")
+
     # SPEC.md §8: "Yangi vazifa biriktirildi -> Mas'ul (shaxsiy) + sex guruhi".
     # Guruhga Mini App tugmasi qo'yilmaydi — `web_app` tugmasi faqat shaxsiy
     # chatda ochiladi, guruhda Telegram uni umuman ko'rsatmaydi.
     if group_chat_id:
-        assignee_names = ", ".join(e.full_name for e in employees) or "—"
         await _send(bot, group_chat_id, f"{text}\nMas'ul: {assignee_names}")
 
 
@@ -229,6 +321,12 @@ async def notify_task_stopped(bot: Bot, stop_log_id: int) -> None:
             if seller is not None:
                 recipients[seller.id] = seller.telegram_id
 
+        # TZ 5.4-band: "Stop" ham sex guruhiga chiqadi — ilgari guruh kanali
+        # faqat "yangi vazifa" va "muddat o'tdi"da ishlatilardi, holbuki
+        # to'xtash aynan butun sex ko'rishi kerak bo'lgan hodisa. Mebel uchun
+        # `_department_chat_id()` har doim None qaytaradi (muzlatilgan modul).
+        group_chat_id = await _department_chat_id(session, task.current_department_id)
+
     text = (
         f"🛑 Vazifa to'xtatildi: {task.title}\n"
         f"Kim to'xtatdi: {stopper.full_name if stopper else 'noma’lum'}\n"
@@ -237,6 +335,8 @@ async def notify_task_stopped(bot: Bot, stop_log_id: int) -> None:
     )
     for telegram_id in recipients.values():
         await _send(bot, telegram_id, text)
+    if group_chat_id:
+        await _send(bot, group_chat_id, text)
 
 
 async def notify_stage_pending_setup(bot: Bot, task_id: int) -> None:
@@ -388,6 +488,43 @@ async def notify_deadline_approaching(bot: Bot, task_id: int) -> None:
                     recipients[employee.id] = employee.telegram_id
 
     text = f"⏳ \"{task.title}\" vazifasiga muddatga 1 kun qoldi!\nMuddat: {_format_dt(task.deadline)}"
+    for telegram_id in recipients.values():
+        await _send(bot, telegram_id, text)
+
+
+async def notify_deadline_changed(bot: Bot, task_id: int, *, old_deadline) -> None:
+    """TZ 2.3-band: muddat QO'LDA o'zgartirilganda ijrochi(lar), brigadir va
+    bo'lim nazoratchisiga xabar. Muddat KPI ballining bazasi — ishchi
+    o'zgarishni bilmasa, u bilmagan muddat uchun jarima olishi mumkin edi."""
+    async with async_session() as session:
+        task = await TaskRepository(session).get_by_id(task_id)
+        if task is None:
+            logger.warning("notify_deadline_changed: task %s topilmadi", task_id)
+            return
+
+        employee_repo = EmployeeRepository(session)
+        brigade_repo = BrigadeRepository(session)
+        recipients = await _collect_assignees(session, task_id)
+
+        for assignee_id in list(recipients):
+            assignee = await employee_repo.get_by_id(assignee_id)
+            if assignee is not None and assignee.brigade_id is not None:
+                brigade = await brigade_repo.get_by_id(assignee.brigade_id)
+                if brigade is not None and brigade.brigadier_id is not None:
+                    brigadier = await employee_repo.get_by_id(brigade.brigadier_id)
+                    if brigadier is not None:
+                        recipients[brigadier.id] = brigadier.telegram_id
+
+        if task.current_department_id is not None:
+            for employee in await employee_repo.list_by_department(task.current_department_id):
+                if employee.role == Role.SUPERVISOR:
+                    recipients[employee.id] = employee.telegram_id
+
+    old_line = f"\nOldingi muddat: {_format_dt(old_deadline)}" if old_deadline else ""
+    text = (
+        f"📅 \"{task.title}\" vazifasining muddati o'zgartirildi.\n"
+        f"Yangi muddat: {_format_dt(task.deadline)}{old_line}"
+    )
     for telegram_id in recipients.values():
         await _send(bot, telegram_id, text)
 

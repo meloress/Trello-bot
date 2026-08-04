@@ -84,14 +84,38 @@ class _CapturingTaskRepo:
         return self._created_today
 
 
-async def _spawn_with(department, *, created_today=0, previous_task=None, departments=None):
+class _FakeSellerRepo:
+    """`task_sellers` — buyurtmaga biriktirilgan sotuvchi(lar). Konstruktorga
+    berilgan ro'yxat OLDINGI bosqichning sotuvchilari, `created` esa yangi
+    bosqichga ko'chirilganlari (TZ 3.4/5.3)."""
+
+    def __init__(self, sellers=()):
+        self._existing = [SimpleNamespace(employee_id=eid) for eid in sellers]
+        self.created = []
+
+    def __call__(self, _session):
+        return self
+
+    async def list_by_task(self, _task_id):
+        return self._existing
+
+    async def create(self, *, task_id, employee_id):
+        self.created.append((task_id, employee_id))
+
+
+async def _spawn_with(
+    department, *, created_today=0, previous_task=None, departments=None, seller_repo=None
+):
     """`_spawn_pending_stage()`ni soxta repolar bilan chaqiradi va yaratilgan
-    qatorning maydonlarini qaytaradi."""
+    qatorning maydonlarini qaytaradi. `seller_repo` berilsa, chaqiruvchi undan
+    ko'chirilgan sotuvchilarni tekshira oladi."""
     task_repo = _CapturingTaskRepo(created_today=created_today, previous_task=previous_task)
     original_dept_repo = task_service.DepartmentRepository
     original_task_repo = task_service.TaskRepository
+    original_seller_repo = task_service.TaskSellerRepository
     task_service.DepartmentRepository = lambda _s: _FakeDepartmentRepo(departments or department)
     task_service.TaskRepository = task_repo
+    task_service.TaskSellerRepository = seller_repo or _FakeSellerRepo()
     try:
         await task_service._spawn_pending_stage(
             None,
@@ -106,6 +130,7 @@ async def _spawn_with(department, *, created_today=0, previous_task=None, depart
     finally:
         task_service.DepartmentRepository = original_dept_repo
         task_service.TaskRepository = original_task_repo
+        task_service.TaskSellerRepository = original_seller_repo
     return task_repo.kwargs
 
 
@@ -210,6 +235,20 @@ async def main() -> None:
     hours = round((fields["deadline"] - datetime.now(timezone.utc)).total_seconds() / 3600)
     assert hours == 24, f"srochniy -> 24 soat kutilgan, kelgan: {hours}"
     assert fields["is_urgent"] is True, "srochnost keyingi bosqichga ko'chishi kerak"
+
+    # --- TZ 3.4/5.3: sotuvchi(lar) keyingi bosqichga KO'CHADI ---
+    # Aks holda `notify_task_stopped()` (u joriy bosqich-qatorining
+    # sotuvchilarini o'qiydi) sotuvchini faqat BIRINCHI bosqichda topardi.
+    sellers = _FakeSellerRepo([11, 12])
+    await _spawn_with(_dept(sla=24), previous_task=_task(), seller_repo=sellers)
+    assert sellers.created == [(1, 11), (1, 12)], (
+        f"ikkala sotuvchi ham yangi bosqichga ko'chirilishi kerak, kelgan: {sellers.created}"
+    )
+
+    # Sotuvchisiz buyurtma — hech narsa yozilmaydi (bo'sh sikl, xato emas)
+    no_sellers = _FakeSellerRepo()
+    await _spawn_with(_dept(sla=24), previous_task=_task(), seller_repo=no_sellers)
+    assert no_sellers.created == [], "sotuvchisiz buyurtmada qator yaratilmasligi kerak"
 
     # --- §5.2: norma sozlanmagan bo'limda qoida ishlamaydi ---
     fields = await _spawn_with(_dept(sla=48), created_today=99, previous_task=_task())
