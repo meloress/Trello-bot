@@ -31,6 +31,7 @@ from db.repositories import (
 )
 from services import notification_service, settings_service, timer_service
 from utils.enums import Role
+from utils.modules import MEBEL
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +79,7 @@ async def _penalize_all_for_task(session, task) -> bool:
     department_id = getattr(task, "current_department_id", None)
     if department_id is not None:
         department = await DepartmentRepository(session).get_by_id(department_id)
-        if department is not None and department.module == "mebel":
+        if department is not None and department.module == MEBEL:
             return True
     return (await settings_service.get_settings()).penalize_all_assignees
 

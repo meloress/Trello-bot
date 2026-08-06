@@ -15,6 +15,33 @@ Only `bot/` (via Alembic) may run migrations. `web/` reads/writes the existing s
 
 ## Project status and roadmap
 
+### ⚠️ Read this before writing a module name anywhere
+
+**The stored value and the on-screen name do not match**, and this has
+derailed conversations more than once (including with the user, mid-session):
+
+| `departments.module` | Shown to users as | Status |
+|---|---|---|
+| `"mebel"` | **"Fasad seh"** | frozen |
+| `"fasad_sex"` | **"Nazorat Trello"** | the only active work |
+
+So the string `"fasad_sex"` does **not** mean "Fasad seh" — it means the
+*other* module. Since 2026-08-04 the raw strings are no longer written at
+call sites: use `bot/utils/modules.py`'s `MEBEL` / `NAZORAT_TRELLO`
+(frontend: `MODULE.MEBEL` / `MODULE.NAZORAT_TRELLO` + `isMebelModule()` in
+`app.js`). The values themselves are deliberately unchanged — they live in
+the production DB, in the Mini App's `X-Module` header, and in a dozen
+frozen-module guards, so renaming them risks silently breaking mebel for
+zero functional gain. `bot/tests/` keep the raw strings on purpose: they pin
+what is actually stored, so a changed constant fails a test
+(sabotage-verified via `test_sla_engine.py`).
+
+**Two more decoys with the same spelling:** a department *literally named*
+"Fasad seh" exists inside the `mebel` chain, and `MiscCategory.FASAD_SEX`
+(`"fasad_sex"`) is a misc-task *type* on `tasks.misc_category` — neither is
+a module. When talking to the user, always write the display name
+("Nazorat Trello"), never the stored value.
+
 ### ⛔ "Fasad seh" (the `mebel` module) is FINISHED AND FROZEN — do not change it
 
 **The only active work in this repo is "Nazorat Trello" (the `fasad_sex`

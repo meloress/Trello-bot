@@ -35,6 +35,7 @@ from services import penalty_service
 from trello.client import TrelloClient
 from utils.enums import MiscCategory, Role, TaskStatus, TaskType
 from utils.formatters import TASHKENT_TZ
+from utils.modules import MEBEL
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,7 @@ async def _trello_writes_disabled(department_id: int | None) -> bool:
         return False
     async with async_session() as session:
         department = await DepartmentRepository(session).get_by_id(department_id)
-    return department is not None and department.module == "mebel"
+    return department is not None and department.module == MEBEL
 
 
 class DepartmentNotFoundError(Exception):
@@ -424,7 +425,7 @@ async def resolve_stage_deadline(session, department, previous_task) -> datetime
     `None` = muddat qo'yilmaydi (nazoratchi qo'lda kiritadi) — SLA
     sozlanmagan bo'lim, yoki mebel moduli (u yerda muddat Trello
     kartadan/list nomidan keladi, bu ustunlar umuman o'qilmaydi)."""
-    if department is None or department.module == "mebel":
+    if department is None or department.module == MEBEL:
         return None
 
     if await _is_same_sla_block(session, department, previous_task):

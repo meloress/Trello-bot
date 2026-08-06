@@ -34,13 +34,14 @@ from core.database import async_session
 from db.repositories import DepartmentRepository, TaskRepository
 from trello.client import TrelloAPIError, TrelloClient
 from utils.enums import TaskStatus, TaskType
+from utils.modules import MEBEL
 
 _OPEN_STATUSES = (TaskStatus.ACTIVE, TaskStatus.STOPPED, TaskStatus.OVERDUE)
 
 
 async def main() -> None:
     async with async_session() as session:
-        departments = await DepartmentRepository(session).list_by_module("mebel")
+        departments = await DepartmentRepository(session).list_by_module(MEBEL)
     departments = [d for d in departments if d.trello_list_id]
     if not departments:
         print("Hech qanday mebel bo'limi trello_list_id bilan sozlanmagan — hech narsa qilinmadi.")

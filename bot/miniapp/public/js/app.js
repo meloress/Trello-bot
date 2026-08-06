@@ -11,9 +11,25 @@ const nav = { stack: [], section: null, module: null, transition: null };
 let mainButtonHandler = null;
 const MODULE_STORAGE_KEY = "miniapp_module";
 
+/* ╔══════════════════════════════════════════════════════════════════════╗
+   ║  DIQQAT: modul qiymati EKRANDAGI NOM BILAN MOS EMAS.                ║
+   ║                                                                      ║
+   ║    "mebel"      ->  "Fasad seh"       (MUZLATILGAN modul)           ║
+   ║    "fasad_sex"  ->  "Nazorat Trello"  (faol ish)                    ║
+   ║                                                                      ║
+   ║  Ya'ni `"fasad_sex"` matni "Fasad seh"ni ANGLATMAYDI — u BOSHQA     ║
+   ║  modul. Shu sabab kodda xom matn yozilmaydi, quyidagi konstantalar   ║
+   ║  ishlatiladi (backend tomoni: `bot/utils/modules.py`).               ║
+   ╚══════════════════════════════════════════════════════════════════════╝ */
+const MODULE = {
+  MEBEL: "mebel",            // ekranda "Fasad seh"
+  NAZORAT_TRELLO: "fasad_sex",  // ekranda "Nazorat Trello" — "Fasad seh" EMAS
+};
+const isMebelModule = () => nav.module === MODULE.MEBEL;
+
 /* Rol bo'yicha pastki tab-bar ta'rifi — har biri {key, icon, label, screen}.
    Birinchi element doim shu rolning "uy" ekrani (routeHome()/screenModuleChooser()
-   shundan foydalanadi). Ekranlar/backend endpointlar modulga (mebel/fasad_sex)
+   shundan foydalanadi). Ekranlar/backend endpointlar modulga ("Fasad seh"/"Nazorat Trello")
    qarab filtrlanmaydi — xodimning o'z tayinlovlari (task_assignments/brigade_id)
    allaqachon qaysi bo'lim ekanidan qat'iy nazar to'g'ri ma'lumot qaytaradi, shu
    sabab tab to'plami faqat ROLga qarab tanlanadi. `module` faqat ishchining
@@ -22,7 +38,7 @@ const MODULE_STORAGE_KEY = "miniapp_module";
 function tabDefsForRole(role, module) {
   if (role === "worker") {
     return [
-      { key: "orders", icon: icon("box"), label: module === "fasad_sex" ? "tab_stages" : "tab_orders", screen: screenWorkerOrders },
+      { key: "orders", icon: icon("box"), label: module === MODULE.NAZORAT_TRELLO ? "tab_stages" : "tab_orders", screen: screenWorkerOrders },
       { key: "tasks", icon: icon("list"), label: "tab_tasks", screen: () => screenTaskList("misc") },
       { key: "score", icon: icon("star"), label: "tab_score", screen: screenWorkerScore },
       { key: "profile", icon: icon("user"), label: "tab_profile", screen: screenProfile },
@@ -124,7 +140,7 @@ const ROLE_ICONS = {
    ishchi, brigadir, rahbar, admin. Kuzatuvchi/sotuvchi u yerda ma'noga ega
    emas, shuning uchun xodim qo'shish/tahrirlash ro'yxatida ko'rsatilmaydi
    (bo'lim ro'yxati modulga qarab filtrlangani bilan bir xil naqsh).
-   fasad_sex ("Nazorat Trello") moduli barcha rollarni saqlab qoladi. */
+   "Nazorat Trello" moduli barcha rollarni saqlab qoladi. */
 const MEBEL_ROLES = ["worker", "brigadier", "supervisor", "admin"];
 
 /* Yangi xodim qo'shishda rahbar/admin tanlanmasin — ular boshqaruvchi,
@@ -145,7 +161,7 @@ const CLAIM_ACTION_KEYS = {
 
 function rolesForModule(alwaysInclude) {
   const all = Object.keys(ROLE_LABELS[state.lang]);
-  if (nav.module !== "mebel") return all;
+  if (nav.module !== MODULE.MEBEL) return all;
   // Tahrirlashda xodimning JORIY roli ro'yxatdan tushib qolmasligi shart —
   // aks holda saqlash tugmasi uni jimgina boshqa rolga o'zgartirib yuboradi.
   return all.filter((r) => MEBEL_ROLES.includes(r) || r === alwaysInclude);
@@ -394,14 +410,14 @@ async function screenWorkerOrders() {
       <div class="hero-tile ${heroTone(score.total)}"><span class="num">${scoreSigned(score.total)}</span><span class="lbl">${esc(t("currentMonthScore"))}</span></div>
       <div class="hero-tile ${nearestTone}"><span class="num">${nearestText}</span><span class="lbl">${esc(t("nearestDeadline"))}</span></div>
     </div>
-    <p class="section-lbl">${esc(t(nav.module === "fasad_sex" ? "myStages" : "myOrders"))}</p>
+    <p class="section-lbl">${esc(t(nav.module === MODULE.NAZORAT_TRELLO ? "myStages" : "myOrders"))}</p>
     ${orders.length ? orders.map((tsk, i) => `
       <button class="task-card ${statusClass(tsk.status)}" data-i="${i}">
         <p class="t-title">${esc(tsk.title)}</p>
         <p class="t-sub">${esc(tsk.department || "")}</p>
         <span class="t-status">${taskStatusLine(tsk)}</span>
       </button>
-    `).join("") : `<p class="empty-state">${esc(t(nav.module === "fasad_sex" ? "noStages" : "noOrders"))}</p>`}
+    `).join("") : `<p class="empty-state">${esc(t(nav.module === MODULE.NAZORAT_TRELLO ? "noStages" : "noOrders"))}</p>`}
   `);
   root.querySelectorAll(".task-card").forEach((el) => {
     const tsk = orders[Number(el.dataset.i)];
@@ -409,8 +425,13 @@ async function screenWorkerOrders() {
   });
 }
 
-/* Fasad sex TZ, Phase 9: MISC vazifa kategoriyalari — barqaror ichki
-   identifikator, i18n.js'dagi mos "miscCategoryX" kaliti bilan chiqariladi. */
+/* TZ 6.2: maxsus vazifaning TURI — barqaror ichki identifikator, i18n.js'dagi
+   mos "miscCategoryX" kaliti bilan chiqariladi.
+
+   DIQQAT, uchinchi ma'no: bu yerdagi "fasad_sex" — MODUL EMAS. U ishlab
+   chiqarish sexi uchun vazifa turi (`tasks.misc_category`), yuqoridagi
+   `MODULE.NAZORAT_TRELLO` bilan bir xil matn bo'lsa ham butunlay boshqa
+   narsa va boshqa ustunda yashaydi. Solishtirishda aralashtirmang. */
 const MISC_CATEGORIES = ["office", "fasad_sex", "installer", "welder"];
 function miscCategoryKey(v) {
   return "miscCategory" + v.split("_").map((w) => w[0].toUpperCase() + w.slice(1)).join("");
@@ -466,7 +487,7 @@ function taskStatusLine(tsk) {
 async function screenTaskDetail(taskId) {
   setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
   const tsk = await api(`/tasks/${taskId}`);
-  const isMebel = tsk.module === "mebel";
+  const isMebel = tsk.module === MODULE.MEBEL;
   // STOPPED ham: davom ettirish ham endi tasdiq kutadigan so'rov.
   const pending = isMebel && tsk.status !== "completed" ? (await api(`/tasks/${taskId}/claim-status`)).pending_claim : null;
   const pillClass = tsk.status === "overdue" ? "critical" : tsk.status === "stopped" ? "neutral" : "positive";
@@ -580,10 +601,10 @@ async function screenWorkerScore() {
 
 async function screenAdminHome() {
   // Mebel ("Fasad seh"): Kunlik hisobot va "barcha vazifalar" ko'rish endi
-  // faqat Nazorat Trello (fasad_sex) uchun — bu ikkala nav-card mebel
+  // faqat Nazorat Trello uchun — bu ikkala nav-card mebel
   // kontekstida umuman ko'rsatilmaydi. Maxsus topshiriq YARATISH ("Yangi
   // vazifa" tugmasi) esa ikkala modulda ham qoladi.
-  const mebelOnly = nav.module === "mebel";
+  const mebelOnly = isMebelModule();
   setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
   const [d, pendingSetup, reassignCandidates, pendingClaims] = await Promise.all([
     api("/admin/dashboard"), api("/admin/pending-setup"), api("/admin/reassign-candidates"), api("/admin/pending-claims"),
@@ -732,7 +753,7 @@ async function screenNewTaskForm(kind) {
   // Mebel ("Fasad seh"): buyurtmalar endi faqat Trello orqali yaratiladi
   // (`trello_ingest_job`) — bu ekranda Buyurtma varianti umuman ko'rsatilmaydi,
   // faqat Maxsus topshiriq (misc) qoladi.
-  const mebelOnly = nav.module === "mebel";
+  const mebelOnly = isMebelModule();
   kind = mebelOnly ? "misc" : (kind || "order");
   setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
   const [departments, employees] = await Promise.all([
@@ -780,7 +801,7 @@ async function screenNewTaskForm(kind) {
       <div class="field"><label>${esc(t("description"))}</label><textarea id="f-desc"></textarea></div>
       <div class="field"><label>${esc(t("deadline"))}</label><input id="f-deadline" type="datetime-local" /></div>
       <div class="field"><label>${esc(t("departmentField"))}</label>
-        <select id="f-dept"><option value="">—</option>${departments.filter((d) => d.module !== "mebel").map((d) => `<option value="${d.id}">${esc(d.name)}</option>`).join("")}</select>
+        <select id="f-dept"><option value="">—</option>${departments.filter((d) => d.module !== MODULE.MEBEL).map((d) => `<option value="${d.id}">${esc(d.name)}</option>`).join("")}</select>
       </div>
       <label class="check-row"><input type="checkbox" id="f-urgent" />${esc(t("isUrgentField"))}</label>
       <p class="section-lbl">${esc(t("brigadierField"))}</p>
@@ -809,7 +830,7 @@ async function screenNewTaskForm(kind) {
             MEBEL ("Fasad seh") MUZLATILGAN: u yerda 2026-07-29 dagi ataylab
             qilingan cheklov (faqat worker/brigadir) o'z holicha qoladi —
             kengaytirish faqat Nazorat Trello talabi. */
-        (nav.module === "mebel"
+        (isMebelModule()
           ? activeEmployees.filter((e) => e.role === "worker" || e.role === "brigadier")
           : activeEmployees).map((e) => `
         <label class="check-row"><input type="checkbox" value="${e.id}" class="f-emp" />${esc(e.full_name)} — ${esc(e.role_label)}</label>
@@ -972,7 +993,7 @@ async function screenEmployeeDetail(employeeId) {
   // ro'yxatda bo'lmaydi (o'ziga rahbar bo'lish backend'da ham rad etiladi).
   // Mebel ("Fasad seh") MUZLATILGAN: rahbar xabarnomasi u yerda ishlamaydi
   // (backend ham e'tiborsiz qoldiradi), shuning uchun maydon ko'rsatilmaydi.
-  const isMebelEmployee = employeeDepartment ? employeeDepartment.module === "mebel" : nav.module === "mebel";
+  const isMebelEmployee = employeeDepartment ? employeeDepartment.module === MODULE.MEBEL : isMebelModule();
   const MANAGER_ROLES = ["brigadier", "supervisor", "admin"];
   const managerOptions = allEmployees
     .filter((e) => e.id !== employee.id && MANAGER_ROLES.includes(e.role))
@@ -1053,8 +1074,8 @@ async function screenEmployeeDetail(employeeId) {
 }
 
 async function screenAddEmployee() {
-  // Bo'lim ro'yxati ilgari ikkala modul ("Fasad seh"/mebel va Nazorat
-  // Trello/fasad_sex) bo'limlarini aralashtirib ko'rsatardi — yangi xodim
+  // Bo'lim ro'yxati ilgari ikkala modul ("Fasad seh" va "Nazorat
+  // Trello") bo'limlarini aralashtirib ko'rsatardi — yangi xodim
   // joriy modulga tegishli BO'LMAGAN bo'limga tasodifan biriktirilishi
   // mumkin edi. Endi faqat joriy `nav.module`ga tegishli bo'limlar ko'rinadi.
   const departments = (await api("/admin/departments")).filter((d) => d.module === nav.module);
@@ -1165,9 +1186,9 @@ function statRowsHtml(stats) {
    rol bo'yicha alohida ro'yxatga o'tish tugmalari. */
 async function screenFullStats() {
   // Mebel ("Fasad seh"): "Kunlik norma (sig'im)" TZ'da Nazorat Trello
-  // (fasad_sex) uchun mo'ljallangan — mebel kontekstida bu nav-card
-  // ko'rsatilmaydi, fasad_sex uchun to'liq qoladi.
-  const mebelOnly = nav.module === "mebel";
+  // "Nazorat Trello" uchun mo'ljallangan — "Fasad seh" kontekstida bu
+  // nav-card ko'rsatilmaydi, "Nazorat Trello"da to'liq qoladi.
+  const mebelOnly = isMebelModule();
   setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
   const stats = await api(`/admin/stats?${periodQuery()}`);
   if (!stats.length) {
@@ -1655,7 +1676,7 @@ async function screenDepartmentEdit(department, allDepartments) {
   // navbat, blok, sex guruhi) unga umuman qo'llanmaydi — backend ularni
   // baribir e'tiborsiz qoldiradi, shuning uchun maydonlarni ko'rsatish
   // faqat chalg'itardi.
-  const specFields = department.module !== "mebel";
+  const specFields = department.module !== MODULE.MEBEL;
   setScreen(`
     <p class="page-title">${esc(department.name)}</p>
     <div class="field"><label>${esc(t("departmentNameField"))}</label><input id="f-name" type="text" value="${esc(department.name)}" /></div>
@@ -1806,7 +1827,7 @@ async function screenAddDepartment() {
         method: "POST",
         body: JSON.stringify({
           name,
-          // `module` yuborilmasa backend "mebel" qo'yadi (`admin.py`
+          // `module` yuborilmasa backend MEBEL ("Fasad seh") qo'yadi (`admin.py`
           // `create_department`) — ya'ni Nazorat Trello ichida qo'shilgan
           // yangi bosqich MUZLATILGAN mebel moduliga tushib ketardi va o'z
           // ro'yxatida umuman ko'rinmasdi.
@@ -2140,7 +2161,7 @@ async function screenNewWork() {
   }
   setScreen(`
     <p class="page-title">${esc(t("newWorkTitle"))}</p>
-    ${items.map((tsk, i) => tsk.module === "mebel" ? `
+    ${items.map((tsk, i) => tsk.module === MODULE.MEBEL ? `
       <div class="nav-card" data-i="${i}"><span class="ic">${icon("inbox")}</span><span class="grow">${esc(tsk.title)}<div class="t-sub">${esc(t("deadline"))}: ${esc(formatDt(tsk.deadline))}</div><div class="t-sub">${esc(t("assignViaTrelloHint"))}</div></span></div>
     ` : `
       <button class="nav-card accent" data-i="${i}"><span class="ic">${icon("inbox")}</span><span class="grow">${esc(tsk.title)}<div class="t-sub">${esc(t("deadline"))}: ${esc(formatDt(tsk.deadline))}</div></span><span class="chev">›</span></button>
@@ -2215,7 +2236,7 @@ async function screenMemberTasks(employeeId, fullName) {
 async function screenMemberTaskDetail(employeeId, fullName, taskId) {
   setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
   const tsk = await api(`/brigadier/members/${employeeId}/tasks/${taskId}`);
-  const isMebel = tsk.module === "mebel";
+  const isMebel = tsk.module === MODULE.MEBEL;
   // STOPPED ham tekshiriladi: davom ettirish endi darhol emas, rahbar
   // tasdig'ini kutadigan so'rov (Pauza/Yakunlash bilan bir xil qoida).
   const isOpen = tsk.status === "active" || tsk.status === "overdue" || tsk.status === "stopped";
@@ -2451,13 +2472,13 @@ async function screenProfile() {
 
 /* ---------- Modul tanlash (Fasad sex TZ, Phase 0) ---------- */
 
-/* "mebel"/"fasad_sex" — bir nechta modulga ega foydalanuvchi (masalan ADMIN)
+/* Bir nechta modulga ega foydalanuvchi (masalan ADMIN)
    birini tanlaydi, tanlov localStorage'da saqlanadi (theme'ning saqlanish
    uslubi bilan bir xil kalit nomlash: MODULE_STORAGE_KEY). */
 async function screenModuleChooser() {
   setScreen(`
     <p class="page-title">${esc(t("chooseModuleTitle"))}</p>
-    <button class="nav-card" data-module="mebel">
+    <button class="nav-card" data-module="${MODULE.MEBEL}">
       <span class="ic">${icon("chair")}</span>
       <span class="grow">
         <span style="display:block">${esc(t("mebelModuleName"))}</span>
@@ -2465,7 +2486,7 @@ async function screenModuleChooser() {
       </span>
       <span class="chev">›</span>
     </button>
-    <button class="nav-card" data-module="fasad_sex">
+    <button class="nav-card" data-module="${MODULE.NAZORAT_TRELLO}">
       <span class="ic">${icon("building")}</span>
       <span class="grow">
         <span style="display:block">${esc(t("fasadModuleName"))}</span>
@@ -2530,7 +2551,7 @@ async function _bootstrap() {
     return;
   }
 
-  const modules = state.employee.available_modules || ["mebel"];
+  const modules = state.employee.available_modules || [MODULE.MEBEL];
   if (modules.length === 1) {
     nav.module = modules[0];
     routeHome();

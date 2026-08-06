@@ -58,6 +58,7 @@ from services import notification_service, penalty_service, settings_service, ta
 from services.trello_board_map import build_board_map
 from trello.client import TrelloClient
 from utils.enums import TaskStatus, TrelloListKind
+from utils.modules import MEBEL
 
 logger = logging.getLogger(__name__)
 
@@ -316,7 +317,7 @@ async def run(bot: Bot) -> None:
         return
 
     async with async_session() as session:
-        departments = await DepartmentRepository(session).list_by_module("mebel")
+        departments = await DepartmentRepository(session).list_by_module(MEBEL)
     departments = [d for d in departments if (d.trello_list_keywords or "").strip()]
     if not departments:
         logger.debug("trello_ingest_job: kalit so'zi sozlangan mebel bo'limi yo'q — o'tkazib yuborildi")

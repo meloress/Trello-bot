@@ -2,6 +2,7 @@ from aiohttp import web
 
 from core.database import async_session
 from db.repositories import DepartmentRepository, TaskRepository
+from utils.modules import MEBEL
 
 
 def err(message: str, status: int = 400) -> web.Response:
@@ -48,4 +49,4 @@ async def is_mebel_task(task_id: int) -> bool:
         if task is None or task.current_department_id is None:
             return False
         department = await DepartmentRepository(session).get_by_id(task.current_department_id)
-    return department is not None and department.module == "mebel"
+    return department is not None and department.module == MEBEL

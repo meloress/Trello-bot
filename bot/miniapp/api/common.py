@@ -10,24 +10,25 @@ from miniapp.util import err
 from services import employee_service
 from utils.enums import Role
 from utils.formatters import ROLE_LABELS
+from utils.modules import MEBEL, NAZORAT_TRELLO
 
 routes = web.RouteTableDef()
 
 
 def _resolve_available_modules(employee: Employee, department: Department | None) -> list[str]:
-    """Fasad sex TZ (Phase 0): joriy xodim Mini App'da qaysi modul(lar)ni
-    ("mebel" / "fasad_sex") ko'ra olishini aniqlaydi — modul tanlash
-    ekranini ko'rsatish/o'tkazib yuborishni frontend shu ro'yxatga qarab
-    hal qiladi."""
+    """Joriy xodim Mini App'da qaysi modul(lar)ni — "Fasad seh" (`MEBEL`)
+    va/yoki "Nazorat Trello" (`NAZORAT_TRELLO`) — ko'ra olishini aniqlaydi.
+    Modul tanlash ekranini ko'rsatish/o'tkazib yuborishni frontend shu
+    ro'yxatga qarab hal qiladi (nomlar tuzog'i: `utils/modules.py`)."""
     if employee.role == Role.ADMIN:
-        return ["mebel", "fasad_sex"]
+        return [MEBEL, NAZORAT_TRELLO]
     if employee.role == Role.SUPERVISOR:
         if employee.department_id is None:
-            return ["mebel", "fasad_sex"]
-        return [department.module] if department else ["mebel"]
+            return [MEBEL, NAZORAT_TRELLO]
+        return [department.module] if department else [MEBEL]
     if employee.department_id is not None:
-        return [department.module] if department else ["mebel"]
-    return ["mebel"]
+        return [department.module] if department else [MEBEL]
+    return [MEBEL]
 
 
 @routes.get("/me")

@@ -32,6 +32,7 @@ from db.repositories import (
 )
 from utils.enums import ClaimActionType, ReminderUrgency, Role
 from utils.formatters import format_dt as _format_dt
+from utils.modules import MEBEL
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,7 @@ async def _is_mebel(session, department_id: int | None) -> bool:
     if department_id is None:
         return False
     department = await DepartmentRepository(session).get_by_id(department_id)
-    return department is not None and department.module == "mebel"
+    return department is not None and department.module == MEBEL
 
 
 async def _department_chat_id(session, department_id: int | None) -> str | None:
@@ -76,7 +77,7 @@ async def _department_chat_id(session, department_id: int | None) -> str | None:
     if department_id is None:
         return None
     department = await DepartmentRepository(session).get_by_id(department_id)
-    if department is None or department.module == "mebel":
+    if department is None or department.module == MEBEL:
         return None
     return department.telegram_chat_id
 

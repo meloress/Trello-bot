@@ -28,6 +28,7 @@ from db.models.task import Task
 from db.models.task_assignment import TaskAssignment
 from services import settings_service
 from utils.enums import Role, TaskStatus, TaskType
+from utils.modules import NAZORAT_TRELLO
 
 # KPI/jarima faqat shu ikki operatsion rolga tegishli (penalty_service faqat
 # WORKER'ni jarimalaydi, BRIGADIER esa brigade_share_ratio orqali ulush oladi) —
@@ -409,7 +410,7 @@ class StoppedOrder:
     stopped_hours: float
 
 
-async def get_stopped_orders(module: str = "fasad_sex") -> list[StoppedOrder]:
+async def get_stopped_orders(module: str = NAZORAT_TRELLO) -> list[StoppedOrder]:
     """SPEC.md §6: hozir STOP holatida turgan buyurtmalar — eng uzoq
     to'xtab turganidan boshlab. Har biri uchun faol `StopLog`dan sabab va
     boshlanish vaqti olinadi (faol stop yo'q bo'lsa qator o'tkazib
@@ -447,7 +448,7 @@ async def get_stopped_orders(module: str = "fasad_sex") -> list[StoppedOrder]:
     )
 
 
-async def get_order_funnel(module: str = "fasad_sex") -> list[FunnelStage]:
+async def get_order_funnel(module: str = NAZORAT_TRELLO) -> list[FunnelStage]:
     """SPEC.md §11: har bo'limda hozir nechta OCHIQ buyurtma-bosqichi
     turganini holat kesimida qaytaradi (COMPLETED hisobga olinmaydi — bu
     "hozir qayerda turibdi" ko'rsatkichi, tarix emas).
@@ -492,7 +493,7 @@ async def get_order_funnel(module: str = "fasad_sex") -> list[FunnelStage]:
 
 
 async def get_stage_bottlenecks(
-    since: datetime, until: datetime, module: str = "fasad_sex"
+    since: datetime, until: datetime, module: str = NAZORAT_TRELLO
 ) -> list[BottleneckStage]:
     """SPEC.md §11: bosqichlarning o'rtacha HAQIQIY davomiyligi vs reja
     (`default_sla_hours`) — eng sekinidan boshlab. Sekin bosqichni topish
@@ -545,7 +546,7 @@ async def get_stage_bottlenecks(
     )
 
 
-async def get_stop_stats(since: datetime, until: datetime, module: str = "fasad_sex") -> StopStats:
+async def get_stop_stats(since: datetime, until: datetime, module: str = NAZORAT_TRELLO) -> StopStats:
     """SPEC.md §11: "STOP statistikasi: nechta zakaz, qancha vaqt, sabablari".
 
     Davr ichida BOSHLANGAN to'xtatishlar hisobga olinadi. Hali davom

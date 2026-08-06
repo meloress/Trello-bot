@@ -18,6 +18,7 @@ from core.database import async_session
 from db.repositories import DepartmentRepository, StopLogRepository, TaskClaimRepository, TaskRepository
 from services import notification_service, settings_service, timer_service
 from utils.enums import TaskStatus
+from utils.modules import MEBEL
 
 logger = logging.getLogger(__name__)
 
@@ -172,7 +173,7 @@ async def _process_stale_claims(bot: Bot, now: datetime) -> int:
             if task is None or task.current_department_id is None or task.status == TaskStatus.COMPLETED:
                 continue
             department = await department_repo.get_by_id(task.current_department_id)
-            if department is None or department.module != "mebel":
+            if department is None or department.module != MEBEL:
                 continue
 
             hours_pending = (now - claim.claimed_at).total_seconds() / 3600

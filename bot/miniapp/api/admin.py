@@ -37,6 +37,7 @@ from services import (
 from trello.client import TrelloAPIError, TrelloClient
 from utils.enums import MiscCategory, Role, TaskStatus, TaskType
 from utils.formatters import ROLE_LABELS
+from utils.modules import MEBEL, NAZORAT_TRELLO
 
 routes = web.RouteTableDef()
 logger = logging.getLogger(__name__)
@@ -141,7 +142,7 @@ async def create_department(request: web.Request) -> web.Response:
         repo = DepartmentRepository(session)
         department = await repo.create(
             name=name,
-            module=body.get("module", "mebel"),
+            module=body.get("module", MEBEL),
             trello_list_id=body.get("trello_list_id"),
             auto_reassign_after_48h=bool(body.get("auto_reassign_after_48h", False)),
             starts_stopped=bool(body.get("starts_stopped", False)),
@@ -431,7 +432,7 @@ async def create_task(request: web.Request) -> web.Response:
 
     async with async_session() as session:
         target_department = await DepartmentRepository(session).get_by_id(int(department_id))
-    if target_department is not None and target_department.module == "mebel":
+    if target_department is not None and target_department.module == MEBEL:
         return err("Bu bo'lim uchun buyurtmalar endi faqat Trello orqali yaratiladi", 409)
 
     try:
@@ -871,7 +872,7 @@ def _period_from_query(request: web.Request) -> tuple[datetime, datetime]:
 async def stopped_orders(request: web.Request) -> web.Response:
     """SPEC.md §6: ""STOP bosilgan zakazlar" degan alohida ro'yxat/filtr
     bo'ladi" — hozir to'xtatilgan buyurtmalar, eng uzoq turganidan boshlab."""
-    orders = await stats_service.get_stopped_orders(module=request.query.get("module", "fasad_sex"))
+    orders = await stats_service.get_stopped_orders(module=request.query.get("module", NAZORAT_TRELLO))
     return web.json_response(
         [
             {
@@ -891,7 +892,7 @@ async def stopped_orders(request: web.Request) -> web.Response:
 async def funnel_stats(request: web.Request) -> web.Response:
     """SPEC.md §11: "zakazlar voronkasi — qaysi bosqichda nechta zakaz
     turibdi". Davr filtri YO'Q — bu hozirgi holat kesimi, tarix emas."""
-    stages = await stats_service.get_order_funnel(module=request.query.get("module", "fasad_sex"))
+    stages = await stats_service.get_order_funnel(module=request.query.get("module", NAZORAT_TRELLO))
     return web.json_response(
         [
             {
@@ -915,7 +916,7 @@ async def bottleneck_stats(request: web.Request) -> web.Response:
     sekinidan boshlab. Davomiylikdan STOP vaqti chiqarib tashlangan (§6)."""
     since, until = _period_from_query(request)
     stages = await stats_service.get_stage_bottlenecks(
-        since, until, module=request.query.get("module", "fasad_sex")
+        since, until, module=request.query.get("module", NAZORAT_TRELLO)
     )
     return web.json_response(
         [
@@ -937,7 +938,7 @@ async def stop_stats(request: web.Request) -> web.Response:
     """SPEC.md §11: "STOP statistikasi: nechta zakaz, qancha vaqt, sabablari"."""
     since, until = _period_from_query(request)
     stats = await stats_service.get_stop_stats(
-        since, until, module=request.query.get("module", "fasad_sex")
+        since, until, module=request.query.get("module", NAZORAT_TRELLO)
     )
     return web.json_response(
         {
@@ -1319,7 +1320,7 @@ async def update_task_deadline(request: web.Request) -> web.Response:
             if task.current_department_id is not None
             else None
         )
-        if department is not None and department.module == "mebel":
+        if department is not None and department.module == MEBEL:
             return err("Bu bo'limda muddat Trello kartadan boshqariladi", 409)
 
         old_deadline = task.deadline
@@ -1397,7 +1398,7 @@ async def set_task_urgent(request: web.Request) -> web.Response:
             if task.current_department_id is not None
             else None
         )
-        if department is not None and department.module == "mebel":
+        if department is not None and department.module == MEBEL:
             return err("Bu bo'limda muddat Trello kartadan boshqariladi", 409)
 
         fields: dict = {"is_urgent": is_urgent}

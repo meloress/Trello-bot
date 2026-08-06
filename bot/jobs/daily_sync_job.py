@@ -26,6 +26,7 @@ from db.repositories import TaskRepository
 from services import penalty_service, trello_sync_service
 from trello.client import TrelloAPIError, TrelloClient
 from utils.enums import TaskStatus
+from utils.modules import MEBEL
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +45,7 @@ async def _list_open_tasks() -> list[Task]:
     `jobs/trello_ingest_job.py` orqali (har 5 daqiqada) kuzatadi; shu job
     (kunlik) endi faqat fasad_sex uchun ishlaydi."""
     async with async_session() as session:
-        return await TaskRepository(session).list_open_orders_excluding_module("mebel")
+        return await TaskRepository(session).list_open_orders_excluding_module(MEBEL)
 
 
 async def _update_title_if_changed(task_id: int, new_title: str) -> bool:

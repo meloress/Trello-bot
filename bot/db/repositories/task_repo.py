@@ -6,6 +6,7 @@ from db.models.department import Department
 from db.models.task import Task
 from db.repositories.base import BaseRepository
 from utils.enums import MiscCategory, TaskStatus, TaskType
+from utils.modules import MEBEL
 
 _OPEN_STATUSES = [TaskStatus.ACTIVE, TaskStatus.STOPPED]
 
@@ -32,7 +33,7 @@ def _timer_running():
     shart."""
     return or_(
         Task.status == TaskStatus.ACTIVE,
-        func.coalesce(Department.module, "mebel") == "mebel",
+        func.coalesce(Department.module, MEBEL) == MEBEL,
     )
 
 
@@ -132,7 +133,7 @@ class TaskRepository(BaseRepository[Task]):
                 Task.deadline
                 <= case(
                     (
-                        func.coalesce(Department.module, "mebel") == "mebel",
+                        func.coalesce(Department.module, MEBEL) == MEBEL,
                         now + timedelta(hours=MEBEL_DEADLINE_WARNING_HOURS),
                     ),
                     else_=now + timedelta(hours=within_hours),
@@ -195,7 +196,7 @@ class TaskRepository(BaseRepository[Task]):
             .join(Department, Task.current_department_id == Department.id)
             .where(
                 Task.status == TaskStatus.OVERDUE,
-                Department.module != "mebel",
+                Department.module != MEBEL,
                 Task.deadline.isnot(None),
                 func.coalesce(Task.last_overdue_reminder_at, Task.deadline) < threshold,
             )

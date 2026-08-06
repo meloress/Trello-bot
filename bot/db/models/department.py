@@ -6,6 +6,7 @@ from sqlalchemy import Boolean, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from db.base import TimestampedBase
+from utils.modules import MEBEL
 
 if TYPE_CHECKING:
     from db.models.brigade import Brigade
@@ -51,11 +52,17 @@ class Department(TimestampedBase):
     # qardosh tarmoqlar tugashini kutadi (fork nuqtasi esa
     # department_fork_targets jadvalida belgilanadi).
     requires_join: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    # Fasad sex TZ (Phase 0): shu bo'lim qaysi ishlab chiqarish moduliga
-    # tegishli — "mebel" (asosiy, standart) yoki "fasad_sex" (yangi, parallel
-    # zanjir). Oddiy VARCHAR, CHECK/enum emas (CLAUDE.md konvensiyasi) — 3-modul
+    # Shu bo'lim qaysi ishlab chiqarish moduliga tegishli. Qiymatlar va
+    # ularning EKRANDAGI nomlari `utils/modules.py`da — u yerdagi ogohlantirishni
+    # o'qing, chunki ikkalasi MOS EMAS:
+    #   MEBEL          = "mebel"      -> ekranda "Fasad seh"   (MUZLATILGAN)
+    #   NAZORAT_TRELLO = "fasad_sex"  -> ekranda "Nazorat Trello"
+    # Ya'ni bu ustundagi "fasad_sex" qiymati "Fasad seh"ni ANGLATMAYDI.
+    # Kodda hech qachon xom matn yozmang, konstantani import qiling.
+    #
+    # Oddiy VARCHAR, CHECK/enum emas (CLAUDE.md konvensiyasi) — 3-modul
     # keyinchalik qo'shilsa, migratsiya kod o'zgarishisiz kengayadi.
-    module: Mapped[str] = mapped_column(String(20), nullable=False, default="mebel")
+    module: Mapped[str] = mapped_column(String(20), nullable=False, default=MEBEL)
     # Fasad sex TZ, §9 "ikkinchi zavod": shu bo'lim qaysi FIZIK zavod/filialga
     # tegishli — `module`dan MUSTAQIL (module = qaysi ishlab chiqarish
     # tizimi, factory_name = qaysi jismoniy joylashuv). NULL = hali

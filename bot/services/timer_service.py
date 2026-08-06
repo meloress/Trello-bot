@@ -17,6 +17,7 @@ from db.repositories import DepartmentRepository, StopLogRepository, TaskAssignm
 from services import trello_sync_service
 from trello.client import TrelloClient
 from utils.enums import TaskStatus
+from utils.modules import MEBEL
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +70,7 @@ async def _sync_stop_label(card_id: str, department_id: int, *, stopped: bool, d
     bekor qilmaydi."""
     async with async_session() as session:
         department = await DepartmentRepository(session).get_by_id(department_id)
-    if department is None or department.module == "mebel":
+    if department is None or department.module == MEBEL:
         return
     if not stopped and deadline is None:
         return  # muddatsiz vazifa uchun status rangi aniqlanmaydi
@@ -94,7 +95,7 @@ async def _move_card_to_stop_list(card_id: str, department_id: int) -> None:
     Trello chaqiruvi qilmaydi — bugungi xatti-harakat o'zgarishsiz qoladi."""
     async with async_session() as session:
         department = await DepartmentRepository(session).get_by_id(department_id)
-    if department is None or department.module == "mebel" or not department.stop_target_list_id:
+    if department is None or department.module == MEBEL or not department.stop_target_list_id:
         return
     try:
         async with TrelloClient(settings.trello_api_key, settings.trello_token) as trello:
@@ -113,7 +114,7 @@ async def _move_card_back_from_stop_list(card_id: str, department_id: int) -> No
     yo'q)."""
     async with async_session() as session:
         department = await DepartmentRepository(session).get_by_id(department_id)
-    if department is None or department.module == "mebel" or not department.stop_target_list_id or not department.trello_list_id:
+    if department is None or department.module == MEBEL or not department.stop_target_list_id or not department.trello_list_id:
         return
     try:
         async with TrelloClient(settings.trello_api_key, settings.trello_token) as trello:
@@ -181,7 +182,7 @@ async def _paused_shift(session, task: Task, stopped_at: datetime, resumed_at: d
     if task.current_department_id is None:
         return None
     department = await DepartmentRepository(session).get_by_id(task.current_department_id)
-    if department is None or department.module == "mebel":
+    if department is None or department.module == MEBEL:
         return None
     paused = resumed_at - stopped_at
     return paused if paused.total_seconds() > 0 else None
