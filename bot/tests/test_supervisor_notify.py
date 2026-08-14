@@ -218,7 +218,29 @@ async def main() -> None:
         assert GLOBAL_SUPERVISOR.telegram_id not in chat_ids, chat_ids
         assert SHPON_SUPERVISOR.telegram_id in chat_ids, chat_ids
 
-        # --- 9. Nazoratchi FAQAT "Fasad seh"ni ko'radi ---
+        # --- 9. Pauza/davom ettirish nazoratchiga xabar qiladi ---
+        # Ilgari `claim_service.approve_claim` taymerni to'xtatardi-yu, ish
+        # to'xtaganini so'rov yuborgan odamdan boshqa hech kim bilmasdi.
+        bot = _FakeBot()
+        await ns.notify_stage_paused(bot, TASK.id, WORKER.id, "material tugadi")
+        texts = {chat: text for chat, text in bot.sent}
+        assert set(texts) == {GLOBAL_SUPERVISOR.telegram_id, SHPON_SUPERVISOR.telegram_id}, texts
+        assert texts[GLOBAL_SUPERVISOR.telegram_id].startswith("⏸")
+        assert WORKER.full_name in texts[GLOBAL_SUPERVISOR.telegram_id]
+        assert "material tugadi" in texts[GLOBAL_SUPERVISOR.telegram_id], "sabab tushib qoldi"
+
+        bot = _FakeBot()
+        await ns.notify_stage_resumed(bot, TASK.id, WORKER.id)
+        assert all(text.startswith("▶️") for _, text in bot.sent), bot.sent
+        assert len(bot.sent) == 2, bot.sent
+
+        # Amalni bajargan nazoratchining o'ziga qayta xabar ketmasin.
+        bot = _FakeBot()
+        await ns.notify_stage_paused(bot, TASK.id, GLOBAL_SUPERVISOR.id, None)
+        assert GLOBAL_SUPERVISOR.telegram_id not in {chat for chat, _ in bot.sent}, bot.sent
+        assert SHPON_SUPERVISOR.telegram_id in {chat for chat, _ in bot.sent}, bot.sent
+
+        # --- 10. Nazoratchi FAQAT "Fasad seh"ni ko'radi ---
         # Bo'limsiz nazoratchi ilgari ikkala modulni olardi, natijada modul
         # tanlash ekrani va Profildagi "tizimni almashtirish" tugmasi chiqardi.
         from miniapp.api.common import _resolve_available_modules
@@ -248,5 +270,9 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except AssertionError as exc:
+        # Windows konsoli (cp1251) emoji'ni chiqara olmaydi — xabar matnlari
+        # esa emoji bilan boshlanadi, ya'ni FAIL chiqishining o'zi
+        # UnicodeEncodeError bilan qulab, xatoni yashirib qo'yardi.
+        sys.stdout.reconfigure(errors="replace")
         print(f"FAIL: {exc}")
         sys.exit(1)

@@ -14,10 +14,21 @@ from datetime import datetime, timezone
 from core.database import async_session
 from db.models.task_claim import TaskClaim
 from db.repositories import EmployeeRepository, TaskClaimRepository, TaskRepository
-from services import penalty_service, timer_service
+from services import notification_service, penalty_service, timer_service
 from utils.enums import ClaimActionType, ClaimStatus, Role, TaskStatus
 
 logger = logging.getLogger(__name__)
+
+
+async def _notify_supervisors_safely(fn, bot, *args) -> None:
+    """Bildirishnoma — ikkilamchi ta'sir: xatosi tasdiqlashni bekor qilmasligi
+    kerak. `bot=None` (skript/smoke chaqiruvlari) — jim o'tkaziladi."""
+    if bot is None:
+        return
+    try:
+        await fn(bot, *args)
+    except Exception:
+        logger.exception("approve_claim: nazoratchi bildirishnomasi yuborilmadi (%s)", fn.__name__)
 
 
 class ClaimNotFoundError(Exception):
@@ -163,8 +174,17 @@ async def approve_claim(claim_id: int, reviewer_employee_id: int, bot=None) -> T
             # yozuvini yopadi, muddat/ball hisobi to'xtash vaqtiga bog'liq
             # emas — shu sabab tasdiqlash kechikishi bu yerda ta'sir qilmaydi.
             await timer_service.resume_task(task_id, employee_id)
+            # Amal HAQIQATAN bajarilgandan keyin nazoratchiga xabar. Ilgari bu
+            # yo'l hech qanday xabar yubormasdi: ish to'xtaganini/qayta
+            # boshlanganini so'rov yuborgan odamdan boshqa hech kim bilmasdi.
+            await _notify_supervisors_safely(
+                notification_service.notify_stage_resumed, bot, task_id, employee_id
+            )
         else:
             await timer_service.stop_task(task_id, employee_id, reason or "", stopped_at=claimed_at)
+            await _notify_supervisors_safely(
+                notification_service.notify_stage_paused, bot, task_id, employee_id, reason
+            )
     except (timer_service.InvalidTaskStateError, timer_service.TaskNotFoundError) as exc:
         # Claim soatlab PENDING turgan bo'lishi mumkin (eskalatsiya +24 soatgacha),
         # shu orada task mustaqil ravishda holat almashtirgan bo'lishi mumkin

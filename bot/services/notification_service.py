@@ -680,6 +680,58 @@ async def notify_stage_completed(bot: Bot, task_id: int) -> None:
         await _send(bot, telegram_id, text)
 
 
+async def _notify_supervisors_about_task(bot: Bot, task_id: int, template: str, employee_id: int | None) -> None:
+    """`notify_stage_paused`/`notify_stage_resumed` uchun umumiy qism:
+    vazifani o'qiydi, nazoratchilarni yig'adi va uchinchi shaxsdagi matnni
+    yuboradi. `template` ichida {who}, {title}, {department} o'rinlari."""
+    async with async_session() as session:
+        task = await TaskRepository(session).get_by_id(task_id)
+        if task is None:
+            return
+        recipients: dict[int, int | None] = {}
+        await _add_supervisors(session, recipients, task.current_department_id)
+        # Amalni o'zi bajargan nazoratchi ikkinchi xabarni olmaydi.
+        recipients.pop(employee_id, None)
+        if not recipients:
+            return
+        department = await _department_name(session, task.current_department_id)
+        employee = (
+            await EmployeeRepository(session).get_by_id(employee_id) if employee_id is not None else None
+        )
+
+    text = template.format(
+        who=employee.full_name if employee is not None else "Tizim",
+        title=task.title,
+        department=department or "—",
+    )
+    for telegram_id in recipients.values():
+        await _send(bot, telegram_id, text)
+
+
+async def notify_stage_paused(bot: Bot, task_id: int, employee_id: int | None, reason: str | None) -> None:
+    """Vazifa HAQIQATAN to'xtatilganda nazoratchiga xabar.
+
+    Nega alohida: mebelda "Stop" ikki bosqichli — brigadir so'rov yuboradi
+    (`notify_claim_submitted`), rahbar tasdiqlaydi va faqat SHUNDA
+    `timer_service.stop_task()` ishlaydi. Tasdiqlash yo'li
+    (`claim_service.approve_claim`) esa hech qanday "to'xtatildi" xabarini
+    yubormasdi — ya'ni ish to'xtaganini so'rov yuborgan odamdan boshqa
+    HECH KIM bilmasdi. `notify_task_stopped` bu yerda ishlatilmaydi: u
+    ishchi/sotuvchi/guruhga ham yozadi, ya'ni muzlatilgan modulning xabar
+    oqimini kengaytirardi — bu yerda faqat nazoratchi qamrovi tuzatiladi."""
+    suffix = f"\nSabab: {reason}" if reason else ""
+    await _notify_supervisors_about_task(
+        bot, task_id, "⏸ {who} — \"{title}\" ishini to'xtatdi\nBo'lim: {department}" + suffix, employee_id
+    )
+
+
+async def notify_stage_resumed(bot: Bot, task_id: int, employee_id: int | None) -> None:
+    """To'xtatilgan vazifa qayta ishga tushganda nazoratchiga xabar."""
+    await _notify_supervisors_about_task(
+        bot, task_id, "▶️ {who} — \"{title}\" ishini davom ettirdi\nBo'lim: {department}", employee_id
+    )
+
+
 async def notify_reassignment_candidate(bot: Bot, task_id: int) -> None:
     """8.3-band: 48 soatdan ortiq kechikkan buyurtma uchun avtomatik-
     aniqlangan brigadaga-o'tkazish signali — bo'lim NAZORATCHI(lari) + barcha
