@@ -23,8 +23,18 @@ def _resolve_available_modules(employee: Employee, department: Department | None
     if employee.role == Role.ADMIN:
         return [MEBEL, NAZORAT_TRELLO]
     if employee.role == Role.SUPERVISOR:
+        # Bo'limsiz nazoratchi ilgari IKKALA modulni ko'rardi. Amalda
+        # nazoratchi — "Fasad seh"ning sex nachalnigi (TZ 2-band: "yo'nalish
+        # ustida NAZORATCHI"), Nazorat Trello unga umuman begona. Ikkala
+        # modulni ko'rsatish faqat chalkashlik tug'dirardi: modul tanlash
+        # ekrani ochilardi va Profilda "tizimni almashtirish" tugmasi turardi.
+        #
+        # ponytail: rol darajasida qat'iy bog'langan. Nazorat Trelloga o'z
+        # nazoratchisi kerak bo'lganda to'g'ri yo'l — unga o'sha modulning
+        # bo'limini biriktirish (pastdagi tarmoq buni allaqachon uddalaydi),
+        # `employees`ga modul ustuni qo'shish emas.
         if employee.department_id is None:
-            return [MEBEL, NAZORAT_TRELLO]
+            return [MEBEL]
         return [department.module] if department else [MEBEL]
     if employee.department_id is not None:
         return [department.module] if department else [MEBEL]

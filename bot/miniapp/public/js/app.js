@@ -2589,7 +2589,7 @@ async function screenProfile() {
       <button class="lang-pill ${state.lang === "uz" ? "active" : ""}" data-lang="uz">🇺🇿 O'zbekcha</button>
       <button class="lang-pill ${state.lang === "ru" ? "active" : ""}" data-lang="ru">🇷🇺 Русский</button>
     </div>
-    ${me.role === "admin" || me.role === "supervisor" ? `
+    ${me.role === "admin" ? `
       <p class="section-lbl">${esc(t("management"))}</p>
       <button class="nav-card" id="nav-settings"><span class="ic">${icon("settings")}</span><span class="grow">${esc(t("settingsNav"))}</span><span class="chev">›</span></button>
     ` : ""}

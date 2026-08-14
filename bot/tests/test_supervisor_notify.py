@@ -15,6 +15,7 @@ Bazaga/Telegram'ga ulanmaydi. Oddiy `python tests/test_supervisor_notify.py`.
 
 import asyncio
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -49,7 +50,11 @@ PEOPLE = [GLOBAL_SUPERVISOR, SHPON_SUPERVISOR, SHKURKA_SUPERVISOR, WORKER]
 
 TASK = SimpleNamespace(
     id=162, title="2529 Salamatina spalniy", task_type=TaskType.ORDER,
-    current_department_id=SHPON, deadline=None, finished_at=None,
+    current_department_id=SHPON,
+    # 3 kun + bir oz zaxira: `_deadline_window()` kunni pastga yaxlitlaydi,
+    # ya'ni aniq 72 soat chegarada "2 kun" bo'lib qolishi mumkin edi.
+    deadline=datetime.now(timezone.utc) + timedelta(days=3, hours=1),
+    finished_at=None,
 )
 MISC_TASK = SimpleNamespace(
     id=900, title="Ofis ishi", task_type=TaskType.MISC,
@@ -95,6 +100,20 @@ class _FakeDepartmentRepo:
         return SimpleNamespace(id=department_id, name=names[department_id], module="mebel")
 
 
+KPI_LOGS = {
+    1: SimpleNamespace(id=1, employee_id=WORKER.id, score=-8, reason="Kechikish: 94 soat"),
+    2: SimpleNamespace(id=2, employee_id=WORKER.id, score=1, reason="27 soat oldin tugatildi"),
+}
+
+
+class _FakeKpiRepo:
+    def __init__(self, _session):
+        pass
+
+    async def get_by_id(self, kpi_log_id):
+        return KPI_LOGS.get(kpi_log_id)
+
+
 class _FakeSession:
     async def __aenter__(self):
         return None
@@ -113,12 +132,13 @@ class _FakeBot:
 
 async def main() -> None:
     saved = (ns.async_session, ns.EmployeeRepository, ns.TaskRepository,
-             ns.TaskAssignmentRepository, ns.DepartmentRepository)
+             ns.TaskAssignmentRepository, ns.DepartmentRepository, ns.KpiLogRepository)
     ns.async_session = lambda: _FakeSession()
     ns.EmployeeRepository = _FakeEmployeeRepo
     ns.TaskRepository = _FakeTaskRepo
     ns.TaskAssignmentRepository = _FakeAssignmentRepo
     ns.DepartmentRepository = _FakeDepartmentRepo
+    ns.KpiLogRepository = _FakeKpiRepo
     try:
         # --- 1. _add_supervisors: kim qo'shiladi, kim yo'q ---
         recipients: dict[int, int | None] = {}
@@ -157,10 +177,71 @@ async def main() -> None:
         await ns.notify_stage_completed(bot, MISC_TASK.id)
         assert bot.sent == [], "MISC vazifa uchun bosqich xabari yuborildi"
 
-        print("OK — nazoratchi signallari (bo'limsiz + bo'limli), TZ 7.2 bosqich xabari")
+        # --- 6. "Yangi vazifa" — nazoratchiga UCHINCHI SHAXS ohangida ---
+        # Ishchiga "Sizga yangi vazifa" boradi; nazoratchiga esa kim olgani.
+        bot = _FakeBot()
+        await ns.notify_task_started(bot, TASK.id)
+        by_chat = {chat: text for chat, text in bot.sent}
+
+        assert GLOBAL_SUPERVISOR.telegram_id in by_chat, (
+            "nazoratchi 'yangi vazifa' hodisasi haqida umuman xabar olmadi"
+        )
+        assert "Sizga" not in by_chat[GLOBAL_SUPERVISOR.telegram_id], (
+            "nazoratchiga ishchi matni ketdi — uchinchi shaxs ohangi kutilgan"
+        )
+        assert WORKER.full_name in by_chat[GLOBAL_SUPERVISOR.telegram_id]
+        assert "ishini oldi" in by_chat[GLOBAL_SUPERVISOR.telegram_id]
+        assert "(3 kun)" in by_chat[GLOBAL_SUPERVISOR.telegram_id], (
+            f"muddat oynasi ko'rinmadi: {by_chat[GLOBAL_SUPERVISOR.telegram_id]!r}"
+        )
+        assert by_chat[WORKER.telegram_id].startswith("🆕 Yangi vazifa"), (
+            "ishchining o'z xabari o'zgarib ketdi"
+        )
+
+        # --- 7. Jarima VA bonus — ikkalasi ham nazoratchiga ---
+        for kpi_id, marker in ((1, "📉"), (2, "📈")):
+            bot = _FakeBot()
+            await ns.notify_penalty_applied(bot, kpi_id)
+            supervisor_texts = [
+                text for chat, text in bot.sent
+                if chat in (GLOBAL_SUPERVISOR.telegram_id, SHPON_SUPERVISOR.telegram_id)
+            ]
+            assert len(supervisor_texts) == 2, f"kpi {kpi_id}: {supervisor_texts}"
+            assert all(txt.startswith(marker) for txt in supervisor_texts), supervisor_texts
+            assert all(WORKER.full_name in txt for txt in supervisor_texts)
+            worker_text = next(text for chat, text in bot.sent if chat == WORKER.telegram_id)
+            assert "Sizga" in worker_text, "ishchining o'z xabari o'zgarib ketdi"
+
+        # --- 8. Ikki marta yubormaslik: nazoratchi ayni paytda ijrochi ---
+        # `_supervisor_chat_ids` asosiy matnni olganlarni chiqarib tashlashi kerak.
+        chat_ids = await ns._supervisor_chat_ids(None, SHPON, {GLOBAL_SUPERVISOR.id})
+        assert GLOBAL_SUPERVISOR.telegram_id not in chat_ids, chat_ids
+        assert SHPON_SUPERVISOR.telegram_id in chat_ids, chat_ids
+
+        # --- 9. Nazoratchi FAQAT "Fasad seh"ni ko'radi ---
+        # Bo'limsiz nazoratchi ilgari ikkala modulni olardi, natijada modul
+        # tanlash ekrani va Profildagi "tizimni almashtirish" tugmasi chiqardi.
+        from miniapp.api.common import _resolve_available_modules
+        from utils.modules import MEBEL, NAZORAT_TRELLO
+
+        assert _resolve_available_modules(GLOBAL_SUPERVISOR, None) == [MEBEL], (
+            "bo'limsiz nazoratchiga Nazorat Trello ham ko'rinyapti"
+        )
+        # Admin — avvalgidek ikkalasi (bu o'zgarish nazoratchiga tegishli).
+        admin = SimpleNamespace(role=Role.ADMIN, department_id=None)
+        assert _resolve_available_modules(admin, None) == [MEBEL, NAZORAT_TRELLO]
+        # Bo'lim biriktirilgan nazoratchi — o'sha bo'limning moduli.
+        nazorat_dept = SimpleNamespace(module=NAZORAT_TRELLO)
+        scoped = SimpleNamespace(role=Role.SUPERVISOR, department_id=75)
+        assert _resolve_available_modules(scoped, nazorat_dept) == [NAZORAT_TRELLO], (
+            "bo'lim orqali Nazorat Trello nazoratchisi qilish yo'li yopilib qolgan"
+        )
+
+        print("OK — nazoratchi signallari, TZ 7.2 bosqich xabari, "
+              "yangi vazifa/ball xabarlari, dublikat himoyasi, modul qamrovi")
     finally:
         (ns.async_session, ns.EmployeeRepository, ns.TaskRepository,
-         ns.TaskAssignmentRepository, ns.DepartmentRepository) = saved
+         ns.TaskAssignmentRepository, ns.DepartmentRepository, ns.KpiLogRepository) = saved
 
 
 if __name__ == "__main__":

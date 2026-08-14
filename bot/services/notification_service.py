@@ -104,6 +104,35 @@ async def _add_supervisors(session, recipients: dict, department_id: int | None)
             recipients[employee.id] = employee.telegram_id
 
 
+async def _supervisor_chat_ids(session, department_id: int | None, exclude: set[int]) -> list:
+    """Nazoratchilarning chat id'lari, ASOSIY matnni allaqachon olganlarsiz.
+
+    Nega alohida ro'yxat, `recipients`ga qo'shish emas: nazoratchiga ishchi
+    matni ("Sizga yangi vazifa") mos kelmaydi — unga hodisa uchinchi shaxs
+    ohangida kerak ("Mahmudov Abrorxon ishni oldi"). `exclude` bitta odam
+    ikki xil matnli xabarni birato'la olib qolmasligi uchun (nazoratchi ayni
+    paytda ijrochi yoki rahbar bo'lib qolgan holat)."""
+    recipients: dict[int, int | None] = {}
+    await _add_supervisors(session, recipients, department_id)
+    return [
+        telegram_id
+        for employee_id, telegram_id in recipients.items()
+        if employee_id not in exclude and telegram_id
+    ]
+
+
+def _deadline_window(deadline) -> str:
+    """"(3 kun)" / "(14 soat)" — muddat qancha qolganini nazoratchi bir
+    qarashda ko'rishi uchun. Muddat yo'q yoki o'tib ketgan bo'lsa bo'sh."""
+    if deadline is None:
+        return ""
+    seconds = (deadline - datetime.now(timezone.utc)).total_seconds()
+    if seconds <= 0:
+        return ""
+    days = int(seconds // 86400)
+    return f" ({days} kun)" if days >= 1 else f" ({int(seconds // 3600)} soat)"
+
+
 async def _add_managers(session, recipients: dict, department_id: int | None) -> None:
     """SPEC.md §7/§8: "rahbar (`user.manager_id`) ham xabarnomaga ulanadi".
     Mavjud qabul qiluvchilarning bevosita rahbarlarini qo'shadi. Mebel
@@ -247,6 +276,9 @@ async def notify_task_started(bot: Bot, task_id: int) -> None:
             for employee_id, telegram_id in with_managers.items()
             if employee_id not in assignee_ids
         ]
+        supervisor_chat_ids = await _supervisor_chat_ids(
+            session, task.current_department_id, set(with_managers)
+        )
 
     department_line = f"\nBo'lim: {department_name}" if department_name else ""
     text = (
@@ -261,6 +293,17 @@ async def notify_task_started(bot: Bot, task_id: int) -> None:
 
     for telegram_id in manager_chat_ids:
         await _send(bot, telegram_id, f"👤 Bo'ysunuvchingiz {assignee_names}ga vazifa berildi.\n{text}")
+
+    # Nazoratchi butun jarayonni kuzatadi (TZ 3-band: "muddatlarni kuzatish"),
+    # shu sabab ishga kim va qancha muddatga o'tirganini ham biladi. Matn
+    # ataylab uchinchi shaxsda — ijrochining "Sizga yangi vazifa" xabari
+    # nazoratchi uchun ma'nosiz.
+    supervisor_text = (
+        f"👷 {assignee_names} — \"{task.title}\" ishini oldi{department_line}\n"
+        f"Muddat: {_format_dt(task.deadline)}{_deadline_window(task.deadline)}"
+    )
+    for telegram_id in supervisor_chat_ids:
+        await _send(bot, telegram_id, supervisor_text)
 
     # SPEC.md §8: "Yangi vazifa biriktirildi -> Mas'ul (shaxsiy) + sex guruhi".
     # Guruhga Mini App tugmasi qo'yilmaydi — `web_app` tugmasi faqat shaxsiy
@@ -428,6 +471,14 @@ async def notify_penalty_applied(bot: Bot, kpi_log_id: int) -> None:
         ):
             manager = await employee_repo.get_by_id(employee.manager_id)
 
+        # Nazoratchiga JARIMA ham, BONUS ham boradi (rahbar zanjiridan farqli
+        # o'laroq — u faqat jarimani oladi). Sababi: nazoratchi uchun "kim
+        # muddatidan oldin tugatdi" ham ish holati haqidagi ma'lumot, bezovta
+        # qilish emas. Bo'lim KPI yozuvida yo'q, shuning uchun xodimning
+        # O'Z bo'limi ishlatiladi.
+        exclude = {employee.id} | ({manager.id} if manager is not None else set())
+        supervisor_chat_ids = await _supervisor_chat_ids(session, employee.department_id, exclude)
+
     title = "🎁 Sizga bonus ball yozildi" if kpi_log.score > 0 else "⚠️ Sizga jarima ball yozildi"
     text = f"{title}: {kpi_log.score:+d} ball\nSabab: {kpi_log.reason}"
     await _send(bot, employee.telegram_id, text)
@@ -438,6 +489,13 @@ async def notify_penalty_applied(bot: Bot, kpi_log_id: int) -> None:
             f"⚠️ Bo'ysunuvchingiz {employee.full_name}ga jarima ball yozildi: "
             f"{kpi_log.score:+d}\nSabab: {kpi_log.reason}",
         )
+
+    supervisor_text = (
+        f"{'📈' if kpi_log.score > 0 else '📉'} {employee.full_name}: "
+        f"{kpi_log.score:+d} ball\nSabab: {kpi_log.reason}"
+    )
+    for telegram_id in supervisor_chat_ids:
+        await _send(bot, telegram_id, supervisor_text)
 
 
 _REMINDER_HEADERS = {
@@ -735,6 +793,15 @@ async def notify_task_reassigned(
         new_recipients = {
             e.id: e.telegram_id for e in [await employee_repo.get_by_id(i) for i in new_employee_ids] if e is not None
         }
+        old_names = ", ".join(
+            e.full_name for e in [await employee_repo.get_by_id(i) for i in old_employee_ids] if e is not None
+        ) or "—"
+        new_names = ", ".join(
+            e.full_name for e in [await employee_repo.get_by_id(i) for i in new_employee_ids] if e is not None
+        ) or "—"
+        supervisor_chat_ids = await _supervisor_chat_ids(
+            session, task.current_department_id, set(old_recipients) | set(new_recipients)
+        )
 
     old_text = f"🔁 \"{task.title}\" boshqa brigadaga o'tkazildi. Sizning brigadangiz ushbu buyurtma bo'yicha jarimalandi."
     new_text = f"🔁 Sizning brigadangizga yangi buyurtma o'tkazildi: \"{task.title}\"\nMuddat: {_format_dt(task.deadline)}"
@@ -743,6 +810,13 @@ async def notify_task_reassigned(
         await _send(bot, telegram_id, old_text)
     for telegram_id in new_recipients.values():
         await _send(bot, telegram_id, new_text)
+
+    supervisor_text = (
+        f"🔁 \"{task.title}\" brigadasi almashtirildi\n"
+        f"{old_names} → {new_names}\nMuddat: {_format_dt(task.deadline)}"
+    )
+    for telegram_id in supervisor_chat_ids:
+        await _send(bot, telegram_id, supervisor_text)
 
 
 async def notify_lead_follow_up(bot: Bot, lead_id: int) -> None:
