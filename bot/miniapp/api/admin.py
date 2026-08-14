@@ -16,6 +16,7 @@ from db.repositories import (
     DepartmentForkTargetRepository,
     DepartmentRepository,
     EmployeeRepository,
+    KpiLogRepository,
     PenaltyRuleRepository,
     TaskAssignmentRepository,
     TaskClaimRepository,
@@ -554,6 +555,38 @@ async def employee_detail(request: web.Request) -> web.Response:
             "manager_id": employee.manager_id,  # SPEC.md §7/§8
             "is_active": employee.is_active,
             "telegram_linked": employee.telegram_id is not None,
+        }
+    )
+
+
+@routes.get("/employees/{employee_id}/score")
+async def employee_score(request: web.Request) -> web.Response:
+    """Nazoratchi uchun: bitta xodimning shu oygi ball tarixi — har bir
+    minus/plus qayerdan kelgani. `miniapp/api/worker.py`'ning `/score`
+    endpointi bilan bir xil shakl, farqi — xodim o'zi emas, BOSHQA xodim
+    so'raladi, shu sabab `_department_scope_ok()` bilan qo'riqlanadi
+    (bo'lim doirasidan tashqaridagi xodim 404 qaytaradi).
+
+    Nega kerak: TZ 0-band asosiy maqsadi "ishlamayotgan xodimni raqamlar
+    bilan aniqlash". Reyting kimni ko'rsatadi, bu ekran esa NEGA ekanini —
+    aks holda nazoratchi -8 ballni ko'radi-yu sababini bilmaydi."""
+    employee_id = int(request.match_info["employee_id"])
+    async with async_session() as session:
+        employee = await EmployeeRepository(session).get_by_id(employee_id)
+        if employee is None or not _department_scope_ok(request, employee.department_id):
+            return err("not_found", 404)
+
+        since, until = penalty_service.month_bounds(datetime.now(timezone.utc).date())
+        logs = await KpiLogRepository(session).list_by_employee_in_range(employee.id, since, until)
+
+    return web.json_response(
+        {
+            "full_name": employee.full_name,
+            "total": sum(log.score for log in logs),
+            "logs": [
+                {"score": log.score, "reason": log.reason, "created_at": log.created_at.isoformat()}
+                for log in logs
+            ],
         }
     )
 
@@ -1243,6 +1276,8 @@ async def list_orders(request: web.Request) -> web.Response:
     async with async_session() as session:
         task_repo = TaskRepository(session)
         department_repo = DepartmentRepository(session)
+        assignment_repo = TaskAssignmentRepository(session)
+        employee_repo = EmployeeRepository(session)
         scope = await module_scope(request, session)
         items = []
         for status in open_statuses:
@@ -1258,6 +1293,18 @@ async def list_orders(request: web.Request) -> web.Response:
                     if task.current_department_id
                     else None
                 )
+                # Nazoratchi ekrani uchun: "kim javobgar" ro'yxatda ko'rinishi
+                # kerak, aks holda har kechikkan ish uchun ichiga kirib
+                # qarash kerak bo'ladi.
+                # ponytail: vazifa boshiga bitta so'rov (N+1). Ochiq
+                # buyurtmalar soni o'nlab, yuzlab emas; sekinlashsa
+                # `selectinload(Task.assignments)` bilan bitta so'rovga
+                # yig'iladi.
+                assignees = []
+                for assignment in await assignment_repo.list_by_task(task.id):
+                    assignee = await employee_repo.get_by_id(assignment.employee_id)
+                    if assignee is not None:
+                        assignees.append(assignee.full_name)
                 items.append(
                     {
                         "id": task.id,
@@ -1267,6 +1314,7 @@ async def list_orders(request: web.Request) -> web.Response:
                         "department_id": task.current_department_id,
                         "deadline": task.deadline.isoformat() if task.deadline else None,
                         "is_urgent": task.is_urgent,
+                        "assignees": assignees,
                     }
                 )
 

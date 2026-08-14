@@ -303,6 +303,10 @@ body {
   display: grid; grid-template-columns: 26px 1fr auto; align-items: center; gap: 10px;
   background: var(--surface); border: 1px solid var(--line); border-radius: 11px; padding: 10px 12px;
 }
+/* Nazoratchi ekranida qator bosiladigan bo'ladi (xodimning ball tarixiga
+   kiradi) — `<button>` uchun brauzer standartlarini so'ndirish. Rahbardagi
+   oddiy `div.stat-row` qatorlariga tegmaydi. */
+.stat-row.tappable { font: inherit; color: inherit; text-align: left; width: 100%; cursor: pointer; }
 .stat-row .rank { font-family: var(--font-mono); font-weight: 700; color: var(--ink-faint); text-align: center; }
 .stat-row .nm { font-size: 13.5px; font-weight: 600; }
 .stat-row .completed { font-size: 11.5px; color: var(--ink-soft); }

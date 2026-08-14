@@ -30,7 +30,7 @@ from db.repositories import (
     TaskRepository,
     TaskSellerRepository,
 )
-from utils.enums import ClaimActionType, ReminderUrgency, Role
+from utils.enums import ClaimActionType, ReminderUrgency, Role, TaskType
 from utils.formatters import format_dt as _format_dt
 from utils.modules import MEBEL
 
@@ -80,6 +80,28 @@ async def _department_chat_id(session, department_id: int | None) -> str | None:
     if department is None or department.module == MEBEL:
         return None
     return department.telegram_chat_id
+
+
+async def _add_supervisors(session, recipients: dict, department_id: int | None) -> None:
+    """TZ 3-band/7.2-jadval: nazoratchi (sex nachalnigi) muddat signallarining
+    doimiy qabul qiluvchisi — "rahbarga boradigan barcha signallar unga ham
+    parallel boradi".
+
+    Ilgari bu tsikl sakkizta xabar funksiyasida ayni holda takrorlanardi va
+    faqat `list_by_department()` ni tekshirardi. Ya'ni BO'LIMSIZ nazoratchi
+    hech qanday signal olmasdi — vaholanki tizimning qolgan qismida bo'limsiz
+    SUPERVISOR "global" hisoblanadi (`miniapp/api/admin.py._department_scope_ok`
+    bilan bir xil kelishuv). Amalda mavjud yagona nazoratchining bo'limi bo'sh
+    edi, ya'ni TZ 7.2 jadvalidagi to'rt signalning HECH BIRI unga bormasdi:
+    Mini App'da hammasi ko'rinardi, Telegramga esa jimlik.
+
+    ponytail: bo'limsiz nazoratchi ikkala modulning signalini oladi. Bugun
+    zarari yo'q (Nazorat Trelloda 0 vazifa). Modul bo'yicha ajratish kerak
+    bo'lganda to'g'ri yo'l — nazoratchiga bo'lim biriktirish, `employees`ga
+    modul ustuni qo'shish emas."""
+    for employee in await EmployeeRepository(session).list_by_role(Role.SUPERVISOR):
+        if employee.department_id is None or employee.department_id == department_id:
+            recipients[employee.id] = employee.telegram_id
 
 
 async def _add_managers(session, recipients: dict, department_id: int | None) -> None:
@@ -309,8 +331,13 @@ async def notify_task_stopped(bot: Bot, stop_log_id: int) -> None:
                     if brigadier is not None:
                         recipients[brigadier.id] = brigadier.telegram_id
 
+        await _add_supervisors(session, recipients, task.current_department_id)
+        # ADMIN ataylab avvalgidek bo'lim bo'yicha qidiriladi — bu xabarning
+        # admin qamrovini kengaytirish alohida qaror (TZ 7.2 "Stop -> Rahbar"
+        # buni talab qiladi, lekin muzlatilgan modulda xabar oqimini
+        # o'zgartiradi). Bu yerdagi tuzatish faqat nazoratchiga tegishli.
         for employee in await employee_repo.list_by_department(task.current_department_id):
-            if employee.role in (Role.SUPERVISOR, Role.ADMIN):
+            if employee.role == Role.ADMIN:
                 recipients[employee.id] = employee.telegram_id
 
         # Fasad sex TZ Phase 5: buyurtmaga biriktirilgan sotuvchi(lar) ham
@@ -354,12 +381,7 @@ async def notify_stage_pending_setup(bot: Bot, task_id: int) -> None:
             return
 
         recipients: dict[int, int | None] = {}  # employee_id -> telegram_id
-        if task.current_department_id is not None:
-            for employee in await EmployeeRepository(session).list_by_department(
-                task.current_department_id
-            ):
-                if employee.role == Role.SUPERVISOR:
-                    recipients[employee.id] = employee.telegram_id
+        await _add_supervisors(session, recipients, task.current_department_id)
 
         for admin in await EmployeeRepository(session).list_by_role(Role.ADMIN):
             recipients[admin.id] = admin.telegram_id
@@ -483,10 +505,7 @@ async def notify_deadline_approaching(bot: Bot, task_id: int) -> None:
                     if brigadier is not None:
                         recipients[brigadier.id] = brigadier.telegram_id
 
-        if task.current_department_id is not None:
-            for employee in await employee_repo.list_by_department(task.current_department_id):
-                if employee.role == Role.SUPERVISOR:
-                    recipients[employee.id] = employee.telegram_id
+        await _add_supervisors(session, recipients, task.current_department_id)
 
     text = f"⏳ \"{task.title}\" vazifasiga muddatga 1 kun qoldi!\nMuddat: {_format_dt(task.deadline)}"
     for telegram_id in recipients.values():
@@ -516,10 +535,7 @@ async def notify_deadline_changed(bot: Bot, task_id: int, *, old_deadline) -> No
                     if brigadier is not None:
                         recipients[brigadier.id] = brigadier.telegram_id
 
-        if task.current_department_id is not None:
-            for employee in await employee_repo.list_by_department(task.current_department_id):
-                if employee.role == Role.SUPERVISOR:
-                    recipients[employee.id] = employee.telegram_id
+        await _add_supervisors(session, recipients, task.current_department_id)
 
     old_line = f"\nOldingi muddat: {_format_dt(old_deadline)}" if old_deadline else ""
     text = (
@@ -541,10 +557,7 @@ async def notify_task_overdue(bot: Bot, task_id: int) -> None:
         employee_repo = EmployeeRepository(session)
         recipients = await _collect_assignees(session, task_id)
 
-        if task.current_department_id is not None:
-            for employee in await employee_repo.list_by_department(task.current_department_id):
-                if employee.role == Role.SUPERVISOR:
-                    recipients[employee.id] = employee.telegram_id
+        await _add_supervisors(session, recipients, task.current_department_id)
 
         for admin in await employee_repo.list_by_role(Role.ADMIN):
             recipients[admin.id] = admin.telegram_id
@@ -558,6 +571,55 @@ async def notify_task_overdue(bot: Bot, task_id: int) -> None:
         await _send(bot, telegram_id, text)
     if group_chat_id:
         await _send(bot, group_chat_id, text)
+
+
+async def notify_stage_completed(bot: Bot, task_id: int) -> None:
+    """TZ 7.2-jadval: "Bosqich yakunlandi -> Nazoratchi (keyingi bosqichga
+    o'tgani)". Jadvaldagi to'rt signaldan yagona bajarilmagani edi.
+
+    Qabul qiluvchi FAQAT nazoratchi — ijrochi ishini tugatganini o'zi biladi
+    (mebelda kartani Trelloda o'zi ko'chirgan), ball haqida esa unga
+    `notify_penalty_applied` alohida boradi. Bu xabar nazoratchi uchun:
+    bosqich yopildi va zakas keyingisiga o'tdi.
+
+    Faqat ORDER uchun — MISC vazifada bo'lim ham, zanjir ham yo'q, "bosqich"
+    tushunchasi ma'nosiz."""
+    async with async_session() as session:
+        task = await TaskRepository(session).get_by_id(task_id)
+        if task is None or task.task_type != TaskType.ORDER:
+            return
+
+        recipients: dict[int, int | None] = {}
+        await _add_supervisors(session, recipients, task.current_department_id)
+        if not recipients:
+            return  # nazoratchi yo'q — yuboradigan odam ham yo'q
+
+        department = await _department_name(session, task.current_department_id)
+        employee_repo = EmployeeRepository(session)
+        names = []
+        for assignment in await TaskAssignmentRepository(session).list_by_task(task_id):
+            employee = await employee_repo.get_by_id(assignment.employee_id)
+            if employee is not None:
+                names.append(employee.full_name)
+
+    timing = ""
+    if task.deadline is not None and task.finished_at is not None:
+        delta = (task.finished_at - task.deadline).total_seconds()
+        hours = int(abs(delta) // 3600)
+        if delta > 0:
+            timing = f"\n⚠️ {hours} soat kechikdi"
+        elif hours > 0:
+            timing = f"\n✅ Muddatidan {hours} soat oldin"
+        else:
+            timing = "\n✅ Muddatida"
+
+    text = (
+        f"🏁 Bosqich yakunlandi: \"{task.title}\"\n"
+        f"Bo'lim: {department or '—'}\n"
+        f"Ijrochi: {', '.join(names) or '—'}{timing}"
+    )
+    for telegram_id in recipients.values():
+        await _send(bot, telegram_id, text)
 
 
 async def notify_reassignment_candidate(bot: Bot, task_id: int) -> None:
@@ -574,10 +636,7 @@ async def notify_reassignment_candidate(bot: Bot, task_id: int) -> None:
         employee_repo = EmployeeRepository(session)
         recipients: dict[int, int | None] = {}
 
-        if task.current_department_id is not None:
-            for employee in await employee_repo.list_by_department(task.current_department_id):
-                if employee.role == Role.SUPERVISOR:
-                    recipients[employee.id] = employee.telegram_id
+        await _add_supervisors(session, recipients, task.current_department_id)
 
         for admin in await employee_repo.list_by_role(Role.ADMIN):
             recipients[admin.id] = admin.telegram_id
@@ -736,10 +795,7 @@ async def notify_claim_submitted(bot: Bot, claim_id: int) -> None:
                 if brigadier is not None:
                     recipients[brigadier.id] = brigadier.telegram_id
 
-        if task.current_department_id is not None:
-            for employee in await employee_repo.list_by_department(task.current_department_id):
-                if employee.role == Role.SUPERVISOR:
-                    recipients[employee.id] = employee.telegram_id
+        await _add_supervisors(session, recipients, task.current_department_id)
         for admin in await employee_repo.list_by_role(Role.ADMIN):
             recipients[admin.id] = admin.telegram_id
 
@@ -870,10 +926,7 @@ async def notify_claim_reminder(bot: Bot, claim_id: int, stage: int) -> None:
                 if brigadier is not None:
                     recipients[brigadier.id] = brigadier.telegram_id
 
-        if task.current_department_id is not None:
-            for employee in await employee_repo.list_by_department(task.current_department_id):
-                if employee.role == Role.SUPERVISOR:
-                    recipients[employee.id] = employee.telegram_id
+        await _add_supervisors(session, recipients, task.current_department_id)
         for admin in await employee_repo.list_by_role(Role.ADMIN):
             recipients[admin.id] = admin.telegram_id
 
@@ -913,10 +966,7 @@ async def notify_reconciliation_needed(bot: Bot, task_id: int) -> None:
                     if brigadier is not None:
                         recipients[brigadier.id] = brigadier.telegram_id
 
-        if task.current_department_id is not None:
-            for employee in await employee_repo.list_by_department(task.current_department_id):
-                if employee.role == Role.SUPERVISOR:
-                    recipients[employee.id] = employee.telegram_id
+        await _add_supervisors(session, recipients, task.current_department_id)
         for admin in await employee_repo.list_by_role(Role.ADMIN):
             recipients[admin.id] = admin.telegram_id
 

@@ -376,6 +376,16 @@ async def finalize_task_and_apply_penalty(
         kpi_logs = []
 
     await notify_kpi_logs(bot, kpi_logs)
+
+    # TZ 7.2-jadval: "Bosqich yakunlandi -> Nazoratchi". Shu yagona joyga
+    # qo'yilgan, chunki mebelning Trello-orqali avtomatik yopilishi ham,
+    # claim tasdiqlash ham, `daily_sync_job`ning arxiv-yopishi ham shu
+    # o'ramdan o'tadi. Ikkilamchi ta'sir: xatosi ballni bekor qilmaydi.
+    try:
+        await notification_service.notify_stage_completed(bot, task_id)
+    except Exception:
+        logger.exception("finalize_task_and_apply_penalty: notify_stage_completed xatosi (task_id=%s)", task_id)
+
     return kpi_logs
 
 

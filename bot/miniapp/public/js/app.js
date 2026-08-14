@@ -44,7 +44,20 @@ function tabDefsForRole(role, module) {
       { key: "profile", icon: icon("user"), label: "tab_profile", screen: screenProfile },
     ];
   }
-  if (role === "admin" || role === "supervisor") {
+  // TZ 2/3-band: nazoratchi (sex nachalnigi) — "biriktirilgan yo'nalish
+  // boardini boshqarish, MUDDATLARNI KUZATISH". Uning ekrani rahbarnikidan
+  // ataylab boshqacha: sozlama/xodim qo'shish/jarima jadvali emas, TZ 6.1
+  // dagi "Nazorat doskasi" mantiqi — kechikkan va to'xtatilgan ishlar bir
+  // joyda, tepasida tasdiqlash kutayotgan so'rovlar.
+  if (role === "supervisor") {
+    return [
+      { key: "control", icon: icon("alert"), label: "tab_control", screen: screenSupervisorHome },
+      { key: "orders", icon: icon("box"), label: "tab_orders", screen: screenSupervisorOrders },
+      { key: "employees", icon: icon("users"), label: "tab_employees", screen: screenSupervisorTeam },
+      { key: "profile", icon: icon("user"), label: "tab_profile", screen: screenProfile },
+    ];
+  }
+  if (role === "admin") {
     return [
       { key: "home", icon: icon("home"), label: "tab_home", screen: screenAdminHome },
       { key: "stats", icon: icon("chart"), label: "tab_stats", screen: screenFullStats },
@@ -1124,50 +1137,190 @@ async function screenAddEmployee() {
   }, "#4f3ff0");
 }
 
+/* Tasdiqlash kartalari IKKI ekranda chiqadi (rahbarning "Tasdiqlash
+   kutilmoqda" ro'yxati va nazoratchining bosh ekrani), shu sabab bitta
+   joyda. `.js-claim` — bog'lash uchun alohida selektor: `.fin-card` bir
+   ekranda boshqa maqsadda ham ishlatilishi mumkin. */
+function claimCardsHtml(claims) {
+  return claims.map((c, i) => `
+    <div class="fin-card js-claim" data-i="${i}">
+      <div class="top">
+        <span class="task">${esc(c.employee_name || "—")} — ${esc(c.task_title || "")}</span>
+        <span class="status-pill warn">${esc(t(CLAIM_ACTION_KEYS[c.action_type]))}</span>
+      </div>
+      <p class="desc">${esc(formatDt(c.claimed_at))}${c.department ? " · " + esc(c.department) : ""}${c.reason ? " · " + esc(c.reason) : ""}</p>
+      <div class="amount-row">
+        <button class="btn primary f-approve">${icon("check")} ${esc(t("approveClaimBtn"))}</button>
+        <button class="btn danger f-reject">${icon("x")} ${esc(t("rejectClaimBtn"))}</button>
+      </div>
+    </div>
+  `).join("");
+}
+
+/* `refresh` — amaldan keyin qaysi ekran qayta chizilishi. `replaceTop`,
+   `show` emas: bir xil ekran yangi ma'lumot bilan qayta chiziladi, orqaga
+   qaytish steki o'smaydi. */
+function bindClaimCards(claims, refresh) {
+  root.querySelectorAll(".js-claim").forEach((card) => {
+    const item = claims[Number(card.dataset.i)];
+    if (!item) return;
+    const act = async (path, opts) => {
+      try {
+        await api(path, opts);
+        await replaceTop(refresh);
+      } catch (e) {
+        showError(e.message);
+      }
+    };
+    const approveBtn = card.querySelector(".f-approve");
+    if (approveBtn) approveBtn.onclick = () => act(`/admin/claims/${item.id}/approve`, { method: "POST" });
+    const rejectBtn = card.querySelector(".f-reject");
+    if (rejectBtn) rejectBtn.onclick = () => act(`/admin/claims/${item.id}/reject`, { method: "POST", body: JSON.stringify({}) });
+  });
+}
+
 async function screenPendingClaims() {
   setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
   const claims = await api("/admin/pending-claims");
   setScreen(`
     <p class="page-title">${esc(t("pendingClaimsTitle"))}</p>
-    ${claims.length ? claims.map((c, i) => `
-      <div class="fin-card" data-i="${i}">
-        <div class="top">
-          <span class="task">${esc(c.employee_name || "—")} — ${esc(c.task_title || "")}</span>
-          <span class="status-pill warn">${esc(t(CLAIM_ACTION_KEYS[c.action_type]))}</span>
-        </div>
-        <p class="desc">${esc(formatDt(c.claimed_at))}${c.reason ? " · " + esc(c.reason) : ""}</p>
-        <div class="amount-row">
-          <button class="btn primary f-approve">${icon("check")} ${esc(t("approveClaimBtn"))}</button>
-          <button class="btn danger f-reject">${icon("x")} ${esc(t("rejectClaimBtn"))}</button>
-        </div>
-      </div>
-    `).join("") : `<p class="empty-state">${esc(t("noPendingClaims"))}</p>`}
+    ${claims.length ? claimCardsHtml(claims) : `<p class="empty-state">${esc(t("noPendingClaims"))}</p>`}
   `);
-  root.querySelectorAll(".fin-card").forEach((card) => {
-    const item = claims[Number(card.dataset.i)];
-    const approveBtn = card.querySelector(".f-approve");
-    if (approveBtn) {
-      approveBtn.onclick = async () => {
-        try {
-          await api(`/admin/claims/${item.id}/approve`, { method: "POST" });
-          await replaceTop(screenPendingClaims);
-        } catch (e) {
-          showError(e.message);
-        }
-      };
-    }
-    const rejectBtn = card.querySelector(".f-reject");
-    if (rejectBtn) {
-      rejectBtn.onclick = async () => {
-        try {
-          await api(`/admin/claims/${item.id}/reject`, { method: "POST", body: JSON.stringify({}) });
-          await replaceTop(screenPendingClaims);
-        } catch (e) {
-          showError(e.message);
-        }
-      };
-    }
+  bindClaimCards(claims, screenPendingClaims);
+}
+
+/* ══ NAZORATCHI (sex nachalnigi) ekranlari ══════════════════════════════
+   TZ 2/3-band: "biriktirilgan yo'nalish boardini boshqarish, muddatlarni
+   kuzatish". TZ 6.1-band alohida "Nazorat" doskasini ham ta'riflaydi:
+   "barcha yo'nalishlardan KECHIKKAN va STOP'dagi kartalar shu yerda
+   jamlanadi" — bosh ekran aynan shu.
+
+   Rahbar (admin) ekranlaridan ataylab farq qiladi: sozlamalar, xodim
+   qo'shish, jarima jadvali va zakas yaratish yo'q. Nazoratchi kuzatadi va
+   so'rovlarni tasdiqlaydi. */
+
+function orderRowHtml(order, i) {
+  const who = order.assignees && order.assignees.length ? order.assignees.join(", ") : null;
+  return `
+    <button class="task-card ${statusClass(order.status)}" data-i="${i}">
+      <p class="t-title">${order.is_urgent ? "🔥 " : ""}${esc(order.title)}</p>
+      <p class="t-sub">${esc(order.department || "—")}${who ? " · " + esc(who) : ""}</p>
+      <span class="t-status">${taskStatusLine(order)}</span>
+    </button>
+  `;
+}
+
+function bindOrderRows(orders) {
+  root.querySelectorAll(".task-card").forEach((el) => {
+    const order = orders[Number(el.dataset.i)];
+    if (order) el.onclick = () => show(screenSupervisorOrderDetail, order);
   });
+}
+
+async function screenSupervisorHome() {
+  setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
+  const [dash, claims, orders] = await Promise.all([
+    api("/admin/dashboard"), api("/admin/pending-claims"), api("/admin/orders"),
+  ]);
+  const late = orders.filter((o) => o.status === "overdue");
+  const stopped = orders.filter((o) => o.status === "stopped");
+  const attention = late.concat(stopped);
+
+  setScreen(`
+    <p class="page-title">${esc(t("controlBoardTitle"))}</p>
+    <div class="hero-row">
+      <div class="hero-tile ${late.length ? "critical" : ""}"><span class="num">${late.length}</span><span class="lbl">${esc(t("lateNow"))}</span></div>
+      <div class="hero-tile ${stopped.length ? "warn" : ""}"><span class="num">${stopped.length}</span><span class="lbl">${esc(t("stoppedNow"))}</span></div>
+    </div>
+    <div class="hero-row">
+      <div class="hero-tile"><span class="num">${orders.length}</span><span class="lbl">${esc(t("openOrders"))}</span></div>
+      <div class="hero-tile ${heroTone(dash.avg_score)}"><span class="num">${scoreSigned(dash.avg_score)}</span><span class="lbl">${esc(t("avgScore"))}</span></div>
+    </div>
+
+    <p class="section-lbl">${esc(t("pendingClaimsTitle"))}${claims.length ? ` (${claims.length})` : ""}</p>
+    ${claims.length ? claimCardsHtml(claims) : `<p class="empty-state">${esc(t("noPendingClaims"))}</p>`}
+
+    <p class="section-lbl">${esc(t("needsAttention"))}</p>
+    ${attention.length ? attention.map(orderRowHtml).join("") : `<p class="empty-state">${esc(t("allOnTrack"))}</p>`}
+  `);
+  bindClaimCards(claims, screenSupervisorHome);
+  bindOrderRows(attention);
+}
+
+async function screenSupervisorOrders(filter) {
+  const active = filter || "all";
+  setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
+  const all = await api("/admin/orders");
+  const orders = active === "all" ? all : all.filter((o) => o.status === active);
+  const pills = [["all", "filterAll"], ["overdue", "filterLate"], ["stopped", "filterStopped"]];
+  setScreen(`
+    <p class="page-title">${esc(t("ordersNav"))} (${orders.length})</p>
+    <div class="lead-brand-row">
+      ${pills.map(([key, lbl]) => `<button class="brand-pill" data-f="${key}" aria-selected="${key === active}">${esc(t(lbl))}</button>`).join("")}
+    </div>
+    ${orders.length ? orders.map(orderRowHtml).join("") : `<p class="empty-state">${esc(t("noOrders"))}</p>`}
+  `);
+  root.querySelectorAll(".brand-pill").forEach((el) => {
+    el.onclick = () => replaceTop(screenSupervisorOrders, el.dataset.f);
+  });
+  bindOrderRows(orders);
+}
+
+async function screenSupervisorOrderDetail(order) {
+  const who = order.assignees && order.assignees.length ? order.assignees.join(", ") : "—";
+  setScreen(`
+    <p class="page-title">${order.is_urgent ? "🔥 " : ""}${esc(order.title)}</p>
+    <p class="page-sub">${esc(order.department || "—")}</p>
+    <div class="hero-row">
+      <div class="hero-tile"><span class="num" style="font-size:15px">${taskStatusLine(order)}</span><span class="lbl">${esc(t("statusLbl"))}</span></div>
+      <div class="hero-tile"><span class="num" style="font-size:15px">${esc(formatDt(order.deadline))}</span><span class="lbl">${esc(t("deadline"))}</span></div>
+    </div>
+    <p class="section-lbl">${esc(t("assigneeLbl"))}</p>
+    <p class="page-sub">${esc(who)}</p>
+    <p class="hint">${esc(t(isMebelModule() ? "supervisorOrderHintMebel" : "supervisorOrderHint"))}</p>
+  `);
+  hideMainButton();
+}
+
+async function screenSupervisorTeam() {
+  setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
+  // `/admin/stats` KPI rollarini o'zi filtrlaydi va ballni KAMAYISH
+  // tartibida qaytaradi. Nazoratchiga aynan teskarisi kerak: TZ 0-band
+  // maqsadi "ishlamayotgan xodimni aniqlash", ya'ni eng past ball birinchi.
+  const stats = (await api("/admin/stats")).slice().sort((a, b) => a.total_score - b.total_score);
+  setScreen(`
+    <p class="page-title">${esc(t("teamTitle"))} (${stats.length})</p>
+    <p class="page-sub">${esc(t("worstFirstHint"))}</p>
+    ${stats.length ? stats.map((s, i) => `
+      <button class="stat-row tappable" data-i="${i}">
+        <span class="rank">${i + 1}</span>
+        <span class="nm">${esc(s.full_name)}<div class="completed">${esc(ROLE_LABELS[state.lang][s.role] || s.role)} · ${s.completed_tasks} ${esc(t("completedThisMonth"))} · ${s.penalty_count} ${esc(t("penaltyCountLbl")).toLowerCase()}</div></span>
+        <span class="score ${scoreClass(s.total_score)}">${scoreSigned(s.total_score)}</span>
+      </button>
+    `).join("") : `<p class="empty-state">${esc(t("noStats"))}</p>`}
+  `);
+  root.querySelectorAll(".stat-row").forEach((el) => {
+    const s = stats[Number(el.dataset.i)];
+    if (s) el.onclick = () => show(screenSupervisorEmployeeScore, s.employee_id, s.full_name);
+  });
+}
+
+async function screenSupervisorEmployeeScore(employeeId, fullName) {
+  setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
+  const data = await api(`/admin/employees/${employeeId}/score`);
+  setScreen(`
+    <p class="page-title">${esc(data.full_name || fullName)}</p>
+    <div class="chart-box">
+      <div class="chart-head"><span>${esc(t("currentMonth"))}</span><span class="big ${scoreClass(data.total)}">${scoreSigned(data.total)}</span></div>
+    </div>
+    ${data.logs.length ? data.logs.map((l) => `
+      <div class="kpi-list-item ${scoreClass(l.score)}">
+        <span class="d">${formatDt(l.created_at).slice(0, 5)}</span>
+        <span class="why">${esc(l.reason)}</span>
+        <span class="amt">${scoreSigned(l.score)}</span>
+      </div>
+    `).join("") : `<p class="empty-state">${esc(t("noScoreYet"))}</p>`}
+  `);
 }
 
 function statRowsHtml(stats) {

@@ -249,6 +249,15 @@ async def finish_task(request: web.Request) -> web.Response:
 
     await penalty_service.notify_kpi_logs(bot, kpi_logs)
 
+    # TZ 7.2-jadval: "Bosqich yakunlandi -> Nazoratchi". Bu yo'l
+    # `finalize_task_and_apply_penalty` o'ramidan o'tmaydi (ball hisobini
+    # o'zi chaqiradi), shuning uchun xabarni ham o'zi yuboradi — xuddi
+    # `notify_kpi_logs` bilan bir xil sabab.
+    try:
+        await notification_service.notify_stage_completed(bot, task.id)
+    except Exception:
+        logger.exception("notify_stage_completed xatosi (task_id=%s)", task.id)
+
     if task.task_type == TaskType.ORDER:
         # Phase 3 (fork/join): advance_task_stage endi Task | list[Task] | None
         # qaytaradi — fork nuqtasida bir nechta yangi bosqich yaratiladi.
