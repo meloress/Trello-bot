@@ -2,6 +2,7 @@ from aiohttp import web
 
 from core.database import async_session
 from db.repositories import DepartmentRepository, TaskRepository
+from utils.enums import Role
 from utils.modules import MEBEL
 
 
@@ -37,6 +38,26 @@ def in_module(scope: set[int] | None, department_id: int | None) -> bool:
     `_department_scope_ok`dagi "bo'limsiz SUPERVISOR — cheklovsiz" qoidasi
     bilan bir xil."""
     return scope is None or department_id is None or department_id in scope
+
+
+def employee_in_module(scope: set[int] | None, module: str | None, employee) -> bool:
+    """`in_module` ustiga bitta istisno: bo'limsiz NAZORATCHI faqat
+    "Fasad seh"da ko'rinadi.
+
+    Umumiy qoida (`in_module`) bo'limi yo'q yozuvni "hech qaysi modulga
+    tegishli emas" deb hisoblab, IKKALASIDA ham ko'rsatadi. ADMIN uchun bu
+    to'g'ri — u haqiqatan ikkala modulni boshqaradi. SUPERVISOR uchun esa
+    noto'g'ri: nazoratchi — sexning nachalnigi (TZ 2-band), va
+    `miniapp/api/common._resolve_available_modules()` unga allaqachon faqat
+    "Fasad seh"ni beradi. Ro'yxatlarda esa u Nazorat Trelloda ham chiqib
+    turardi — ya'ni bitta odam ikki xil joyda ikki xil ma'noda ko'rinardi.
+
+    Nazorat Trelloga o'z nazoratchisi kerak bo'lganda — unga o'sha modulning
+    BO'LIMI biriktiriladi, shunda bu tarmoq umuman ishlamaydi va u faqat
+    o'z modulida ko'rinadi."""
+    if employee.department_id is None and employee.role == Role.SUPERVISOR:
+        return module is None or module == MEBEL
+    return in_module(scope, employee.department_id)
 
 
 async def is_mebel_task(task_id: int) -> bool:

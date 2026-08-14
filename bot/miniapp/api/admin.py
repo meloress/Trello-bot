@@ -24,7 +24,7 @@ from db.repositories import (
 )
 from config import settings
 from jobs import reminder_job, report_job
-from miniapp.util import current_module, err, in_module, module_scope
+from miniapp.util import current_module, employee_in_module, err, in_module, module_scope
 from services import (
     claim_service,
     client_service,
@@ -503,7 +503,8 @@ async def list_employees(request: web.Request) -> web.Response:
         )
         departments = {d.id: d.name for d in await department_repo.list_all()}
         scope = await module_scope(request, session)
-    employees = [e for e in employees if in_module(scope, e.department_id)]
+    module = current_module(request)
+    employees = [e for e in employees if employee_in_module(scope, module, e)]
 
     return web.json_response(
         [

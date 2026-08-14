@@ -83,6 +83,29 @@ async def main():
     assert not util.in_module(unknown, 1) and not util.in_module(unknown, 10)
     assert util.in_module(unknown, None)
 
+    # 7. Bo'limsiz NAZORATCHI — 5-banddagi umumiy qoidadan ISTISNO: u sexning
+    #    nachalnigi, ya'ni faqat "Fasad seh"ga tegishli. Ilgari ikkala
+    #    modulning Xodimlar ro'yxatida ham chiqib turardi.
+    from types import SimpleNamespace
+    from utils.enums import Role
+
+    supervisor = SimpleNamespace(department_id=None, role=Role.SUPERVISOR)
+    admin = SimpleNamespace(department_id=None, role=Role.ADMIN)
+    worker = SimpleNamespace(department_id=1, role=Role.WORKER)
+
+    assert util.employee_in_module(mebel, "mebel", supervisor)
+    assert not util.employee_in_module(fasad, "fasad_sex", supervisor), (
+        "bo'limsiz nazoratchi Nazorat Trelloda ham ko'rinyapti"
+    )
+    # ADMIN haqiqatan ikkala modulni boshqaradi — u o'zgarishsiz qoladi.
+    assert util.employee_in_module(mebel, "mebel", admin)
+    assert util.employee_in_module(fasad, "fasad_sex", admin)
+    # Bo'limi BOR xodim avvalgidek o'z moduli bo'yicha filtrlanadi.
+    assert util.employee_in_module(mebel, "mebel", worker)
+    assert not util.employee_in_module(fasad, "fasad_sex", worker)
+    # Sarlavhasiz chaqiruvchi (job/skript) — filtr yo'q, hamma o'tadi.
+    assert util.employee_in_module(None, None, supervisor)
+
     print("OK: test_module_isolation")
 
 
