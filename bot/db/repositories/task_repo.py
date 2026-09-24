@@ -6,7 +6,7 @@ from db.models.department import Department
 from db.models.task import Task
 from db.repositories.base import BaseRepository
 from utils.enums import MiscCategory, TaskStatus, TaskType
-from utils.modules import MEBEL
+from utils.modules import ENABLED_MODULES, MEBEL
 
 _OPEN_STATUSES = [TaskStatus.ACTIVE, TaskStatus.STOPPED]
 
@@ -35,6 +35,14 @@ def _timer_running():
         Task.status == TaskStatus.ACTIVE,
         func.coalesce(Department.module, MEBEL) == MEBEL,
     )
+
+
+def _module_enabled():
+    """Vaqtincha o'chirilgan modulning (`utils.modules.MEBEL_ENABLED`) ochiq
+    vazifalari job eslatmalariga tushmaydi — ular shunchaki muzlab turadi.
+    Bo'limi yo'q vazifalar (MISC) hech qaysi modulga tegishli emas, qoladi.
+    LEFT JOIN bilan ishlatiladi."""
+    return or_(Department.module.is_(None), Department.module.in_(ENABLED_MODULES))
 
 
 class TaskRepository(BaseRepository[Task]):
@@ -100,10 +108,13 @@ class TaskRepository(BaseRepository[Task]):
         """[since, until) oralig'ida muddati tugaydigan, berilgan status(lar)dagi
         vazifalar — kunlik eslatma job'i uchun (7.3-band)."""
         result = await self.session.execute(
-            select(Task).where(
+            select(Task)
+            .outerjoin(Department, Task.current_department_id == Department.id)
+            .where(
                 Task.deadline >= since,
                 Task.deadline < until,
                 Task.status.in_(statuses),
+                _module_enabled(),
             )
         )
         return list(result.scalars().all())
@@ -139,6 +150,7 @@ class TaskRepository(BaseRepository[Task]):
                     else_=now + timedelta(hours=within_hours),
                 ),
                 Task.day_left_notified_at.is_(None),
+                _module_enabled(),
             )
         )
         return list(result.scalars().all())
@@ -155,6 +167,7 @@ class TaskRepository(BaseRepository[Task]):
                 _timer_running(),
                 Task.deadline.isnot(None),
                 Task.deadline < now,
+                _module_enabled(),
             )
         )
         return list(result.scalars().all())
@@ -218,6 +231,7 @@ class TaskRepository(BaseRepository[Task]):
                 Department.auto_reassign_after_48h.is_(True),
                 Task.deadline < threshold,
                 Task.reassignment_signaled_at.is_(None),
+                _module_enabled(),
             )
         )
         return list(result.scalars().all())

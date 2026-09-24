@@ -2705,6 +2705,12 @@ async function _bootstrap() {
   }
 
   const modules = state.employee.available_modules || [MODULE.MEBEL];
+  // Xodimning yagona moduli vaqtincha o'chirilgan (hozir "Fasad seh",
+  // server `MEBEL_ENABLED`) — kiradigan joy yo'q.
+  if (modules.length === 0) {
+    setScreen(`<p class="error-banner">${esc(t("module_disabled"))}</p>`);
+    return;
+  }
   if (modules.length === 1) {
     nav.module = modules[0];
     routeHome();

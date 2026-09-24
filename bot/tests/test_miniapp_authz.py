@@ -234,11 +234,40 @@ async def test_inactive_and_unknown():
         await runner.cleanup()
 
 
+async def test_disabled_module():
+    """Vaqtincha o'chirilgan modul ("Fasad seh", `MEBEL_ENABLED=False`) —
+    `X-Module: mebel` so'rovi auth qatlamida 403; faol modul o'tadi."""
+    from miniapp.server import create_app
+    from utils.modules import MEBEL_ENABLED
+
+    if MEBEL_ENABLED:
+        print("  5-qatlam: Fasad seh yoqilgan — o'tkazib yuborildi")
+        return
+    restore = _install_fake_auth_db(_emp(Role.SUPERVISOR, department_id=3, telegram_id=555))
+    runner, port = await _serve(create_app(bot=object()))
+    base = f"http://127.0.0.1:{port}/api/miniapp"
+    try:
+        async with aiohttp.ClientSession() as http:
+            signed = {"X-Telegram-Init-Data": _sign_init_data(555)}
+            async with http.post(f"{base}/admin/departments/7", json={},
+                                 headers={**signed, "X-Module": "mebel"}) as r:
+                assert r.status == 403 and (await r.json())["error"] == "module_disabled", r.status
+            # Faol modul auth'dan o'tadi va endpointning o'z tekshiruviga yetadi.
+            async with http.post(f"{base}/admin/departments/7", json={},
+                                 headers={**signed, "X-Module": "fasad_sex"}) as r:
+                assert r.status == 403 and "doirangizda emas" in (await r.json())["error"], r.status
+        print("  5-qatlam: o'chirilgan modul rad etildi, faol modul o'tdi 2/2 OK")
+    finally:
+        await runner.cleanup()
+        restore()
+
+
 async def _main():
     test_scope_function()
     await test_http_layer()
     await test_role_gate()
     await test_inactive_and_unknown()
+    await test_disabled_module()
     print("test_miniapp_authz: HAMMASI OK")
 
 

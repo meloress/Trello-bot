@@ -10,7 +10,7 @@ from miniapp.util import err
 from services import employee_service
 from utils.enums import Role
 from utils.formatters import ROLE_LABELS
-from utils.modules import MEBEL, NAZORAT_TRELLO
+from utils.modules import ENABLED_MODULES, MEBEL, NAZORAT_TRELLO
 
 routes = web.RouteTableDef()
 
@@ -66,7 +66,11 @@ async def get_me(request: web.Request) -> web.Response:
             "department": department_name,
             "brigade": brigade_name,
             "language": employee.language,
-            "available_modules": _resolve_available_modules(employee, department),
+            # O'chirilgan modul (`MEBEL_ENABLED`) shu yerda chiqariladi, resolver
+            # ichida emas — u muzlatilgan qoidani saqlaydi, qayta yoqish = bayroq.
+            "available_modules": [
+                m for m in _resolve_available_modules(employee, department) if m in ENABLED_MODULES
+            ],
         }
     )
 

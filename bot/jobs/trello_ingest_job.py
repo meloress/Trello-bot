@@ -58,7 +58,7 @@ from services import notification_service, penalty_service, settings_service, ta
 from services.trello_board_map import build_board_map
 from trello.client import TrelloClient
 from utils.enums import TaskStatus, TrelloListKind
-from utils.modules import MEBEL
+from utils.modules import MEBEL, MEBEL_ENABLED
 
 logger = logging.getLogger(__name__)
 
@@ -309,6 +309,9 @@ async def _process_card(
 async def run(bot: Bot) -> None:
     """Scheduler shu funksiyani chaqiradi. Bitta ro'yxat/kartadagi xatolik
     qolganlarini to'xtatmaydi — har biri alohida try/except ichida."""
+    if not MEBEL_ENABLED:
+        logger.debug("trello_ingest_job: Fasad seh vaqtincha o'chirilgan (MEBEL_ENABLED) — o'tkazib yuborildi")
+        return
     app_settings = await settings_service.get_settings()
     board_id = (app_settings.mebel_trello_board_id or "").strip()
     start_at = app_settings.mebel_ingest_start_at

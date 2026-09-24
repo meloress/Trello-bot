@@ -42,6 +42,21 @@ what is actually stored, so a changed constant fails a test
 a module. When talking to the user, always write the display name
 ("Nazorat Trello"), never the stored value.
 
+### ⏸ "Fasad seh" is also SWITCHED OFF (2026-09-24) — `MEBEL_ENABLED = False`
+
+At the user's request ("hozircha faqat Nazorat Trello ishlasin"), mebel is
+disabled by one flag in `bot/utils/modules.py` — **no code was deleted**.
+The flag removes it from `/me`'s `available_modules` (so admins land straight
+in Nazorat Trello, and mebel-only employees see a "hozircha ishlamayapti"
+screen), 403s any `X-Module: mebel` request in `miniapp/auth.py`, skips
+`trello_ingest_job` and the stale-claims phase, and drops mebel ORDER rows
+from the four job queries in `task_repo` (`_module_enabled()`), so open mebel
+tasks simply freeze. Not covered: MISC tasks (no department → no module) and
+`report_job`'s admin report. Re-enabling = flip the flag, but read its
+comment first (ingest will close every card that moved meanwhile, and score
+lateness from that moment). `_resolve_available_modules()` itself is
+unchanged on purpose — it still encodes the frozen rules.
+
 ### ⛔ "Fasad seh" (the `mebel` module) is FINISHED AND FROZEN — do not change it
 
 **The only active work in this repo is "Nazorat Trello" (the `fasad_sex`

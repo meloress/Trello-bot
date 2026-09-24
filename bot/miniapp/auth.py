@@ -18,6 +18,7 @@ from config import settings
 from core.database import async_session
 from db.repositories import EmployeeRepository
 from utils.enums import Role
+from utils.modules import ENABLED_MODULES
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +74,12 @@ async def auth_middleware(request: web.Request, handler):
         return web.json_response({"error": "not_registered"}, status=403)
     if not employee.is_active:
         return web.json_response({"error": "inactive"}, status=403)
+
+    # Vaqtincha o'chirilgan modulga (hozir "Fasad seh") eski keshlangan
+    # frontend yoki qo'lda yuborilgan so'rov ham o'tmasin.
+    module = request.headers.get("X-Module")
+    if module and module not in ENABLED_MODULES:
+        return web.json_response({"error": "module_disabled"}, status=403)
 
     request["employee"] = employee
     return await handler(request)

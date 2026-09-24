@@ -18,7 +18,7 @@ from core.database import async_session
 from db.repositories import DepartmentRepository, StopLogRepository, TaskClaimRepository, TaskRepository
 from services import notification_service, settings_service, timer_service
 from utils.enums import TaskStatus
-from utils.modules import MEBEL
+from utils.modules import MEBEL, MEBEL_ENABLED
 
 logger = logging.getLogger(__name__)
 
@@ -162,6 +162,8 @@ async def _process_stale_claims(bot: Bot, now: datetime) -> int:
     safar faqat YUQORIROQ bosqichga o'tganda qayta yuboriladi). Faqat
     mebel bo'limlariga tegishli claim'lar ko'rib chiqiladi — boshqa
     modullarda claim tushunchasi umuman yo'q."""
+    if not MEBEL_ENABLED:
+        return 0
     async with async_session() as session:
         claim_repo = TaskClaimRepository(session)
         task_repo = TaskRepository(session)
