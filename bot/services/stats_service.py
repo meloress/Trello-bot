@@ -28,7 +28,7 @@ from db.models.task import Task
 from db.models.task_assignment import TaskAssignment
 from services import settings_service
 from utils.enums import Role, TaskStatus, TaskType
-from utils.modules import NAZORAT_TRELLO
+from utils.modules import ENABLED_MODULES, NAZORAT_TRELLO
 
 # KPI/jarima faqat shu ikki operatsion rolga tegishli (penalty_service faqat
 # WORKER'ni jarimalaydi, BRIGADIER esa brigade_share_ratio orqali ulush oladi) —
@@ -184,6 +184,20 @@ async def _compute_stats(
     ]
 
 
+def _active_employees_in_enabled_modules():
+    """Faol xodimlar, vaqtincha o'chirilgan modul (`utils.modules.MEBEL_ENABLED`)
+    xodimlarisiz — `jobs/report_job.py` hisobotiga o'chiq "Fasad seh" ballari
+    tushmasligi uchun. Bo'limsiz xodim (admin) hech qaysi modulga tegishli emas, qoladi."""
+    return (
+        select(Employee.id, Employee.full_name, Employee.role)
+        .outerjoin(Department, Department.id == Employee.department_id)
+        .where(
+            Employee.is_active.is_(True),
+            or_(Employee.department_id.is_(None), Department.module.in_(ENABLED_MODULES)),
+        )
+    )
+
+
 async def get_monthly_stats(
     reference_month: datetime | None = None,
     factory_name: str | None = None,
@@ -220,7 +234,12 @@ async def get_monthly_stats(
         since, until = _month_bounds(reference_month or datetime.now(timezone.utc))
 
     async with async_session() as session:
-        query = select(Employee.id, Employee.full_name, Employee.role).where(Employee.is_active.is_(True))
+        if module is None and factory_name is None:
+            # Modulsiz chaqiruv — faqat `report_job`ning oylik hisoboti
+            # (Mini App har doim `module` uzatadi).
+            query = _active_employees_in_enabled_modules()
+        else:
+            query = select(Employee.id, Employee.full_name, Employee.role).where(Employee.is_active.is_(True))
         if factory_name is not None or module is not None:
             # OUTER join: `factory_name` uchun xatti-harakat o'zgarmaydi
             # (NULL bo'limli qator baribir `== factory_name` shartidan
@@ -261,9 +280,7 @@ async def get_daily_stats() -> list[EmployeeStats]:
 
     async with async_session() as session:
         employees = (
-            await session.execute(
-                select(Employee.id, Employee.full_name, Employee.role).where(Employee.is_active.is_(True))
-            )
+            await session.execute(_active_employees_in_enabled_modules())
         ).all()
 
     return await _compute_stats(employees, since, until)
@@ -277,9 +294,7 @@ async def get_weekly_stats() -> list[EmployeeStats]:
 
     async with async_session() as session:
         employees = (
-            await session.execute(
-                select(Employee.id, Employee.full_name, Employee.role).where(Employee.is_active.is_(True))
-            )
+            await session.execute(_active_employees_in_enabled_modules())
         ).all()
 
     return await _compute_stats(employees, since, until)
