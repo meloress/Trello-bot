@@ -258,6 +258,13 @@ async def main() -> None:
         assert _resolve_available_modules(scoped, nazorat_dept) == [NAZORAT_TRELLO], (
             "bo'lim orqali Nazorat Trello nazoratchisi qilish yo'li yopilib qolgan"
         )
+        # Bo'limsiz sotuvchi/kuzatuvchi — Nazorat Trello (ular mebelda yo'q).
+        # Ilgari [MEBEL] olardi va Fasad seh o'chirilganda Mini App'i yopildi.
+        for role in (Role.SELLER, Role.OBSERVER):
+            loose = SimpleNamespace(role=role, department_id=None)
+            assert _resolve_available_modules(loose, None) == [NAZORAT_TRELLO], role
+        # Bo'limsiz ishchi — o'zgarishsiz (muzlatilgan mebel qoidasi).
+        assert _resolve_available_modules(SimpleNamespace(role=Role.WORKER, department_id=None), None) == [MEBEL]
 
         print("OK — nazoratchi signallari, TZ 7.2 bosqich xabari, "
               "yangi vazifa/ball xabarlari, dublikat himoyasi, modul qamrovi")

@@ -38,6 +38,12 @@ def _resolve_available_modules(employee: Employee, department: Department | None
         return [department.module] if department else [MEBEL]
     if employee.department_id is not None:
         return [department.module] if department else [MEBEL]
+    # Sotuvchi/kuzatuvchi faqat Nazorat Trello'da bor (mebel 4 rol bilan
+    # cheklangan, `MEBEL_ROLES` app.js'da) va odatda bo'limsiz. Ilgari ular
+    # ham [MEBEL] olardi — Fasad seh o'chirilgach (`MEBEL_ENABLED`) Mini App'i
+    # butunlay yopilib qoldi.
+    if employee.role in (Role.SELLER, Role.OBSERVER):
+        return [NAZORAT_TRELLO]
     return [MEBEL]
 
 
