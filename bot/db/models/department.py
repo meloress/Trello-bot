@@ -128,6 +128,11 @@ class Department(TimestampedBase):
     # ustun VARCHAR — supergroup ID'lari int32'ga sig'maydi va matn sifatida
     # saqlash Telegram API uchun ham to'g'ridan-to'g'ri yaroqli.
     telegram_chat_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    # Mini App'ning bo'lim ro'yxatlaridan (`GET /admin/departments` — xodim
+    # qo'shish/tahrirlash, Bo'limlar ekrani) yashiriladi, lekin O'CHIRILMAYDI:
+    # buyurtma zanjiri (`next_department_id`, fork/join) o'zgarmaydi.
+    # Faqat ko'rinish — boshqa hech qanday mantiqqa ta'sir qilmaydi.
+    is_hidden: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
 
     brigades: Mapped[list["Brigade"]] = relationship(back_populates="department")
     employees: Mapped[list["Employee"]] = relationship(back_populates="department")

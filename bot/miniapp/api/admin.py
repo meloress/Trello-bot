@@ -103,7 +103,10 @@ async def list_departments(request: web.Request) -> web.Response:
     async with async_session() as session:
         departments = await DepartmentRepository(session).list_all()
         scope = await module_scope(request, session)
-    departments = [d for d in departments if in_module(scope, d.id)]
+    # ponytail: yashirilgan bo'limdagi xodimni tahrirlash ekrani uning bo'limini
+    # ro'yxatda topmaydi va saqlashda "—" yuboradi. Hozir bunday xodim yo'q
+    # (yashirilganlar bo'sh); paydo bo'lsa, xodim bo'limini shu yerda qo'shib bering.
+    departments = [d for d in departments if in_module(scope, d.id) and not d.is_hidden]
     return web.json_response(
         [
             {

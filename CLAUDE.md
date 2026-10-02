@@ -57,6 +57,18 @@ comment first (ingest will close every card that moved meanwhile, and score
 lateness from that moment). `_resolve_available_modules()` itself is
 unchanged on purpose — it still encodes the frozen rules.
 
+### Nazorat Trello: 11 visible departments (2026-10-02)
+
+At the user's request only 11 `fasad_sex` departments show in the Mini App:
+Zakas tushdi, Kontrolniy zamer, Kroychi, Korpus, Fasad seh, Korpus upakovka,
+Sklat, Dastavka, Ustanovka, Laminoks, Raspil Muborak (renamed from the old
+chain names; "Raspil Muborak" is new and **not wired into the chain**). The
+other 12 are `departments.is_hidden = true` — filtered out of
+`GET /admin/departments` only, **not deleted**, still in the order chain. So
+an order still walks Kroychi → Gip-lab (hidden, no staff) and stalls there in
+`PENDING_SETUP` until the user gives a new chain order. Note the name clash:
+a `fasad_sex` department is now literally named "Fasad seh".
+
 ### ⛔ "Fasad seh" (the `mebel` module) is FINISHED AND FROZEN — do not change it
 
 **The only active work in this repo is "Nazorat Trello" (the `fasad_sex`
