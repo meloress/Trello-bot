@@ -97,7 +97,7 @@ async def run(bot: Bot, trello_factory=None) -> int:
             try:
                 card = await trello._request(
                     "GET", f"/cards/{card_id}",
-                    params={"fields": "name,due,closed", "list": "true", "list_fields": "name"},
+                    params={"fields": "name,due,closed,idMembers", "list": "true", "list_fields": "name"},
                 )
                 await notification_service.notify_trello_card_assigned(
                     bot,
@@ -106,6 +106,7 @@ async def run(bot: Bot, trello_factory=None) -> int:
                     card_name=card["name"],
                     list_name=(card.get("list") or {}).get("name"),
                     due=_parse_due(card.get("due")),
+                    card_member_ids=card.get("idMembers") or [],
                 )
                 sent += 1
             except Exception:

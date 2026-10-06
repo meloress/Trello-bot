@@ -30,7 +30,19 @@ OBSERVER = SimpleNamespace(id=176, full_name="Bahrom", telegram_id=1760, role=Ro
                            department_id=None, trello_member_id=None, is_active=True)
 OTHER_WORKER = SimpleNamespace(id=170, full_name="Boshqa ishchi", telegram_id=1700, role=Role.WORKER,
                                department_id=75, trello_member_id="m-other", is_active=True)
-PEOPLE = [WORKER, HABIBULLA, DEPT_SUPERVISOR, OBSERVER, OTHER_WORKER]
+SELLER = SimpleNamespace(id=173, full_name="Abdurahim Qodirov", telegram_id=1730, role=Role.SELLER,
+                        department_id=None, trello_member_id="m-seller", is_active=True)
+OTHER_SELLER = SimpleNamespace(id=172, full_name="Husniddin", telegram_id=1720, role=Role.SELLER,
+                              department_id=None, trello_member_id="m-seller2", is_active=True)
+PEOPLE = [WORKER, HABIBULLA, DEPT_SUPERVISOR, OBSERVER, OTHER_WORKER, SELLER, OTHER_SELLER]
+
+
+class _FakeDepartmentRepo:
+    def __init__(self, _session):
+        pass
+
+    async def get_by_id(self, department_id):
+        return SimpleNamespace(id=75, name="Kroychi", module="fasad_sex") if department_id == 75 else None
 
 
 class _FakeEmployeeRepo:
@@ -61,9 +73,10 @@ class _FakeBot:
 
 
 async def _notify_checks():
-    saved = (ns.async_session, ns.EmployeeRepository)
+    saved = (ns.async_session, ns.EmployeeRepository, ns.DepartmentRepository)
     ns.async_session = lambda: _FakeSession()
     ns.EmployeeRepository = _FakeEmployeeRepo
+    ns.DepartmentRepository = _FakeDepartmentRepo
     try:
         due = datetime.now(timezone.utc) + timedelta(days=3, hours=1)
         bot = _FakeBot()
@@ -78,6 +91,29 @@ async def _notify_checks():
         assert WORKER.full_name in by_chat[OBSERVER.telegram_id] and "Sizga" not in by_chat[OBSERVER.telegram_id]
         assert OTHER_WORKER.telegram_id not in by_chat, "boshqa ishchiga xabar ketdi"
 
+        # Kartada sotuvchi bor, ishchi qo'shildi -> sotuvchiga "kroychiga berildi".
+        bot = _FakeBot()
+        await ns.notify_trello_card_assigned(
+            bot, trello_member_id="m-worker", member_name=None, card_name="2521 Sarvar aka",
+            list_name="Abdulloh kroy chizish 24", due=due, card_member_ids=["m-seller", "m-worker"],
+        )
+        by_chat = dict(bot.sent)
+        assert by_chat[SELLER.telegram_id].startswith("📌 Zakazingiz kroychiga berildi: «2521 Sarvar aka»"), by_chat
+        assert f"👷 Ijrochi: {WORKER.full_name}" in by_chat[SELLER.telegram_id]
+        assert OTHER_SELLER.telegram_id not in by_chat, "kartada yo'q sotuvchiga xabar ketdi"
+        assert by_chat[WORKER.telegram_id].startswith("🆕 Sizga yangi zakaz")
+
+        # Sotuvchining o'zi qo'shildi -> unga sotuvchi matni, "Sizga yangi zakaz" emas.
+        bot = _FakeBot()
+        await ns.notify_trello_card_assigned(
+            bot, trello_member_id="m-seller", member_name=None, card_name="2521 Sarvar aka",
+            list_name=None, due=None, card_member_ids=["m-seller", "m-worker"],
+        )
+        by_chat = dict(bot.sent)
+        assert by_chat[SELLER.telegram_id].startswith("💼 Siz zakazga sotuvchi sifatida biriktirildingiz"), by_chat
+        assert WORKER.telegram_id not in by_chat, "sotuvchi qo'shilganda ishchiga xabar ketdi"
+        assert "sotuvchi biriktirildi" in by_chat[OBSERVER.telegram_id]
+
         # Trello a'zosi xodimga bog'lanmagan — ishchiga hech kim yo'q, nazoratchilar baribir oladi.
         bot = _FakeBot()
         await ns.notify_trello_card_assigned(
@@ -87,7 +123,7 @@ async def _notify_checks():
         assert set(by_chat) == {HABIBULLA.telegram_id, OBSERVER.telegram_id}, by_chat
         assert "Trello Odam" in by_chat[OBSERVER.telegram_id] and "belgilanmagan" in by_chat[OBSERVER.telegram_id]
     finally:
-        ns.async_session, ns.EmployeeRepository = saved
+        ns.async_session, ns.EmployeeRepository, ns.DepartmentRepository = saved
 
 
 async def main():

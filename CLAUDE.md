@@ -68,7 +68,11 @@ the real "nazorat trello", `607fc56f84fe7b68b0b4876f`) — and calls
 `notify_trello_card_assigned()`: the added member (matched by
 `employees.trello_member_id`) gets "Sizga yangi zakaz" with the card's due,
 and department-less supervisors (Habibulla) + all observers get a third-person
-copy. **Notification only**: no `tasks` row, no KPI, no Trello writes. The
+copy. Sellers are card members too: a seller added to a card gets "siz
+sotuvchi sifatida biriktirildingiz", and when a worker is added, every
+SELLER already on that card gets "Zakazingiz kroychiga berildi" — the stage
+word is the worker's department name lowercased + "ga" ("ishga" if unknown).
+**Notification only**: no `tasks` row, no KPI, no Trello writes. The
 cursor is in memory, so the first run after a deploy only sets it (old events
 are never replayed; events during the restart gap are missed — `ponytail:`
 note in the file). Pinned by `tests/test_nazorat_trello_watch.py`.

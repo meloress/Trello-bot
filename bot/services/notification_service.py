@@ -257,29 +257,69 @@ async def _send(
 
 
 async def notify_trello_card_assigned(
-    bot: Bot, *, trello_member_id: str, member_name: str | None, card_name: str, list_name: str | None, due
+    bot: Bot,
+    *,
+    trello_member_id: str,
+    member_name: str | None,
+    card_name: str,
+    list_name: str | None,
+    due,
+    card_member_ids: list[str] = (),
 ) -> None:
     """Nazorat Trello: zakaz FAQAT Trello'da beriladi — kartaga a'zo
-    qo'shilganda (`jobs/nazorat_trello_watch_job.py`) o'sha ishchiga muddati
-    bilan xabar, bo'limsiz nazoratchi va kuzatuvchilarga esa uchinchi shaxsda
-    ("X — «zakaz»ni oldi"). Trello a'zosi xodimga bog'lanmagan bo'lsa ham
-    nazoratchilar xabar oladi (Trello'dagi ismi bilan)."""
+    qo'shilganda (`jobs/nazorat_trello_watch_job.py`):
+
+    - qo'shilgan ISHCHIga — "Sizga yangi zakaz" (muddati bilan);
+    - qo'shilgan SOTUVCHIga — "siz sotuvchi sifatida biriktirildingiz";
+    - kartaning a'zosi bo'lgan SOTUVCHIlarga — ishchi qo'shilganda "Zakazingiz
+      kroychiga berildi" (bosqich ishchining bo'limidan avtomatik);
+    - bo'limsiz nazoratchi va kuzatuvchilarga — uchinchi shaxsda.
+
+    Trello a'zosi xodimga bog'lanmagan bo'lsa ham nazoratchilar xabar oladi
+    (Trello'dagi ismi bilan)."""
     async with async_session() as session:
-        employee = await EmployeeRepository(session).get_by_trello_member_id(trello_member_id)
+        employee_repo = EmployeeRepository(session)
+        employee = await employee_repo.get_by_trello_member_id(trello_member_id)
+        department = await _department_name(session, employee.department_id if employee else None)
+        sellers = []
+        for member_id in card_member_ids:
+            if member_id == trello_member_id:
+                continue
+            member = await employee_repo.get_by_trello_member_id(member_id)
+            if member is not None and member.role == Role.SELLER and member.is_active:
+                sellers.append(member)
         watchers: dict[int, int | None] = {}
         await _add_supervisors(session, watchers, None)  # bo'limsiz nazoratchi + kuzatuvchi
 
     due_text = f"{_format_dt(due)}{_deadline_window(due)}" if due else "belgilanmagan"
     place = f"\n📋 {list_name}" if list_name else ""
-    if employee is not None and employee.is_active:
-        await _send(bot, employee.telegram_id, f"🆕 Sizga yangi zakaz: «{card_name}»{place}\n⏰ Muddat: {due_text}")
-
+    tail = f"{place}\n⏰ Muddat: {due_text}"
     who = employee.full_name if employee is not None else (member_name or "Noma'lum a'zo")
-    text = f"📌 {who} — «{card_name}» zakazini oldi{place}\n⏰ Muddat: {due_text}"
+    added_is_seller = employee is not None and employee.role == Role.SELLER
+
+    if employee is not None and employee.is_active:
+        if added_is_seller:
+            own = f"💼 Siz zakazga sotuvchi sifatida biriktirildingiz: «{card_name}»{tail}"
+        else:
+            own = f"🆕 Sizga yangi zakaz: «{card_name}»{tail}"
+        await _send(bot, employee.telegram_id, own)
+
+    if not added_is_seller:
+        # "Kroychi" -> "kroychiga"; bo'lim noma'lum bo'lsa umumiy "ishga".
+        stage = f"{department.lower()}ga" if department else "ishga"
+        seller_text = f"📌 Zakazingiz {stage} berildi: «{card_name}»\n👷 Ijrochi: {who}{tail}"
+        for seller in sellers:
+            await _send(bot, seller.telegram_id, seller_text)
+
+    if added_is_seller:
+        text = f"💼 {who} — «{card_name}» zakaziga sotuvchi biriktirildi{tail}"
+    else:
+        text = f"📌 {who} — «{card_name}» zakazini oldi{tail}"
+    skip = {employee.id} if employee is not None else set()
+    skip |= {s.id for s in sellers}
     for employee_id, telegram_id in watchers.items():
-        if employee is not None and employee_id == employee.id:
-            continue
-        await _send(bot, telegram_id, text)
+        if employee_id not in skip:
+            await _send(bot, telegram_id, text)
 
 
 async def notify_task_started(bot: Bot, task_id: int) -> None:
