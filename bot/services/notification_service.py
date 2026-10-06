@@ -256,6 +256,32 @@ async def _send(
     return False
 
 
+async def notify_trello_card_assigned(
+    bot: Bot, *, trello_member_id: str, member_name: str | None, card_name: str, list_name: str | None, due
+) -> None:
+    """Nazorat Trello: zakaz FAQAT Trello'da beriladi — kartaga a'zo
+    qo'shilganda (`jobs/nazorat_trello_watch_job.py`) o'sha ishchiga muddati
+    bilan xabar, bo'limsiz nazoratchi va kuzatuvchilarga esa uchinchi shaxsda
+    ("X — «zakaz»ni oldi"). Trello a'zosi xodimga bog'lanmagan bo'lsa ham
+    nazoratchilar xabar oladi (Trello'dagi ismi bilan)."""
+    async with async_session() as session:
+        employee = await EmployeeRepository(session).get_by_trello_member_id(trello_member_id)
+        watchers: dict[int, int | None] = {}
+        await _add_supervisors(session, watchers, None)  # bo'limsiz nazoratchi + kuzatuvchi
+
+    due_text = f"{_format_dt(due)}{_deadline_window(due)}" if due else "belgilanmagan"
+    place = f"\n📋 {list_name}" if list_name else ""
+    if employee is not None and employee.is_active:
+        await _send(bot, employee.telegram_id, f"🆕 Sizga yangi zakaz: «{card_name}»{place}\n⏰ Muddat: {due_text}")
+
+    who = employee.full_name if employee is not None else (member_name or "Noma'lum a'zo")
+    text = f"📌 {who} — «{card_name}» zakazini oldi{place}\n⏰ Muddat: {due_text}"
+    for employee_id, telegram_id in watchers.items():
+        if employee is not None and employee_id == employee.id:
+            continue
+        await _send(bot, telegram_id, text)
+
+
 async def notify_task_started(bot: Bot, task_id: int) -> None:
     """7.1-band: vazifa boshlanganda unga biriktirilgan barcha xodimlarga xabar."""
     async with async_session() as session:

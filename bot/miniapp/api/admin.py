@@ -436,8 +436,10 @@ async def create_task(request: web.Request) -> web.Response:
 
     async with async_session() as session:
         target_department = await DepartmentRepository(session).get_by_id(int(department_id))
-    if target_department is not None and target_department.module == MEBEL:
-        return err("Bu bo'lim uchun buyurtmalar endi faqat Trello orqali yaratiladi", 409)
+    # 2026-10-06: Nazorat Trello'da ham zakaz faqat Trello'da beriladi
+    # (`jobs/nazorat_trello_watch_job.py`) — ikkala modulda ham Mini App'dan yo'q.
+    if target_department is not None:
+        return err("Buyurtmalar faqat Trello orqali beriladi", 409)
 
     try:
         deadline = datetime.fromisoformat(body["deadline"])

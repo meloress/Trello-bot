@@ -11,6 +11,7 @@ from handlers.common.start import router as common_start_router
 from jobs import (
     daily_sync_job,
     lead_follow_up_job,
+    nazorat_trello_watch_job,
     overdue_watch_job,
     reminder_job,
     report_job,
@@ -72,6 +73,9 @@ async def main() -> None:
     )
     scheduler.add_job(
         trello_ingest_job.run, "interval", minutes=5, args=[bot], id="trello_ingest_job"
+    )
+    scheduler.add_job(
+        nazorat_trello_watch_job.run, "interval", minutes=1, args=[bot], id="nazorat_trello_watch_job"
     )
 
     scheduler.start()

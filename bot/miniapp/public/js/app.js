@@ -769,11 +769,14 @@ async function screenNewTaskForm(kind) {
   // Mebel ("Fasad seh"): buyurtmalar endi faqat Trello orqali yaratiladi
   // (`trello_ingest_job`) — bu ekranda Buyurtma varianti umuman ko'rsatilmaydi,
   // faqat Maxsus topshiriq (misc) qoladi.
-  const mebelOnly = isMebelModule();
-  kind = mebelOnly ? "misc" : (kind || "order");
+  // 2026-10-06: Nazorat Trello'da ham zakaz FAQAT Trello'da beriladi
+  // (`jobs/nazorat_trello_watch_job.py` ishchiga xabar yuboradi) — ikkala
+  // modulda ham bu ekranda faqat Maxsus topshiriq qoladi.
+  const trelloOnly = true;
+  kind = "misc";
   setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
   const [departments, employees] = await Promise.all([
-    mebelOnly ? Promise.resolve([]) : api("/admin/departments"), api("/admin/employees"),
+    trelloOnly ? Promise.resolve([]) : api("/admin/departments"), api("/admin/employees"),
   ]);
   const activeEmployees = employees.filter((e) => e.is_active);
   let selectedBrigadierId = null;
@@ -806,7 +809,7 @@ async function screenNewTaskForm(kind) {
 
   setScreen(`
     <p class="page-title">${esc(t("newTask"))}</p>
-    ${mebelOnly ? "" : `
+    ${trelloOnly ? "" : `
     <div class="segmented" id="type-toggle">
       <button data-kind="order" aria-selected="${kind === "order"}">${esc(t("orderType"))}</button>
       <button data-kind="misc" aria-selected="${kind === "misc"}">${esc(t("miscType"))}</button>

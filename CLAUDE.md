@@ -57,6 +57,22 @@ comment first (ingest will close every card that moved meanwhile, and score
 lateness from that moment). `_resolve_available_modules()` itself is
 unchanged on purpose — it still encodes the frozen rules.
 
+### Nazorat Trello: orders come ONLY from Trello, bot just notifies (2026-10-06)
+
+User decision: "botdan unaqa ish qilinmasin, faqat trellodan". The Mini App
+no longer creates orders in either module (`POST /admin/tasks` 409s,
+`screenNewTaskForm` is misc-only). `jobs/nazorat_trello_watch_job.py` (1-min
+interval) reads the board's **action log** (`addMemberToCard`) — the board is
+whichever one the `fasad_sex` departments' `trello_list_id`s live on (today
+the real "nazorat trello", `607fc56f84fe7b68b0b4876f`) — and calls
+`notify_trello_card_assigned()`: the added member (matched by
+`employees.trello_member_id`) gets "Sizga yangi zakaz" with the card's due,
+and department-less supervisors (Habibulla) + all observers get a third-person
+copy. **Notification only**: no `tasks` row, no KPI, no Trello writes. The
+cursor is in memory, so the first run after a deploy only sets it (old events
+are never replayed; events during the restart gap are missed — `ponytail:`
+note in the file). Pinned by `tests/test_nazorat_trello_watch.py`.
+
 ### Nazorat Trello: 11 visible departments (2026-10-02)
 
 At the user's request only 11 `fasad_sex` departments show in the Mini App:
