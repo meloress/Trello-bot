@@ -99,8 +99,17 @@ async def _add_supervisors(session, recipients: dict, department_id: int | None)
     zarari yo'q (Nazorat Trelloda 0 vazifa). Modul bo'yicha ajratish kerak
     bo'lganda to'g'ri yo'l — nazoratchiga bo'lim biriktirish, `employees`ga
     modul ustuni qo'shish emas."""
-    for employee in await EmployeeRepository(session).list_by_role(Role.SUPERVISOR):
+    employee_repo = EmployeeRepository(session)
+    for employee in await employee_repo.list_by_role(Role.SUPERVISOR):
         if employee.department_id is None or employee.department_id == department_id:
+            recipients[employee.id] = employee.telegram_id
+
+    # Kuzatuvchi (TZ 3-band, "faqat ko'rish") butun Nazorat Trello jarayonini
+    # bo'limsiz nazoratchi kabi kuzatadi — bo'limidan qat'i nazar hammasini oladi.
+    # Mebel ("Fasad seh") signallari unga bormaydi: u yerda bu rol umuman yo'q.
+    observers = await employee_repo.list_by_role(Role.OBSERVER)
+    if observers and not await _is_mebel(session, department_id):
+        for employee in observers:
             recipients[employee.id] = employee.telegram_id
 
 
@@ -761,12 +770,12 @@ async def notify_reassignment_candidate(bot: Bot, task_id: int) -> None:
 
 async def notify_admins_report(bot: Bot, text: str) -> None:
     """10.2-band: `jobs/report_job.py`ning kunlik/haftalik/oylik hisobotlari
-    barcha ADMIN+SUPERVISOR'larga shu orqali yuboriladi (Markdown kod-blok
+    barcha ADMIN+SUPERVISOR+OBSERVER'larga shu orqali yuboriladi (Markdown kod-blok
     matni — `stats_service.format_stats_table()` chiqarishi)."""
     async with async_session() as session:
         employee_repo = EmployeeRepository(session)
         recipients: dict[int, int | None] = {}
-        for role in (Role.ADMIN, Role.SUPERVISOR):
+        for role in (Role.ADMIN, Role.SUPERVISOR, Role.OBSERVER):
             for employee in await employee_repo.list_by_role(role):
                 recipients[employee.id] = employee.telegram_id
 

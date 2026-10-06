@@ -46,7 +46,14 @@ WORKER = SimpleNamespace(
     department_id=SHPON, manager_id=None, is_active=True,
 )
 
-PEOPLE = [GLOBAL_SUPERVISOR, SHPON_SUPERVISOR, SHKURKA_SUPERVISOR, WORKER]
+# Kuzatuvchi — butun Nazorat Trello'ni kuzatadi, mebel signallarini OLMAYDI.
+OBSERVER = SimpleNamespace(
+    id=176, full_name="Kuzatuvchi", telegram_id=1760, role=Role.OBSERVER,
+    department_id=None, manager_id=None, is_active=True,
+)
+NAZORAT_DEPT = 75  # "Kroychi", module="fasad_sex"
+
+PEOPLE = [GLOBAL_SUPERVISOR, SHPON_SUPERVISOR, SHKURKA_SUPERVISOR, WORKER, OBSERVER]
 
 TASK = SimpleNamespace(
     id=162, title="2529 Salamatina spalniy", task_type=TaskType.ORDER,
@@ -94,10 +101,11 @@ class _FakeDepartmentRepo:
         pass
 
     async def get_by_id(self, department_id):
-        names = {SHPON: "Shpon", SHKURKA: "Shkurka"}
+        names = {SHPON: "Shpon", SHKURKA: "Shkurka", NAZORAT_DEPT: "Kroychi"}
         if department_id not in names:
             return None
-        return SimpleNamespace(id=department_id, name=names[department_id], module="mebel")
+        module = "fasad_sex" if department_id == NAZORAT_DEPT else "mebel"
+        return SimpleNamespace(id=department_id, name=names[department_id], module=module)
 
 
 KPI_LOGS = {
@@ -153,10 +161,20 @@ async def main() -> None:
         )
         assert WORKER.id not in recipients, "nazoratchi bo'lmagan xodim qo'shildi"
 
-        # --- 2. Bo'limsiz vazifa (MISC): faqat global nazoratchi ---
+        assert OBSERVER.id not in recipients, "kuzatuvchi Fasad seh (mebel) signalini oldi"
+
+        # --- 2. Bo'limsiz vazifa (MISC): global nazoratchi + kuzatuvchi ---
         recipients = {}
         await ns._add_supervisors(None, recipients, None)
-        assert recipients == {GLOBAL_SUPERVISOR.id: GLOBAL_SUPERVISOR.telegram_id}, recipients
+        assert recipients == {
+            GLOBAL_SUPERVISOR.id: GLOBAL_SUPERVISOR.telegram_id,
+            OBSERVER.id: OBSERVER.telegram_id,
+        }, recipients
+
+        # --- 2b. Nazorat Trello bo'limi: kuzatuvchi ham oladi ---
+        recipients = {}
+        await ns._add_supervisors(None, recipients, NAZORAT_DEPT)
+        assert OBSERVER.id in recipients, "kuzatuvchi Nazorat Trello signalini olmadi"
 
         # --- 3. Mavjud qabul qiluvchilar o'chib ketmaydi ---
         recipients = {WORKER.id: WORKER.telegram_id}

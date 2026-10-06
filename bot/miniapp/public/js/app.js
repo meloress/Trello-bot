@@ -49,7 +49,10 @@ function tabDefsForRole(role, module) {
   // ataylab boshqacha: sozlama/xodim qo'shish/jarima jadvali emas, TZ 6.1
   // dagi "Nazorat doskasi" mantiqi — kechikkan va to'xtatilgan ishlar bir
   // joyda, tepasida tasdiqlash kutayotgan so'rovlar.
-  if (role === "supervisor") {
+  // Kuzatuvchi (TZ 3-band: "faqat ko'rish, o'zgartirish yo'q") — nazoratchi
+  // bilan bir xil ekranlar; tasdiqlash tugmalari yashiriladi, server ham
+  // yozuvchi so'rovni rad etadi (`observer_read_only_middleware`).
+  if (role === "supervisor" || role === "observer") {
     return [
       { key: "control", icon: icon("alert"), label: "tab_control", screen: screenSupervisorHome },
       { key: "orders", icon: icon("box"), label: "tab_orders", screen: screenSupervisorOrders },
@@ -1219,8 +1222,9 @@ function bindOrderRows(orders) {
 
 async function screenSupervisorHome() {
   setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
+  const readOnly = state.employee.role === "observer";
   const [dash, claims, orders] = await Promise.all([
-    api("/admin/dashboard"), api("/admin/pending-claims"), api("/admin/orders"),
+    api("/admin/dashboard"), readOnly ? Promise.resolve([]) : api("/admin/pending-claims"), api("/admin/orders"),
   ]);
   const late = orders.filter((o) => o.status === "overdue");
   const stopped = orders.filter((o) => o.status === "stopped");
@@ -1237,8 +1241,8 @@ async function screenSupervisorHome() {
       <div class="hero-tile ${heroTone(dash.avg_score)}"><span class="num">${scoreSigned(dash.avg_score)}</span><span class="lbl">${esc(t("avgScore"))}</span></div>
     </div>
 
-    <p class="section-lbl">${esc(t("pendingClaimsTitle"))}${claims.length ? ` (${claims.length})` : ""}</p>
-    ${claims.length ? claimCardsHtml(claims) : `<p class="empty-state">${esc(t("noPendingClaims"))}</p>`}
+    ${readOnly ? "" : `<p class="section-lbl">${esc(t("pendingClaimsTitle"))}${claims.length ? ` (${claims.length})` : ""}</p>
+    ${claims.length ? claimCardsHtml(claims) : `<p class="empty-state">${esc(t("noPendingClaims"))}</p>`}`}
 
     <p class="section-lbl">${esc(t("needsAttention"))}</p>
     ${attention.length ? attention.map(orderRowHtml).join("") : `<p class="empty-state">${esc(t("allOnTrack"))}</p>`}

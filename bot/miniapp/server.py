@@ -15,7 +15,7 @@ from aiogram import Bot
 from aiohttp import web
 
 from miniapp.api import admin, brigadier, common, seller, worker
-from miniapp.auth import auth_middleware, role_middleware
+from miniapp.auth import auth_middleware, observer_read_only_middleware, role_middleware
 from utils.enums import Role
 
 PUBLIC_DIR = Path(__file__).resolve().parent / "public"
@@ -57,7 +57,9 @@ def create_app(bot: Bot) -> web.Application:
     api_app.add_routes(common.routes)
     api_app.add_routes(worker.routes)
 
-    admin_app = web.Application(middlewares=[role_middleware(Role.ADMIN, Role.SUPERVISOR)])
+    admin_app = web.Application(
+        middlewares=[role_middleware(Role.ADMIN, Role.SUPERVISOR, Role.OBSERVER), observer_read_only_middleware]
+    )
     admin_app.add_routes(admin.routes)
     api_app.add_subapp("/admin", admin_app)
 

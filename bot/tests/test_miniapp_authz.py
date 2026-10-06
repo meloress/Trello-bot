@@ -262,12 +262,33 @@ async def test_disabled_module():
         restore()
 
 
+async def test_observer_read_only():
+    """Kuzatuvchi `/admin` rol darvozasidan o'tadi, lekin yozuvchi so'rov
+    (POST) `observer_read_only_middleware`da 403 — handlerga yetmaydi."""
+    from miniapp.server import create_app
+
+    restore = _install_fake_auth_db(_emp(Role.OBSERVER, None, telegram_id=555))
+    runner, port = await _serve(create_app(bot=object()))
+    base = f"http://127.0.0.1:{port}/api/miniapp"
+    try:
+        async with aiohttp.ClientSession() as http:
+            signed = {"X-Telegram-Init-Data": _sign_init_data(555), "X-Module": "fasad_sex"}
+            for path in ("/admin/departments/7", "/admin/tasks/1/deadline", "/admin/claims/1/approve"):
+                async with http.post(f"{base}{path}", json={}, headers=signed) as r:
+                    assert r.status == 403 and (await r.json())["error"] == "forbidden", (path, r.status)
+        print("  6-qatlam: kuzatuvchi yozuvchi so'rov yubora olmaydi 3/3 OK")
+    finally:
+        await runner.cleanup()
+        restore()
+
+
 async def _main():
     test_scope_function()
     await test_http_layer()
     await test_role_gate()
     await test_inactive_and_unknown()
     await test_disabled_module()
+    await test_observer_read_only()
     print("test_miniapp_authz: HAMMASI OK")
 
 

@@ -98,3 +98,14 @@ def role_middleware(*roles: Role):
         return await handler(request)
 
     return middleware
+
+
+@web.middleware
+async def observer_read_only_middleware(request: web.Request, handler):
+    """Kuzatuvchi (TZ 3-band): "faqat ko'rish huquqi, o'zgartirish yo'q".
+    `/admin` ma'lumotlarini o'qiy oladi, lekin hech qanday yozuvchi so'rov
+    (POST/PUT/DELETE) o'tmaydi — frontend tugmani yashirsa ham, server ham to'sadi."""
+    employee = request.get("employee")
+    if employee is not None and employee.role == Role.OBSERVER and request.method not in ("GET", "HEAD", "OPTIONS"):
+        return web.json_response({"error": "forbidden"}, status=403)
+    return await handler(request)
