@@ -103,3 +103,7 @@ class AppSetting(TimestampedBase):
     # False = faqat BIRINCHI javobgarga (tayinlanish tartibi bo'yicha — u
     # "asosiy mas'ul" hisoblanadi).
     penalize_all_assignees: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    # Nazorat Trello ball tizimi: doska hodisalar jurnalining oxirgi o'qilgan
+    # vaqti (Trello ISO matni). `AppSettingsSnapshot`ga KIRITILMAGAN — har
+    # daqiqada yoziladi, keshlanmaydi (`settings_service.get/set_trello_cursor`).
+    nazorat_trello_cursor: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)

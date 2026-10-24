@@ -2,8 +2,8 @@ from aiohttp import web
 
 from core.database import async_session
 from db.repositories import DepartmentRepository, TaskRepository
-from utils.enums import Role
-from utils.modules import MEBEL
+from utils.enums import Role, TaskType
+from utils.modules import MEBEL, NAZORAT_TRELLO
 
 
 def err(message: str, status: int = 400) -> web.Response:
@@ -71,3 +71,15 @@ async def is_mebel_task(task_id: int) -> bool:
             return False
         department = await DepartmentRepository(session).get_by_id(task.current_department_id)
     return department is not None and department.module == MEBEL
+
+
+async def is_trello_owned_order(task_id: int) -> bool:
+    """Nazorat Trello zakazi (2026-10-24): vaqt va ball FAQAT Trello'dagi
+    harakatdan (`jobs/nazorat_trello_watch_job.py`) — ishchi Mini App'dan
+    Stop/Tugatish bosa olmaydi."""
+    async with async_session() as session:
+        task = await TaskRepository(session).get_by_id(task_id)
+        if task is None or task.task_type != TaskType.ORDER or task.current_department_id is None:
+            return False
+        department = await DepartmentRepository(session).get_by_id(task.current_department_id)
+    return department is not None and department.module == NAZORAT_TRELLO

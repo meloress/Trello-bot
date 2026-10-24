@@ -22,11 +22,11 @@ from aiogram import Bot
 from config import settings
 from core.database import async_session
 from db.models.task import Task
-from db.repositories import TaskRepository
+from db.repositories import DepartmentRepository, TaskRepository
 from services import penalty_service, trello_sync_service
 from trello.client import TrelloAPIError, TrelloClient
 from utils.enums import TaskStatus
-from utils.modules import MEBEL
+from utils.modules import MEBEL, NAZORAT_TRELLO
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,12 @@ async def _list_open_tasks() -> list[Task]:
     `jobs/trello_ingest_job.py` orqali (har 5 daqiqada) kuzatadi; shu job
     (kunlik) endi faqat fasad_sex uchun ishlaydi."""
     async with async_session() as session:
-        return await TaskRepository(session).list_open_orders_excluding_module(MEBEL)
+        tasks = await TaskRepository(session).list_open_orders_excluding_module(MEBEL)
+        # 2026-10-24: Nazorat Trello zakazlari ham endi faqat Trello'dan
+        # boshqariladi (`jobs/nazorat_trello_watch_job.py`) — bot u kartalarga
+        # label yozmasin, arxivni ham o'sha job o'z vaqtida yopadi.
+        nazorat = {d.id for d in await DepartmentRepository(session).list_by_module(NAZORAT_TRELLO)}
+    return [t for t in tasks if t.current_department_id not in nazorat]
 
 
 async def _update_title_if_changed(task_id: int, new_title: str) -> bool:

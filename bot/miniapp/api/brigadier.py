@@ -21,7 +21,7 @@ from db.repositories import (
     TaskClaimRepository,
     TaskRepository,
 )
-from miniapp.util import err, is_mebel_task
+from miniapp.util import err, is_mebel_task, is_trello_owned_order
 from services import claim_service, notification_service, penalty_service, stats_service, task_service
 from utils.enums import ClaimActionType, Role, TaskStatus, TaskType
 
@@ -193,9 +193,9 @@ async def delegate_task(request: web.Request) -> web.Response:
     if not worker_ids:
         return err("employee_ids majburiy")
 
-    if await is_mebel_task(task_id):
+    if await is_mebel_task(task_id) or await is_trello_owned_order(task_id):
         return err(
-            "Mebel bo'limida vazifani botdan turib topshirib bo'lmaydi — ishchini Trello kartaga a'zo qiling.",
+            "Bu zakaz Trello orqali topshiriladi — ishchini Trello kartaga a'zo qiling.",
             409,
         )
 

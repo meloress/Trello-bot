@@ -504,6 +504,8 @@ async function screenTaskDetail(taskId) {
   setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
   const tsk = await api(`/tasks/${taskId}`);
   const isMebel = tsk.module === MODULE.MEBEL;
+  // Nazorat Trello zakazi: vaqt va ball faqat Trello'dan — ishchiga tugma yo'q.
+  const trelloOnly = isMebel || (tsk.module === MODULE.NAZORAT_TRELLO && tsk.task_type === "order");
   // STOPPED ham: davom ettirish ham endi tasdiq kutadigan so'rov.
   const pending = isMebel && tsk.status !== "completed" ? (await api(`/tasks/${taskId}/claim-status`)).pending_claim : null;
   const pillClass = tsk.status === "overdue" ? "critical" : tsk.status === "stopped" ? "neutral" : "positive";
@@ -519,13 +521,13 @@ async function screenTaskDetail(taskId) {
     </div>
     ${pending ? `
       <div class="alert-card"><span class="ic">${icon("clock")}</span><span class="grow">${esc(t(CLAIM_PENDING_KEYS[pending.action_type]))}</span></div>
-    ` : !isMebel && (tsk.status === "active" || tsk.status === "overdue") ? `<button class="btn" id="btn-stop">${icon("stop")} ${esc(t("stop"))}</button>` : ""}
+    ` : !trelloOnly && (tsk.status === "active" || tsk.status === "overdue") ? `<button class="btn" id="btn-stop">${icon("stop")} ${esc(t("stop"))}</button>` : ""}
   `);
 
   // Mebel: ishchi profilida Pauza/Yakunlash tugmasi umuman yo'q — faqat
   // kelgan ish ma'lumoti (va tepadagi pending-claim holati, bo'lsa) ko'rinadi.
   // Amalni endi faqat brigadir o'zining "Brigada" ekranidan turib bosadi.
-  if (isMebel || pending) return;
+  if (trelloOnly || pending) return;
 
   const stopBtn = root.querySelector("#btn-stop");
   if (stopBtn) stopBtn.onclick = () => show(screenStopTask, taskId);
@@ -677,59 +679,16 @@ async function screenAdminOrders() {
 }
 
 async function screenAdminOrderDetail(order) {
-  // `datetime-local` mahalliy vaqtni kutadi (screenActivateStage bilan bir xil).
-  const preset = order.deadline
-    ? new Date(new Date(order.deadline).getTime() - new Date().getTimezoneOffset() * 60000)
-        .toISOString()
-        .slice(0, 16)
-    : "";
+  // Zakaz faqat Trello'dan boshqariladi (muddat/srochnost/ijrochi) — bu yerda
+  // faqat ko'rish; backend ham /deadline, /urgent'ni 409 qiladi.
   setScreen(`
-    <p class="page-title">${esc(order.title)}</p>
+    <p class="page-title">${order.is_urgent ? "🔥 " : ""}${esc(order.title)}</p>
     <p class="page-sub">${esc(order.department || "")} · ${taskStatusLine(order)}</p>
-    <div class="field"><label>${esc(t("deadline"))}</label><input id="f-deadline" type="datetime-local" value="${preset}" /></div>
-    <p class="hint">${esc(t("deadlineEditHint"))}</p>
-    <label class="check-row"><input type="checkbox" id="f-urgent" ${order.is_urgent ? "checked" : ""} />${esc(t("isUrgentField"))}</label>
-    <p class="hint">${esc(t("urgentToggleHint"))}</p>
+    <div class="panel">
+      <div class="kv-row"><span class="k">${esc(t("deadline"))}</span><span class="v">${esc(formatDt(order.deadline))}</span></div>
+    </div>
+    <p class="hint">${esc(t("assignViaTrelloHint"))}</p>
   `);
-  setMainButton(`💾 ${t("saveChanges")}`, async () => {
-    const deadlineRaw = root.querySelector("#f-deadline").value;
-    const isUrgent = root.querySelector("#f-urgent").checked;
-    const app = tg();
-    app.MainButton.showProgress();
-    try {
-      // Tartib muhim: srochnost belgisi backendda muddatni bo'limning
-      // srochniy SLA'sidan QAYTA hisoblaydi, shuning uchun u oxirida turadi.
-      //
-      // Solishtiruv AYNAN input formatida (`preset` bilan), server bergan
-      // `order.deadline` bilan EMAS: ular bir xil vaqtni turli matn bilan
-      // yozadi ("...T10:00:00.000Z" va "...T10:00:00+00:00"), ya'ni matn
-      // sifatida hech qachon teng bo'lmaydi va shart HAR DOIM rost chiqardi —
-      // muddat o'zgarmagan bo'lsa ham ishchi/brigadir/nazoratchiga "muddat
-      // o'zgartirildi" degan yolg'on xabar ketardi.
-      //
-      // `getTime()` bilan solishtirish ham to'g'ri emas: `datetime-local`
-      // sekundni saqlamaydi, SLA'dan hisoblangan muddatda esa sekund deyarli
-      // har doim bor — farq baribir har safar chiqardi.
-      if (deadlineRaw && deadlineRaw !== preset) {
-        await api(`/admin/tasks/${order.id}/deadline`, {
-          method: "POST",
-          body: JSON.stringify({ deadline: new Date(deadlineRaw).toISOString() }),
-        });
-      }
-      if (isUrgent !== Boolean(order.is_urgent)) {
-        await api(`/admin/tasks/${order.id}/urgent`, {
-          method: "POST",
-          body: JSON.stringify({ is_urgent: isUrgent }),
-        });
-      }
-      app.HapticFeedback && app.HapticFeedback.notificationOccurred("success");
-      await goBack();
-    } catch (e) {
-      showError(e.message);
-    } finally {
-      app.MainButton.hideProgress();
-    }
-  }, "#4f3ff0");
 }
 
 async function screenAdminMiscTasks(category) {
@@ -2321,53 +2280,10 @@ async function screenNewWork() {
   }
   setScreen(`
     <p class="page-title">${esc(t("newWorkTitle"))}</p>
-    ${items.map((tsk, i) => tsk.module === MODULE.MEBEL ? `
-      <div class="nav-card" data-i="${i}"><span class="ic">${icon("inbox")}</span><span class="grow">${esc(tsk.title)}<div class="t-sub">${esc(t("deadline"))}: ${esc(formatDt(tsk.deadline))}</div><div class="t-sub">${esc(t("assignViaTrelloHint"))}</div></span></div>
-    ` : `
-      <button class="nav-card accent" data-i="${i}"><span class="ic">${icon("inbox")}</span><span class="grow">${esc(tsk.title)}<div class="t-sub">${esc(t("deadline"))}: ${esc(formatDt(tsk.deadline))}</div></span><span class="chev">›</span></button>
+    ${items.map((tsk) => `
+      <div class="nav-card"><span class="ic">${icon("inbox")}</span><span class="grow">${esc(tsk.title)}<div class="t-sub">${esc(t("deadline"))}: ${esc(formatDt(tsk.deadline))}</div><div class="t-sub">${esc(t("assignViaTrelloHint"))}</div></span></div>
     `).join("")}
   `);
-  root.querySelectorAll("button.nav-card").forEach((el) => {
-    const tsk = items[Number(el.dataset.i)];
-    el.onclick = () => show(screenDelegateTask, tsk);
-  });
-}
-
-async function screenDelegateTask(task) {
-  setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
-  const members = await api("/brigadier/brigade-members");
-  if (!members.length) {
-    setScreen(`<p class="page-title">${esc(task.title)}</p><p class="empty-state">${esc(t("noBrigadeMembers"))}</p>`);
-    return;
-  }
-  setScreen(`
-    <p class="page-title">${esc(task.title)}</p>
-    <p class="page-sub">${esc(t("delegateWorkers"))}</p>
-    ${members.map((m) => `
-      <label class="check-row"><input type="checkbox" value="${m.id}" class="f-worker" />${esc(m.full_name)}</label>
-    `).join("")}
-  `);
-  setMainButton(t("delegateBtn"), async () => {
-    const workerIds = Array.from(root.querySelectorAll(".f-worker:checked")).map((el) => Number(el.value));
-    if (!workerIds.length) {
-      showError(t("delegateWorkers"));
-      return;
-    }
-    const app = tg();
-    app.MainButton.showProgress();
-    try {
-      await api(`/brigadier/tasks/${task.id}/delegate`, {
-        method: "POST",
-        body: JSON.stringify({ employee_ids: workerIds }),
-      });
-      app.HapticFeedback && app.HapticFeedback.notificationOccurred("success");
-      await goBack();
-    } catch (e) {
-      showError(e.message);
-    } finally {
-      app.MainButton.hideProgress();
-    }
-  }, "#4f3ff0");
 }
 
 async function screenMemberTasks(employeeId, fullName) {

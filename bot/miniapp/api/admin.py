@@ -24,7 +24,7 @@ from db.repositories import (
 )
 from config import settings
 from jobs import reminder_job, report_job
-from miniapp.util import current_module, employee_in_module, err, in_module, module_scope
+from miniapp.util import current_module, employee_in_module, err, in_module, is_trello_owned_order, module_scope
 from services import (
     claim_service,
     client_service,
@@ -39,6 +39,10 @@ from trello.client import TrelloAPIError, TrelloClient
 from utils.enums import MiscCategory, Role, TaskStatus, TaskType
 from utils.formatters import ROLE_LABELS
 from utils.modules import MEBEL, NAZORAT_TRELLO
+
+# Nazorat Trello zakazi faqat Trello'dan boshqariladi (foydalanuvchi:
+# "botdan unaqa ish qilinmasin") — muddat, srochnost, ijrochi botdan o'zgarmaydi.
+TRELLO_OWNED_MSG = "Bu zakaz Trello orqali boshqariladi — o'zgarishni Trello kartada qiling."
 
 routes = web.RouteTableDef()
 logger = logging.getLogger(__name__)
@@ -1221,6 +1225,8 @@ async def activate_pending_stage(request: web.Request) -> web.Response:
     to'g'ridan-to'g'ri xodim emas, SHU bo'limning brigadiri tanlanadi —
     brigadir keyin Mini App'da o'z brigadasidagi xodimga topshiradi."""
     task_id = int(request.match_info["task_id"])
+    if await is_trello_owned_order(task_id):
+        return err(TRELLO_OWNED_MSG, 409)
     body = await request.json()
     brigadier_id = body.get("brigadier_id")
     if not brigadier_id:
@@ -1353,6 +1359,8 @@ async def update_task_deadline(request: web.Request) -> web.Response:
     Mebel MUZLATILGAN: u yerda muddat Trello kartadan keladi va har 5
     daqiqada qayta o'qiladi — bu yerda yozilgani baribir ustidan yozilardi."""
     task_id = int(request.match_info["task_id"])
+    if await is_trello_owned_order(task_id):
+        return err(TRELLO_OWNED_MSG, 409)
     body = await request.json()
     try:
         deadline = datetime.fromisoformat(body["deadline"])
@@ -1434,6 +1442,8 @@ async def set_task_urgent(request: web.Request) -> web.Response:
     Mebel MUZLATILGAN: u yerda muddat Trello kartadan keladi va har pollda
     qayta o'qiladi, ya'ni bu yerda yozilgan qiymat baribir ustidan yozilardi."""
     task_id = int(request.match_info["task_id"])
+    if await is_trello_owned_order(task_id):
+        return err(TRELLO_OWNED_MSG, 409)
     body = await request.json()
     is_urgent = bool(body.get("is_urgent", True))
 
@@ -1697,6 +1707,8 @@ async def reassign_brigade_options(request: web.Request) -> web.Response:
 @routes.post("/tasks/{task_id}/reassign")
 async def reassign_task(request: web.Request) -> web.Response:
     task_id = int(request.match_info["task_id"])
+    if await is_trello_owned_order(task_id):
+        return err(TRELLO_OWNED_MSG, 409)
     body = await request.json()
     try:
         new_brigade_id = int(body["brigade_id"])

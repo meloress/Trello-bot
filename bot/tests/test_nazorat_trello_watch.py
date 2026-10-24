@@ -126,8 +126,156 @@ async def _notify_checks():
         ns.async_session, ns.EmployeeRepository, ns.DepartmentRepository = saved
 
 
+async def _job_checks():
+    """Job: birinchi yurish jim; keyin qo'shish/almashtirish/olib tashlash/
+    muddat/arxiv hodisalari to'g'ri hold amallariga aylanadi."""
+    from services import trello_hold_service as holds
+
+    job = nazorat_trello_watch_job
+    t0 = datetime(2026, 10, 24, 5, tzinfo=timezone.utc)
+    iso = lambda dt: dt.isoformat().replace("+00:00", "Z")
+    store = {"cursor": None, "holds": [], "next": 1, "log": []}
+    people = {"m-a": (SimpleNamespace(id=1, department_id=75), holds.WORKER),
+              "m-b": (SimpleNamespace(id=2, department_id=75), holds.WORKER),
+              "m-s": (SimpleNamespace(id=3, department_id=None), holds.OTHER)}
+
+    async def get_cursor():
+        return store["cursor"]
+
+    async def set_cursor(c):
+        store["cursor"] = c
+
+    async def open_holds(card_id):
+        return list(store["holds"])
+
+    async def open_hold(*, card_id, card_name, employee, started_at, deadline):
+        store["holds"].append((store["next"], employee.id, started_at))
+        store["log"].append(("open", employee.id, deadline))
+        store["next"] += 1
+
+    async def close_hold(bot, task_id, *, at, deadline, started_at):
+        store["holds"] = [h for h in store["holds"] if h[0] != task_id]
+        store["log"].append(("close", task_id, at - started_at))
+
+    async def set_deadline(card_id, deadline):
+        store["log"].append(("due", deadline))
+
+    async def member(mid):
+        return people.get(mid, (None, holds.UNKNOWN))
+
+    async def notify(bot, **kw):
+        store["log"].append(("notify", kw["trello_member_id"]))
+
+    due = t0 + timedelta(days=3)
+
+    class FakeTrello:
+        def __init__(self, actions):
+            self.actions = actions
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def _request(self, method, path, params=None):
+            if path.endswith("/actions"):
+                return self.actions[:1] if params.get("limit") == 1 else self.actions
+            return {"name": "2630 Test", "due": iso(due), "idMembers": [], "list": {"name": "kroy"}}
+
+    def act(kind, at, member_id=None, **data):
+        d = {"card": {"id": "c1", **data.pop("card", {})}, **data}
+        if member_id:
+            d["idMember"] = member_id
+        return {"id": f"{kind}{at}", "type": kind, "date": iso(at), "data": d}
+
+    saved = (job.settings_service.get_trello_cursor, job.settings_service.set_trello_cursor, holds.open_holds,
+             holds.open_hold, holds.close_hold, holds.set_card_deadline, job._member,
+             job.notification_service.notify_trello_card_assigned, job._board_id)
+    job.settings_service.get_trello_cursor, job.settings_service.set_trello_cursor = get_cursor, set_cursor
+    holds.open_holds, holds.open_hold, holds.close_hold, holds.set_card_deadline = open_holds, open_hold, close_hold, set_deadline
+    job._member, job.notification_service.notify_trello_card_assigned, job._board_id = member, notify, "board"
+    try:
+        old = act("addMemberToCard", t0 - timedelta(days=30), "m-a")
+        assert await job.run(None, lambda: FakeTrello([old])) == 0 and store["log"] == [], "eski hodisa qayta ishlandi"
+        assert store["cursor"] == old["date"]
+
+        events = [
+            act("addMemberToCard", t0, "m-a"),                                  # A boshladi
+            act("addMemberToCard", t0 + timedelta(minutes=3), "m-s"),           # sotuvchi — ta'sirsiz
+            act("addMemberToCard", t0 + timedelta(hours=80), "m-b"),            # B qo'shildi -> A yopiladi
+            act("updateCard", t0 + timedelta(hours=81), card={"due": iso(due)}, old={"due": None}),
+            act("removeMemberFromCard", t0 + timedelta(hours=90), "m-b"),       # B olib tashlandi
+            act("addMemberToCard", t0 + timedelta(hours=91), "m-a"),
+            act("updateCard", t0 + timedelta(hours=95), card={"closed": True}, old={"closed": False}),
+        ]
+        assert await job.run(None, lambda: FakeTrello(list(reversed(events)))) == len(events)
+        kinds = [e for e in store["log"] if e[0] != "notify"]
+        assert kinds == [
+            ("open", 1, due),
+            ("close", 1, timedelta(hours=80)), ("open", 2, due),
+            ("due", due),
+            ("close", 2, timedelta(hours=10)),
+            ("open", 1, due),
+            ("close", 3, timedelta(hours=4)),
+        ], kinds
+        assert store["holds"] == [], "arxivdan keyin ochiq vaqt qoldi"
+        assert await job.run(None, lambda: FakeTrello(list(reversed(events)))) == 0, "hodisa ikki marta ishlandi"
+    finally:
+        (job.settings_service.get_trello_cursor, job.settings_service.set_trello_cursor, holds.open_holds,
+         holds.open_hold, holds.close_hold, holds.set_card_deadline, job._member,
+         job.notification_service.notify_trello_card_assigned, job._board_id) = saved
+
+
+async def _close_checks():
+    """close_hold: 10 daqiqadan kam yoki muddatsiz — ballsiz; aks holda eski tizim."""
+    from services import trello_hold_service as holds
+
+    calls = []
+
+    async def finish(task_id, finished_at=None, employee_id=None):
+        calls.append(("finish", task_id))
+
+    async def finalize(bot, task_id, *, finished_at=None, employee_id=None):
+        calls.append(("score", task_id))
+
+    async def store_deadline(task_id, deadline):
+        return True
+
+    saved = (holds.timer_service.finish_task, holds.penalty_service.finalize_task_and_apply_penalty, holds._store_deadline)
+    holds.timer_service.finish_task = finish
+    holds.penalty_service.finalize_task_and_apply_penalty = finalize
+    holds._store_deadline = store_deadline
+    try:
+        t0 = datetime(2026, 10, 24, 5, tzinfo=timezone.utc)
+        due = t0 + timedelta(days=3)
+        await holds.close_hold(None, 1, at=t0 + timedelta(minutes=5), deadline=due, started_at=t0)
+        await holds.close_hold(None, 2, at=t0 + timedelta(days=4), deadline=None, started_at=t0)
+        await holds.close_hold(None, 3, at=t0 + timedelta(days=4), deadline=due, started_at=t0)
+        assert calls == [("finish", 1), ("finish", 2), ("score", 3)], calls
+    finally:
+        (holds.timer_service.finish_task, holds.penalty_service.finalize_task_and_apply_penalty, holds._store_deadline) = saved
+
+
+def _no_bot_write_checks():
+    """Trello zakazining muddati/srochnosti/ijrochisini botdan o'zgartiradigan
+    endpointlar `is_trello_owned_order` bilan 409 qaytarishi kerak."""
+    import inspect
+
+    from miniapp.api import admin, brigadier
+
+    for handler in (admin.update_task_deadline, admin.set_task_urgent, admin.activate_pending_stage,
+                    admin.reassign_task, brigadier.delegate_task):
+        assert "is_trello_owned_order(task_id)" in inspect.getsource(handler), handler.__name__
+
+
 async def main():
-    await nazorat_trello_watch_job._demo()
+    from services import trello_hold_service
+
+    trello_hold_service.demo()
+    _no_bot_write_checks()
+    await _job_checks()
+    await _close_checks()
     await _notify_checks()
     print("test_nazorat_trello_watch: OK")
 

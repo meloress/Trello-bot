@@ -135,3 +135,17 @@ async def update_setting(**fields: object) -> AppSettingsSnapshot:
         await session.commit()
 
     return await refresh()
+
+
+async def get_trello_cursor() -> str | None:
+    """Nazorat Trello ball tizimi kursori — keshsiz, har chaqiruvda bazadan."""
+    async with async_session() as session:
+        row = await AppSettingRepository(session).get_singleton()
+        return row.nazorat_trello_cursor
+
+
+async def set_trello_cursor(cursor: str) -> None:
+    async with async_session() as session:
+        repo = AppSettingRepository(session)
+        await repo.update(await repo.get_singleton(), nazorat_trello_cursor=cursor)
+        await session.commit()

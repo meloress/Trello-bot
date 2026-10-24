@@ -21,7 +21,7 @@ from db.repositories import (
     TaskClaimRepository,
     TaskRepository,
 )
-from miniapp.util import err, is_mebel_task as _is_mebel_task
+from miniapp.util import err, is_mebel_task as _is_mebel_task, is_trello_owned_order
 from services import (
     claim_service,
     notification_service,
@@ -129,6 +129,7 @@ async def task_detail(request: web.Request) -> web.Response:
             "deadline": task.deadline.isoformat() if task.deadline else None,
             "department": department_name,
             "module": module,
+            "task_type": task.task_type.value,
             "client_name": client_name,
         }
     )
@@ -161,6 +162,8 @@ async def stop_task(request: web.Request) -> web.Response:
     task_id = int(request.match_info["task_id"])
     if not await _is_assigned(task_id, employee.id):
         return err("not_found", 404)
+    if await is_trello_owned_order(task_id):
+        return err("Bu zakaz Trello orqali boshqariladi — vaqtni nazoratchi Trello'da belgilaydi.", 409)
     if await _is_mebel_task(task_id):
         return err(
             "Bu bo'lim uchun to'g'ridan-to'g'ri amal endi ishlamaydi — Mini App orqali so'rov yuboring "
@@ -198,6 +201,8 @@ async def resume_task(request: web.Request) -> web.Response:
     task_id = int(request.match_info["task_id"])
     if not await _is_assigned(task_id, employee.id):
         return err("not_found", 404)
+    if await is_trello_owned_order(task_id):
+        return err("Bu zakaz Trello orqali boshqariladi — vaqtni nazoratchi Trello'da belgilaydi.", 409)
     if await _is_mebel_task(task_id):
         # Pauza/Yakunlash bilan bir xil qoida: bu modulda ishchi o'zi
         # boshqarmaydi — brigadir so'rov yuboradi, rahbar tasdiqlaydi.
@@ -220,6 +225,8 @@ async def finish_task(request: web.Request) -> web.Response:
     task_id = int(request.match_info["task_id"])
     if not await _is_assigned(task_id, employee.id):
         return err("not_found", 404)
+    if await is_trello_owned_order(task_id):
+        return err("Bu zakaz Trello orqali boshqariladi — vaqtni nazoratchi Trello'da belgilaydi.", 409)
     if await _is_mebel_task(task_id):
         return err(
             "Bu bo'lim uchun to'g'ridan-to'g'ri amal endi ishlamaydi — Mini App orqali so'rov yuboring "
@@ -304,6 +311,8 @@ async def submit_pause_claim(request: web.Request) -> web.Response:
     task_id = int(request.match_info["task_id"])
     if not await _is_assigned(task_id, employee.id):
         return err("not_found", 404)
+    if await is_trello_owned_order(task_id):
+        return err("Bu zakaz Trello orqali boshqariladi — vaqtni nazoratchi Trello'da belgilaydi.", 409)
     if await _is_mebel_task(task_id):
         return err(
             "Mebel bo'limida Pauza/Yakunlash endi faqat brigadir orqali yuboriladi.", 409,
@@ -342,6 +351,8 @@ async def submit_finish_claim(request: web.Request) -> web.Response:
     task_id = int(request.match_info["task_id"])
     if not await _is_assigned(task_id, employee.id):
         return err("not_found", 404)
+    if await is_trello_owned_order(task_id):
+        return err("Bu zakaz Trello orqali boshqariladi — vaqtni nazoratchi Trello'da belgilaydi.", 409)
     if await _is_mebel_task(task_id):
         return err(
             "Mebel bo'limida Pauza/Yakunlash endi faqat brigadir orqali yuboriladi.", 409,

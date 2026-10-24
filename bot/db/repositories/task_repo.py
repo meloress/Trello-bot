@@ -75,6 +75,18 @@ class TaskRepository(BaseRepository[Task]):
         )
         return result.scalars().first()
 
+    async def list_open_by_trello_card_id(self, trello_card_id: str) -> list[Task]:
+        """Nazorat Trello ball tizimi: kartadagi hozir ochiq "ushlab turish"
+        qatorlari (har biri bitta odamning shu kartadagi vaqti)."""
+        result = await self.session.execute(
+            select(Task).where(
+                Task.trello_card_id == trello_card_id,
+                Task.task_type == TaskType.ORDER,
+                Task.status != TaskStatus.COMPLETED,
+            ).order_by(Task.id)
+        )
+        return list(result.scalars().all())
+
     async def list_by_previous_task_id(self, previous_task_id: int) -> list[Task]:
         """Fasad sex TZ (Phase 3, fork/join): bitta fork nuqtasidan chiqqan
         qardosh tarmoq-qatorlarini topish — hammasi bir xil
