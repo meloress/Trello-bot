@@ -14,6 +14,7 @@ Hech biri kodga hardcode qilinmagan.
 """
 
 import logging
+import math
 from datetime import date, datetime, timedelta, timezone
 
 from core.database import async_session
@@ -31,7 +32,8 @@ from db.repositories import (
 )
 from services import notification_service, settings_service, timer_service
 from utils.enums import Role
-from utils.modules import MEBEL
+from utils.formatters import fmt_ball
+from utils.modules import MEBEL, NAZORAT_TRELLO
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +68,33 @@ def month_bounds(reference: date) -> tuple[datetime, datetime]:
     else:
         end = datetime(reference.year, reference.month + 1, 1, tzinfo=timezone.utc)
     return start, end
+
+
+def hourly_penalty(rules, hours: int) -> float | None:
+    """Nazorat Trello (2026-11-04, foydalanuvchi talabi): `penalty_rules` har
+    bir qatori "shu oraliqdagi HAR SUTKA uchun ball" — u soatlarga bo'linib
+    jamlanadi. Jadval -1/-1/-3/-3/-5 bo'lsa: 36 soat -> -1.5, 48 -> -2,
+    72 -> -5, 120 -> -13, keyin har sutkaga -5 (har soatga -5/24).
+
+    Soat stavkasi = qator bali / oraliq kengligi (ochiq yuqori qator — 24).
+    Bo'limga xos qator globaldan ustun (`find_applicable_rule` bilan bir xil).
+    Biror soatni hech qaysi qator qamramasa — None."""
+    total = 0.0
+    for hour in range(hours):
+        covering = [r for r in rules if r.min_hours_late <= hour and (r.max_hours_late is None or hour < r.max_hours_late)]
+        if not covering:
+            return None
+        rule = min(covering, key=lambda r: r.department_id is None)
+        width = (rule.max_hours_late - rule.min_hours_late) if rule.max_hours_late is not None else 24
+        total += rule.score / width
+    return round(total, 2)
+
+
+async def _is_nazorat_trello(session, department_id: int | None) -> bool:
+    if department_id is None:
+        return False
+    department = await DepartmentRepository(session).get_by_id(department_id)
+    return department is not None and department.module == NAZORAT_TRELLO
 
 
 async def _penalize_all_for_task(session, task) -> bool:
@@ -158,7 +187,8 @@ async def _write_scores_for_employees(
 
 
 async def apply_penalty_for_employees(
-    *, task_id: int, department_id: int | None, employee_ids: list[int], hours_late: int, reason_label: str
+    *, task_id: int, department_id: int | None, employee_ids: list[int], hours_late: int, reason_label: str,
+    hourly: bool = False,
 ) -> list[KpiLog]:
     """8.1/8.2-band jarima yozish mantig'ining umumiy yadrosi — muddatida
     yakunlangan vazifa (`calculate_and_apply_task_penalty`) va 8.3-band
@@ -171,8 +201,12 @@ async def apply_penalty_for_employees(
     async with async_session() as session:
         rule_repo = PenaltyRuleRepository(session)
 
-        rule = await rule_repo.find_applicable_rule(hours_late, department_id)
-        if rule is None:
+        if hourly:
+            raw_score = hourly_penalty(await rule_repo.list_for_department(department_id), hours_late)
+        else:
+            rule = await rule_repo.find_applicable_rule(hours_late, department_id)
+            raw_score = rule.score if rule is not None else None
+        if raw_score is None:
             raise PenaltyRuleNotConfiguredError(
                 f"Task {task_id}: {hours_late} soat kechikish uchun penalty_rules'da mos qoida yo'q"
             )
@@ -181,7 +215,10 @@ async def apply_penalty_for_employees(
         task_title = task.title if task is not None else f"vazifa #{task_id}"
 
         app_settings = await settings_service.get_settings()
-        final_score = round(rule.score * app_settings.default_penalty_multiplier)
+        if hourly:
+            final_score = round(raw_score * app_settings.default_penalty_multiplier, 2)
+        else:
+            final_score = round(raw_score * app_settings.default_penalty_multiplier)
 
         created_logs = await _write_scores_for_employees(
             session,
@@ -299,6 +336,7 @@ async def calculate_and_apply_task_penalty(task_id: int) -> list[KpiLog]:
         delta_seconds = (task.finished_at - reference_start).total_seconds()
         department_id = task.current_department_id
         employee_ids = [a.employee_id for a in await assignment_repo.list_by_task(task_id)]
+        hourly = await _is_nazorat_trello(session, department_id)
 
     if delta_seconds == 0:
         return []
@@ -307,7 +345,8 @@ async def calculate_and_apply_task_penalty(task_id: int) -> list[KpiLog]:
         hours_early = int(-delta_seconds // 3600)
         return await apply_plus_ball_for_employees(task_id=task_id, employee_ids=employee_ids, hours_early=hours_early)
 
-    hours_late = int(delta_seconds // 3600)
+    # Nazorat Trello: boshlangan har soat hisoblanadi (10 daqiqa ham — 1 soat).
+    hours_late = math.ceil(delta_seconds / 3600) if hourly else int(delta_seconds // 3600)
 
     return await apply_penalty_for_employees(
         task_id=task_id,
@@ -315,6 +354,7 @@ async def calculate_and_apply_task_penalty(task_id: int) -> list[KpiLog]:
         employee_ids=employee_ids,
         hours_late=hours_late,
         reason_label="Kechikish",
+        hourly=hourly,
     )
 
 
@@ -436,7 +476,7 @@ async def _apply_brigade_share_for_worker(
             # Brigada nomi boshida — bitta brigadir bir nechta brigadaga
             # rahbarlik qilganda ulush qaysi brigadadan kelganini bilishi uchun.
             f'{brigade.name}: {worker.full_name} "{task_title}" vazifasi bo\'yicha '
-            f"{worker_score:+d} ball olgani uchun ulushingiz ({ratio:.0%})"
+            f"{fmt_ball(worker_score)} ball olgani uchun ulushingiz ({ratio:.0%})"
         ),
     )
 
@@ -478,7 +518,7 @@ async def calculate_total_score(
     async with async_session() as session:
         logs = await KpiLogRepository(session).list_by_employee_in_range(employee_id, since, until)
 
-    return sum(log.score for log in logs)
+    return round(sum(log.score for log in logs), 2)
 
 
 async def calculate_monthly_rollup(employee_id: int, *, month: str) -> tuple[int, int]:

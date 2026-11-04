@@ -259,7 +259,7 @@ deduplikatsiya qilib qo'shadi). `task_service.create_task()`ning
 |---|---|---|
 | id | PK | |
 | employee_id | FK -> employees.id | |
-| score | INTEGER | masalan: -1, -3, +1 |
+| score | NUMERIC(8,2) | masalan: -1, -1.5, +1. 2026-11-04 dan kasr: Nazorat Trello jarimasi soatbay (`penalty_service.hourly_penalty`) |
 | reason | TEXT | |
 | created_at / updated_at | TIMESTAMPTZ | |
 

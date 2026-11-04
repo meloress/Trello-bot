@@ -7,7 +7,9 @@ doskasining hodisalar jurnalini (`/boards/{id}/actions`) har daqiqada o'qiydi:
     shu kartadagi vaqti boshlanadi; eski odamning vaqti yopiladi;
   - a'zo olib tashlandi (`removeMemberFromCard`) — uning vaqti yopiladi;
   - karta arxivlandi (`updateCard:closed`) — hammaning vaqti yopiladi;
-  - muddat o'zgardi (`updateCard:due`) — ochiq vaqtlarning muddati yangilanadi.
+  - muddat o'zgardi (`updateCard:due`) — ochiq vaqtlarning muddati yangilanadi;
+  - karta boshqa listga o'tdi (`updateCard:idList`) — vaqt yopiladi, pauzaga
+    tushadi yoki o'zgarmaydi (`trello_hold_service.plan_list_move`).
 
 Vaqt yopilganda ball ESKI tizim bo'yicha yoziladi — qoidalar
 `services/trello_hold_service.py` boshida. Bot Trello'ga HECH NARSA yozmaydi.
@@ -41,7 +43,7 @@ from utils.modules import NAZORAT_TRELLO
 
 logger = logging.getLogger(__name__)
 
-_FILTER = "addMemberToCard,removeMemberFromCard,updateCard:closed,updateCard:due"
+_FILTER = "addMemberToCard,removeMemberFromCard,updateCard:closed,updateCard:due,updateCard:idList"
 
 _board_id: str | None = None
 
@@ -82,7 +84,7 @@ async def _close(bot, card_id: str, task_ids, at: datetime, card) -> None:
     started = {task_id: started_at for task_id, _, started_at in await holds.open_holds(card_id)}
     for task_id in task_ids:
         if task_id in started:
-            await holds.close_hold(bot, task_id, at=at, deadline=_parse_dt(card.get("due")), started_at=started[task_id])
+            await holds.close_hold(bot, task_id, at=at, due=_parse_dt(card.get("due")), started_at=started[task_id])
 
 
 async def _handle(bot, trello, action) -> None:
@@ -102,6 +104,13 @@ async def _handle(bot, trello, action) -> None:
             await holds.set_card_deadline(card_id, _parse_dt((data.get("card") or {}).get("due")))
         if (data.get("card") or {}).get("closed") and "closed" in (data.get("old") or {}):
             await _close(bot, card_id, [task_id for task_id, _, _ in await holds.open_holds(card_id)], at, card)
+        if "idList" in (data.get("old") or {}):
+            await holds.card_moved(
+                bot, card_id,
+                before=(data.get("listBefore") or {}).get("name", ""),
+                after=(data.get("listAfter") or {}).get("name", ""),
+                at=at, due=_parse_dt(card.get("due")),
+            )
         return
 
     member_id = data.get("idMember")

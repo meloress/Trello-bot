@@ -31,7 +31,7 @@ from db.repositories import (
     TaskSellerRepository,
 )
 from utils.enums import ClaimActionType, ReminderUrgency, Role, TaskType
-from utils.formatters import format_dt as _format_dt
+from utils.formatters import fmt_ball, format_dt as _format_dt
 from utils.modules import MEBEL
 
 logger = logging.getLogger(__name__)
@@ -292,6 +292,8 @@ async def notify_trello_card_assigned(
         await _add_supervisors(session, watchers, None)  # bo'limsiz nazoratchi + kuzatuvchi
 
     due_text = f"{_format_dt(due)}{_deadline_window(due)}" if due else "belgilanmagan"
+    if due and due <= datetime.now(timezone.utc):
+        due_text += "\n⚠️ Kartaning muddati o'tib ketgan — yangi muddat qo'yilishi kerak"
     place = f"\n📋 {list_name}" if list_name else ""
     tail = f"{place}\n⏰ Muddat: {due_text}"
     who = employee.full_name if employee is not None else (member_name or "Noma'lum a'zo")
@@ -555,19 +557,19 @@ async def notify_penalty_applied(bot: Bot, kpi_log_id: int) -> None:
         supervisor_chat_ids = await _supervisor_chat_ids(session, employee.department_id, exclude)
 
     title = "🎁 Sizga bonus ball yozildi" if kpi_log.score > 0 else "⚠️ Sizga jarima ball yozildi"
-    text = f"{title}: {kpi_log.score:+d} ball\nSabab: {kpi_log.reason}"
+    text = f"{title}: {fmt_ball(kpi_log.score)} ball\nSabab: {kpi_log.reason}"
     await _send(bot, employee.telegram_id, text)
     if manager is not None:
         await _send(
             bot,
             manager.telegram_id,
             f"⚠️ Bo'ysunuvchingiz {employee.full_name}ga jarima ball yozildi: "
-            f"{kpi_log.score:+d}\nSabab: {kpi_log.reason}",
+            f"{fmt_ball(kpi_log.score)}\nSabab: {kpi_log.reason}",
         )
 
     supervisor_text = (
         f"{'📈' if kpi_log.score > 0 else '📉'} {employee.full_name}: "
-        f"{kpi_log.score:+d} ball\nSabab: {kpi_log.reason}"
+        f"{fmt_ball(kpi_log.score)} ball\nSabab: {kpi_log.reason}"
     )
     for telegram_id in supervisor_chat_ids:
         await _send(bot, telegram_id, supervisor_text)

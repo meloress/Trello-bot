@@ -52,6 +52,9 @@ class _FakeEmployeeRepo:
     async def get_by_trello_member_id(self, member_id):
         return next((p for p in PEOPLE if p.trello_member_id == member_id), None)
 
+    async def get_by_id(self, employee_id):
+        return next((p for p in PEOPLE if p.id == employee_id), None)
+
     async def list_by_role(self, role, *, active_only=True):
         return [p for p in PEOPLE if p.role == role]
 
@@ -153,12 +156,15 @@ async def _job_checks():
         store["log"].append(("open", employee.id, deadline))
         store["next"] += 1
 
-    async def close_hold(bot, task_id, *, at, deadline, started_at):
+    async def close_hold(bot, task_id, *, at, due, started_at):
         store["holds"] = [h for h in store["holds"] if h[0] != task_id]
         store["log"].append(("close", task_id, at - started_at))
 
     async def set_deadline(card_id, deadline):
         store["log"].append(("due", deadline))
+
+    async def card_moved(bot, card_id, *, before, after, at, due):
+        store["log"].append(("move", before, after))
 
     async def member(mid):
         return people.get(mid, (None, holds.UNKNOWN))
@@ -190,8 +196,9 @@ async def _job_checks():
         return {"id": f"{kind}{at}", "type": kind, "date": iso(at), "data": d}
 
     saved = (job.settings_service.get_trello_cursor, job.settings_service.set_trello_cursor, holds.open_holds,
-             holds.open_hold, holds.close_hold, holds.set_card_deadline, job._member,
+             holds.open_hold, holds.close_hold, holds.set_card_deadline, holds.card_moved, job._member,
              job.notification_service.notify_trello_card_assigned, job._board_id)
+    holds.card_moved = card_moved
     job.settings_service.get_trello_cursor, job.settings_service.set_trello_cursor = get_cursor, set_cursor
     holds.open_holds, holds.open_hold, holds.close_hold, holds.set_card_deadline = open_holds, open_hold, close_hold, set_deadline
     job._member, job.notification_service.notify_trello_card_assigned, job._board_id = member, notify, "board"
@@ -207,6 +214,8 @@ async def _job_checks():
             act("updateCard", t0 + timedelta(hours=81), card={"due": iso(due)}, old={"due": None}),
             act("removeMemberFromCard", t0 + timedelta(hours=90), "m-b"),       # B olib tashlandi
             act("addMemberToCard", t0 + timedelta(hours=91), "m-a"),
+            act("updateCard", t0 + timedelta(hours=92), old={"idList": "l1"},
+                listBefore={"name": "Abdulloh kroy chizish 24"}, listAfter={"name": "zakaz tushti stopda"}),
             act("updateCard", t0 + timedelta(hours=95), card={"closed": True}, old={"closed": False}),
         ]
         assert await job.run(None, lambda: FakeTrello(list(reversed(events)))) == len(events)
@@ -217,18 +226,22 @@ async def _job_checks():
             ("due", due),
             ("close", 2, timedelta(hours=10)),
             ("open", 1, due),
+            ("move", "Abdulloh kroy chizish 24", "zakaz tushti stopda"),
             ("close", 3, timedelta(hours=4)),
         ], kinds
         assert store["holds"] == [], "arxivdan keyin ochiq vaqt qoldi"
+        assert "updateCard:idList" in job._FILTER, "list ko'chirish hodisasi o'qilmayapti"
         assert await job.run(None, lambda: FakeTrello(list(reversed(events)))) == 0, "hodisa ikki marta ishlandi"
     finally:
         (job.settings_service.get_trello_cursor, job.settings_service.set_trello_cursor, holds.open_holds,
-         holds.open_hold, holds.close_hold, holds.set_card_deadline, job._member,
+         holds.open_hold, holds.close_hold, holds.set_card_deadline, holds.card_moved, job._member,
          job.notification_service.notify_trello_card_assigned, job._board_id) = saved
 
 
 async def _close_checks():
-    """close_hold: 10 daqiqadan kam yoki muddatsiz — ballsiz; aks holda eski tizim."""
+    """close_hold: 10 daqiqadan kam, muddatsiz yoki muddati odamga berilishidan
+    oldin o'tgan — ballsiz; aks holda eski tizim. card_moved: rejaga ko'ra
+    pauza/davom/yopish chaqiriladi."""
     from services import trello_hold_service as holds
 
     calls = []
@@ -239,22 +252,49 @@ async def _close_checks():
     async def finalize(bot, task_id, *, finished_at=None, employee_id=None):
         calls.append(("score", task_id))
 
-    async def store_deadline(task_id, deadline):
-        return True
+    t0 = datetime(2026, 10, 24, 5, tzinfo=timezone.utc)
 
-    saved = (holds.timer_service.finish_task, holds.penalty_service.finalize_task_and_apply_penalty, holds._store_deadline)
+    async def store_deadline(task_id, due):
+        return True, holds.effective_deadline(due, t0)
+
+    async def resume(task_id, *, at):
+        calls.append(("resume", task_id))
+
+    async def pause(task_id, *, at):
+        calls.append(("pause", task_id))
+
+    async def open_holds(card_id):
+        return [(7, 169, t0)]
+
+    saved = (holds.timer_service.finish_task, holds.penalty_service.finalize_task_and_apply_penalty,
+             holds._store_deadline, holds.resume_hold, holds.pause_hold, holds.open_holds,
+             holds.async_session, holds.EmployeeRepository)
     holds.timer_service.finish_task = finish
     holds.penalty_service.finalize_task_and_apply_penalty = finalize
-    holds._store_deadline = store_deadline
+    (holds._store_deadline, holds.resume_hold, holds.pause_hold, holds.open_holds,
+     holds.async_session, holds.EmployeeRepository) = (store_deadline, resume, pause, open_holds,
+                                                       _FakeSession, _FakeEmployeeRepo)
     try:
-        t0 = datetime(2026, 10, 24, 5, tzinfo=timezone.utc)
         due = t0 + timedelta(days=3)
-        await holds.close_hold(None, 1, at=t0 + timedelta(minutes=5), deadline=due, started_at=t0)
-        await holds.close_hold(None, 2, at=t0 + timedelta(days=4), deadline=None, started_at=t0)
-        await holds.close_hold(None, 3, at=t0 + timedelta(days=4), deadline=due, started_at=t0)
-        assert calls == [("finish", 1), ("finish", 2), ("score", 3)], calls
+        await holds.close_hold(None, 1, at=t0 + timedelta(minutes=5), due=due, started_at=t0)
+        await holds.close_hold(None, 2, at=t0 + timedelta(days=4), due=None, started_at=t0)
+        await holds.close_hold(None, 3, at=t0 + timedelta(days=4), due=due, started_at=t0)
+        await holds.close_hold(None, 4, at=t0 + timedelta(days=4), due=t0 - timedelta(days=2), started_at=t0)
+        assert [c for c in calls if c[0] != "resume"] == [
+            ("finish", 1), ("finish", 2), ("score", 3), ("finish", 4)], calls
+        assert ("resume", 3) in calls, "pauzadagi hold yopilishdan oldin davom ettirilmadi"
+
+        calls.clear()
+        at = t0 + timedelta(hours=5)
+        await holds.card_moved(None, "c1", before="Abdulloh kroy chizish 24", after="zakaz tushti stopda", at=at, due=due)
+        await holds.card_moved(None, "c1", before="zakaz tushti stopda", after="Abdulloh kroy chizish 24", at=at, due=due)
+        await holds.card_moved(None, "c1", before="Abdulloh jiyan chizish 24", after="Abdulloh kroy chizish 24", at=at, due=due)
+        await holds.card_moved(None, "c1", before="Abdulloh kroy chizish 24", after="Fayl yeg'ish  va zapchast 24", at=at, due=due)
+        assert calls == [("pause", 7), ("resume", 7), ("resume", 7), ("score", 7)], calls
     finally:
-        (holds.timer_service.finish_task, holds.penalty_service.finalize_task_and_apply_penalty, holds._store_deadline) = saved
+        (holds.timer_service.finish_task, holds.penalty_service.finalize_task_and_apply_penalty,
+         holds._store_deadline, holds.resume_hold, holds.pause_hold, holds.open_holds,
+         holds.async_session, holds.EmployeeRepository) = saved
 
 
 def _no_bot_write_checks():

@@ -247,7 +247,8 @@ function heroTone(value) {
 }
 
 function scoreSigned(value) {
-  return (value > 0 ? "+" : "") + value;
+  // Nazorat Trello jarimasi soatbay — kasr ball (-1,5).
+  return (value > 0 ? "+" : "") + String(Math.round(value * 100) / 100).replace(".", ",");
 }
 
 function statusClass(status) {

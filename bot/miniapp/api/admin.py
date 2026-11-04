@@ -592,7 +592,7 @@ async def employee_score(request: web.Request) -> web.Response:
     return web.json_response(
         {
             "full_name": employee.full_name,
-            "total": sum(log.score for log in logs),
+            "total": round(sum(log.score for log in logs), 2),
             "logs": [
                 {"score": log.score, "reason": log.reason, "created_at": log.created_at.isoformat()}
                 for log in logs

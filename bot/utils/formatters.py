@@ -30,3 +30,8 @@ ROLE_LABELS: dict[Role, str] = {
 
 def format_dt(value: datetime) -> str:
     return value.astimezone(TASHKENT_TZ).strftime("%d.%m.%Y %H:%M")
+
+
+def fmt_ball(score) -> str:
+    """Ball matni: "+3", "-1,5", "-0,04" — butun bo'lsa kasrsiz."""
+    return f"{score:+.2f}".rstrip("0").rstrip(".").replace(".", ",")

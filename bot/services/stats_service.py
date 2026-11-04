@@ -28,6 +28,7 @@ from db.models.task import Task
 from db.models.task_assignment import TaskAssignment
 from services import settings_service
 from utils.enums import Role, TaskStatus, TaskType
+from utils.formatters import fmt_ball
 from utils.modules import ENABLED_MODULES, NAZORAT_TRELLO
 
 # KPI/jarima faqat shu ikki operatsion rolga tegishli (penalty_service faqat
@@ -45,7 +46,7 @@ class EmployeeStats:
     full_name: str
     role: Role
     completed_tasks: int
-    total_score: int
+    total_score: float
     penalty_count: int
     # SPEC.md §11: "har bir xodim: ... o'rtacha bajarish vaqti". Soatda,
     # STOP vaqti CHIQARIB TASHLANGAN (§6) — `stopped_seconds_total`.
@@ -621,7 +622,7 @@ def format_stats_table(stats: list[EmployeeStats], title: str) -> str:
     for s in stats:
         lines.append(
             f"{s.full_name.ljust(name_width)} | {str(s.completed_tasks).rjust(6)} | "
-            f"{str(s.total_score).rjust(4)} | {str(s.penalty_count).rjust(6)}"
+            f"{fmt_ball(s.total_score).rjust(5)} | {str(s.penalty_count).rjust(6)}"
         )
 
     best = max(stats, key=lambda s: s.total_score)
@@ -629,7 +630,7 @@ def format_stats_table(stats: list[EmployeeStats], title: str) -> str:
 
     lines.append("")
     if best.total_score > 0:
-        lines.append(f"Eng yuqori ball: {best.full_name} ({best.total_score:+d})")
+        lines.append(f"Eng yuqori ball: {best.full_name} ({fmt_ball(best.total_score)})")
     if worst.penalty_count > 0:
         lines.append(f"Eng ko'p jarima (past unumdorlik): {worst.full_name} ({worst.penalty_count} marta)")
 

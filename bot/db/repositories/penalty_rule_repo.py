@@ -28,3 +28,12 @@ class PenaltyRuleRepository(BaseRepository[PenaltyRule]):
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def list_for_department(self, department_id: int | None) -> list[PenaltyRule]:
+        """Shu bo'limga xos va global qoidalar — soatbay hisob uchun (`penalty_service.hourly_penalty`)."""
+        result = await self.session.execute(
+            select(PenaltyRule).where(
+                or_(PenaltyRule.department_id == department_id, PenaltyRule.department_id.is_(None))
+            )
+        )
+        return list(result.scalars().all())

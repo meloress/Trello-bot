@@ -6,7 +6,7 @@ from db.models.department import Department
 from db.models.task import Task
 from db.repositories.base import BaseRepository
 from utils.enums import MiscCategory, TaskStatus, TaskType
-from utils.modules import ENABLED_MODULES, MEBEL
+from utils.modules import ENABLED_MODULES, MEBEL, NAZORAT_TRELLO
 
 _OPEN_STATUSES = [TaskStatus.ACTIVE, TaskStatus.STOPPED]
 
@@ -272,6 +272,9 @@ class TaskRepository(BaseRepository[Task]):
             .where(
                 Task.status == TaskStatus.STOPPED,
                 Department.stopped_auto_resume_after_hours.isnot(None),
+                # Nazorat Trello zakazi pauzadan faqat Trello'da chiqadi
+                # (`trello_hold_service`); `resume_task` esa Trello'ga yozadi.
+                Department.module != NAZORAT_TRELLO,
             )
         )
         return list(result.scalars().all())
