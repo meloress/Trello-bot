@@ -304,7 +304,7 @@ async def _job_checks():
         # Hisobi yo'q karta ko'chsa — Trello'ga ham, holdlarga ham murojaat yo'q.
         store["holds"].clear()
         store["log"].clear()
-        moved = [act("updateCard", t0 + timedelta(hours=101), old={"idList": "l1"},
+        moved = [act("updateCard", t0 + timedelta(hours=220), old={"idList": "l1"},
                      listBefore={"name": "a"}, listAfter={"name": "b"})]
         assert await job.run(None, lambda: FakeTrello(moved)) == 1 and store["log"] == [], store["log"]
         assert await job.run(None, lambda: FakeTrello(list(reversed(events)))) == 0, "hodisa ikki marta ishlandi"
