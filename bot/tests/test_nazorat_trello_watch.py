@@ -206,6 +206,7 @@ async def _job_checks():
         store["log"].append(("pause", task_id))
 
     async def close_hold(bot, task_id, *, at, due, started_at, given_due=None):
+        store["given"] = given_due
         store["holds"] = [h for h in store["holds"] if h[0] != task_id]
         store["log"].append(("close", task_id, at - started_at))
 
@@ -235,7 +236,7 @@ async def _job_checks():
 
         async def _request(self, method, path, params=None):
             if path.startswith("/cards/") and path.endswith("/actions"):
-                return []  # kartaning muddat tarixi — o'zgarmagan
+                return store.get("card_actions", [])  # kartaning muddat tarixi
             if path.endswith("/actions"):
                 return self.actions[:1] if params.get("limit") == 1 else self.actions
             return {"name": "2630 Test", "due": iso(due), "idMembers": [], "list": {"name": store["list"]}}
@@ -289,6 +290,16 @@ async def _job_checks():
         stopped = [act("addMemberToCard", t0 + timedelta(hours=100), "m-b")]
         assert await job.run(None, lambda: FakeTrello(stopped)) == 1
         assert [e for e in store["log"] if e[0] != "notify"] == [("open", 2, due), ("pause", 4)], store["log"]
+
+        # Muddat odamga berilgandan keyin o'zgargan: yopilishda berilgan paytdagi muddat uzatiladi.
+        store["holds"].clear()
+        given = due + timedelta(days=1)
+        store["card_actions"] = [{"date": iso(t0 + timedelta(hours=205)), "data": {"old": {"due": iso(given)}}}]
+        later = [act("addMemberToCard", t0 + timedelta(hours=200), "m-a"),
+                 act("removeMemberFromCard", t0 + timedelta(hours=210), "m-a")]
+        assert await job.run(None, lambda: FakeTrello(later)) == 2
+        assert store["given"] == given, store["given"]
+        store["card_actions"] = []
 
         # Hisobi yo'q karta ko'chsa — Trello'ga ham, holdlarga ham murojaat yo'q.
         store["holds"].clear()
