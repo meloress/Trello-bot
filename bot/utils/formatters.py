@@ -33,5 +33,7 @@ def format_dt(value: datetime) -> str:
 
 
 def fmt_ball(score) -> str:
-    """Ball matni: "+3", "-1,5", "-0,04" — butun bo'lsa kasrsiz."""
+    """Ball matni: "+3", "-1,5", "-0,04", "0" — butun bo'lsa kasrsiz."""
+    if round(score, 2) == 0:
+        return "0"
     return f"{score:+.2f}".rstrip("0").rstrip(".").replace(".", ",")

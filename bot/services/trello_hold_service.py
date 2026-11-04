@@ -37,10 +37,15 @@ import logging
 import re
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import select
+
 from core.database import async_session
-from db.repositories import EmployeeRepository, StopLogRepository, TaskAssignmentRepository, TaskRepository
+from db.models.department import Department
+from db.models.employee import Employee
+from db.repositories import StopLogRepository, TaskAssignmentRepository, TaskRepository
 from services import penalty_service, timer_service
-from utils.enums import TaskStatus, TaskType
+from utils.enums import Role, TaskStatus, TaskType
+from utils.modules import NAZORAT_TRELLO
 
 logger = logging.getLogger(__name__)
 
@@ -80,26 +85,50 @@ def is_date_list(name: str) -> bool:
     return bool(_DATE_LIST.match(name or ""))
 
 
-def _own_lists(full_name: str, before: str, after: str) -> bool:
-    """Ikkala list nomida ham shu odamning ismi bor ("Abdulloh kroy chizish")."""
+def _tokens(full_name: str) -> set[str]:
+    return {t for t in (full_name or "").lower().split() if len(t) >= 4}
+
+
+def ambiguous_tokens(full_names) -> frozenset:
+    """Bir nechta xodimda uchraydigan ism qismlari ("abdulloh": Muruvatullayev
+    Abdulloh va Abdulloh Qosimov) — list nomidan kimniki ekanini aniqlab bo'lmaydi."""
+    seen, dup = set(), set()
+    for name in full_names:
+        for token in _tokens(name):
+            (dup if token in seen else seen).add(token)
+    return frozenset(dup)
+
+
+def _own_lists(full_name: str, before: str, after: str, ambiguous=frozenset()) -> bool:
+    """Ikkala list nomida ham shu odamning ismi bor ("Abdulloh kroy chizish").
+    Boshqa xodimda ham bor ism hisobga olinmaydi — aks holda bir Abdullohdan
+    ikkinchisiga o'tgan karta birinchisining hisobida qolib ketardi."""
     before, after = (before or "").lower(), (after or "").lower()
-    return any(len(t) >= 4 and t in before and t in after for t in (full_name or "").lower().split())
+    return any(t in before and t in after for t in _tokens(full_name) - ambiguous)
 
 
-def plan_list_move(before: str, after: str, holds) -> dict:
+def plan_list_move(before: str, after: str, holds, ambiguous=frozenset()) -> dict:
     """Karta `before` listdan `after`ga o'tdi — har bir ochiq hold bilan nima
-    qilinadi. holds: [(task_id, full_name)]. Qaytaradi: {task_id: PAUSE|RESUME|KEEP|CLOSE}."""
+    qilinadi. holds: [(task_id, full_name)]; ambiguous — `ambiguous_tokens()`.
+    Qaytaradi: {task_id: PAUSE|RESUME|KEEP|CLOSE}."""
     plan = {}
     for task_id, full_name in holds:
         if is_stop_list(after):
             plan[task_id] = KEEP if is_stop_list(before) else PAUSE
         elif is_stop_list(before):
             plan[task_id] = RESUME
-        elif (is_date_list(before) and is_date_list(after)) or _own_lists(full_name, before, after):
+        elif (is_date_list(before) and is_date_list(after)) or _own_lists(full_name, before, after, ambiguous):
             plan[task_id] = KEEP
         else:
             plan[task_id] = CLOSE
     return plan
+
+
+def status_after_resume(deadline, now) -> TaskStatus:
+    """Pauzadan chiqqan hold holati. Muddat surilgandan keyin ham o'tgan bo'lsa
+    (pauzadan oldin OVERDUE edi) — OVERDUE qoladi: ACTIVE qilinsa soatlik job
+    uni qayta "yangi kechikkan" deb topib, "muddat o'tdi" xabarini takrorlardi."""
+    return TaskStatus.OVERDUE if deadline is not None and deadline <= now else TaskStatus.ACTIVE
 
 
 def effective_deadline(due, started_at, stopped_seconds: int = 0):
@@ -184,24 +213,38 @@ async def resume_hold(task_id: int, *, at: datetime) -> None:
         paused = max(0, int((at - stop.stopped_at).total_seconds())) if stop else 0
         if stop:
             await stop_repo.update(stop, resumed_at=at)
-        changes = {"status": TaskStatus.ACTIVE, "stopped_seconds_total": (task.stopped_seconds_total or 0) + paused}
-        if task.deadline is not None:
-            changes["deadline"] = task.deadline + timedelta(seconds=paused)
-        await repo.update(task, **changes)
+        deadline = task.deadline + timedelta(seconds=paused) if task.deadline is not None else None
+        await repo.update(
+            task,
+            status=status_after_resume(deadline, datetime.now(timezone.utc)),
+            deadline=deadline,
+            stopped_seconds_total=(task.stopped_seconds_total or 0) + paused,
+        )
         await session.commit()
     logger.info("trello hold davom etdi: task=%s (pauza %s soniya)", task_id, paused)
 
 
+async def _staff_names() -> dict[int, str]:
+    """Nazorat Trello'ning faol ishchi/brigadirlari: {id: ism}."""
+    async with async_session() as session:
+        rows = (await session.execute(
+            select(Employee.id, Employee.full_name)
+            .join(Department, Employee.department_id == Department.id)
+            .where(Department.module == NAZORAT_TRELLO, Employee.is_active,
+                   Employee.role.in_([Role.WORKER, Role.BRIGADIER]))
+        )).all()
+    return {employee_id: name for employee_id, name in rows}
+
+
 async def card_moved(bot, card_id: str, *, before: str, after: str, at: datetime, due) -> None:
     holds = await open_holds(card_id)
-    async with async_session() as session:
-        employee_repo = EmployeeRepository(session)
-        names = []
-        for task_id, employee_id, _ in holds:
-            employee = await employee_repo.get_by_id(employee_id)
-            names.append((task_id, employee.full_name if employee else ""))
+    if not holds:
+        return
+    full_names = await _staff_names()
+    names = [(task_id, full_names.get(employee_id, "")) for task_id, employee_id, _ in holds]
     started = {task_id: started_at for task_id, _, started_at in holds}
-    for task_id, action in plan_list_move(before, after, names).items():
+    plan = plan_list_move(before, after, names, ambiguous_tokens(full_names.values()))
+    for task_id, action in plan.items():
         if action == PAUSE:
             await pause_hold(task_id, at=at)
         elif action == RESUME:
@@ -266,6 +309,17 @@ def demo() -> None:
     assert plan_list_move("zakaz tushti stopda", "Abdulloh kroy chizish 24 soat", h) == {1: RESUME}
     assert plan_list_move("5 NOYABR", "12 noyabr", h) == {1: KEEP}
     assert plan_list_move("korpus sklad 24", "5 NOYABR", h) == {1: CLOSE}
+
+    # bir xil ism ikki xodimda — list nomidan kimniki ekani noma'lum -> yopiladi
+    amb = ambiguous_tokens(["Muruvatullayev Abdulloh", "Abdulloh Qosimov", "Ruziev Rinat"])
+    assert amb == {"abdulloh"}
+    assert plan_list_move("Abdulloh jiyan chizish 24", "Abdulloh kroy chizish 24", h, amb) == {1: CLOSE}
+    assert plan_list_move("Muruvatullayev jiyan", "Muruvatullayev kroy", h, amb) == {1: KEEP}
+
+    # pauzadan chiqish: muddat hali o'tgan bo'lsa OVERDUE qoladi
+    assert status_after_resume(t0 - timedelta(hours=1), t0) == TaskStatus.OVERDUE
+    assert status_after_resume(t0 + timedelta(hours=1), t0) == TaskStatus.ACTIVE
+    assert status_after_resume(None, t0) == TaskStatus.ACTIVE
 
     # muddat odamga berilishidan oldin o'tib ketgan bo'lsa — muddat yo'q
     assert effective_deadline(t0 - timedelta(days=3), t0) is None

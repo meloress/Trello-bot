@@ -86,7 +86,7 @@ names from the real board: into a list whose name contains "stop" = **pause**,
 out of one = resume, paused time added to the deadline; date-list↔date-list
 ("5 NOYABR") and moves between two lists both carrying the holder's name
 ("Abdulloh jiyan chizish"→"Abdulloh kroy chizish") are ignored; any other move
-closes), and is then scored by the **old** engine
+closes; a name token shared by two Nazorat Trello workers — e.g. "abdulloh" — never counts as "own list", `ambiguous_tokens()`), and is then scored by the **old** engine
 (`penalty_service.finalize_task_and_apply_penalty` — `penalty_rules` brackets
 by hours late, early bonus, KPI notifications), against the card's due **at
 close time** + paused time. Three guards: members added within `HOLD_GRACE`
@@ -96,7 +96,13 @@ person was added** counts as no due (`effective_deadline()` — a real −5 was
 written for exactly this on 2026-11-04, task #202). Pause is done in
 `trello_hold_service` itself, not via `timer_service.stop_task/resume_task`
 (those move the card and write labels), and `list_stopped_for_auto_resume`
-skips Nazorat Trello for the same reason. Bot never writes to Trello: `daily_sync_job` skips Nazorat
+skips Nazorat Trello for the same reason. Also (2026-11-04 audit): a hold opened while the card sits in a stop list
+starts paused; leaving a pause with the shifted deadline still past keeps it
+`OVERDUE` (`status_after_resume`, else the "muddat o'tdi" alert repeats); only
+WORKER/BRIGADIER **in a Nazorat Trello department** get a hold (`_member` —
+mebel/department-less staff would be scored the wrong way); fractional balls
+are exact (`Fraction`) and rounded half-up (`penalty_service.round_ball`), and
+the brigadier share is fractional too for Nazorat Trello. Bot never writes to Trello: `daily_sync_job` skips Nazorat
 Trello orders (no labels), and the worker Mini App has no Stop/Finish for them
 (`util.is_trello_owned_order` 409s, `trelloOnly` in `screenTaskDetail`); the same guard 409s admin `/tasks/{id}/deadline`, `/urgent`, `/activate`, `/reassign` and brigadier `/delegate`, so `screenAdminOrderDetail` is read-only and `screenNewWork` only shows an "assign in Trello" hint (2026-10-24). The
 action-log cursor is persisted in `app_settings.nazorat_trello_cursor`

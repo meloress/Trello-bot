@@ -615,14 +615,16 @@ def format_stats_table(stats: list[EmployeeStats], title: str) -> str:
     stats = sorted(stats, key=lambda s: s.total_score, reverse=True)
 
     name_width = max(len("Xodim"), max(len(s.full_name) for s in stats))
-    header = f"{'Xodim'.ljust(name_width)} | Bajar. | Ball | Jarima"
+    balls = {id(s): fmt_ball(s.total_score).lstrip("+") for s in stats}
+    ball_width = max(len("Ball"), max(len(b) for b in balls.values()))
+    header = f"{'Xodim'.ljust(name_width)} | Bajar. | {'Ball'.rjust(ball_width)} | Jarima"
     separator = "-" * len(header)
 
     lines = [f"{title} ({len(stats)} xodim)", "", header, separator]
     for s in stats:
         lines.append(
             f"{s.full_name.ljust(name_width)} | {str(s.completed_tasks).rjust(6)} | "
-            f"{fmt_ball(s.total_score).rjust(5)} | {str(s.penalty_count).rjust(6)}"
+            f"{balls[id(s)].rjust(ball_width)} | {str(s.penalty_count).rjust(6)}"
         )
 
     best = max(stats, key=lambda s: s.total_score)

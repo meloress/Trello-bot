@@ -265,6 +265,7 @@ async def notify_trello_card_assigned(
     list_name: str | None,
     due,
     card_member_ids: list[str] = (),
+    at: datetime | None = None,
 ) -> None:
     """Nazorat Trello: zakaz FAQAT Trello'da beriladi — kartaga a'zo
     qo'shilganda (`jobs/nazorat_trello_watch_job.py`):
@@ -292,7 +293,8 @@ async def notify_trello_card_assigned(
         await _add_supervisors(session, watchers, None)  # bo'limsiz nazoratchi + kuzatuvchi
 
     due_text = f"{_format_dt(due)}{_deadline_window(due)}" if due else "belgilanmagan"
-    if due and due <= datetime.now(timezone.utc):
+    # `at` — kartaga qo'shilgan payt: hold ham shu bilan baholanadi.
+    if due and due <= (at or datetime.now(timezone.utc)):
         due_text += "\n⚠️ Kartaning muddati o'tib ketgan — yangi muddat qo'yilishi kerak"
     place = f"\n📋 {list_name}" if list_name else ""
     tail = f"{place}\n⏰ Muddat: {due_text}"

@@ -53,6 +53,7 @@ async def _open_holds():
 
 async def main():
     cursor = await settings_service.get_trello_cursor()
+    ambiguous = holds.ambiguous_tokens((await holds._staff_names()).values())
     bot = Bot(settings.bot_token) if APPLY else None
     async with TrelloClient(settings.trello_api_key, settings.trello_token) as trello:
         for task, full_name in await _open_holds():
@@ -70,7 +71,7 @@ async def main():
             for m in moves:
                 before, after = m["data"]["listBefore"]["name"], m["data"]["listAfter"]["name"]
                 at = _dt(m["date"])
-                action = holds.plan_list_move(before, after, [(task.id, full_name)])[task.id]
+                action = holds.plan_list_move(before, after, [(task.id, full_name)], ambiguous)[task.id]
                 print(f"   {at:%d.%m %H:%M}  {before!r} -> {after!r}: {action}")
                 if not APPLY:
                     if action == holds.PAUSE:

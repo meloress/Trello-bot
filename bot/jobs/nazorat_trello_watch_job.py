@@ -36,7 +36,7 @@ from sqlalchemy import select
 from config import settings
 from core.database import async_session
 from db.models.department import Department
-from db.repositories import EmployeeRepository
+from db.repositories import DepartmentRepository, EmployeeRepository
 from services import notification_service, settings_service, task_service, trello_hold_service as holds
 from trello.client import TrelloClient
 from utils.modules import NAZORAT_TRELLO
@@ -70,12 +70,21 @@ def _parse_dt(value: str | None) -> datetime | None:
 
 async def _member(trello_member_id: str):
     """(xodim, tur): tur — ball oladigan ishchi/brigadir, boshqa xodim yoki
-    botga bog'lanmagan Trello a'zosi."""
+    botga bog'lanmagan Trello a'zosi.
+
+    Ball faqat Nazorat Trello bo'limidagi ishchi/brigadirga: Fasad seh yoki
+    bo'limsiz xodimning holdi Nazorat Trello vazifasi bo'lmay qolardi (soatbay
+    emas, eski usulda baholanardi, "muddat o'tdi" eslatmalari ishlamasdi)."""
     async with async_session() as session:
         employee = await EmployeeRepository(session).get_by_trello_member_id(trello_member_id)
+        department = (
+            await DepartmentRepository(session).get_by_id(employee.department_id)
+            if employee is not None and employee.department_id is not None else None
+        )
     if employee is None:
         return None, holds.UNKNOWN
-    if employee.is_active and employee.role in task_service.ASSIGNABLE_ROLES:
+    if (employee.is_active and employee.role in task_service.ASSIGNABLE_ROLES
+            and department is not None and department.module == NAZORAT_TRELLO):
         return employee, holds.WORKER
     return employee, holds.OTHER
 
@@ -94,6 +103,9 @@ async def _handle(bot, trello, action) -> None:
     if not card_id:
         return
     at = _parse_dt(action["date"])
+    old = data.get("old") or {}
+    if kind == "updateCard" and "idList" in old and not await holds.open_holds(card_id):
+        return  # hisobi yo'q karta ko'chdi — Trello/baza so'rovisiz o'tkazib yuboriladi
     card = await trello._request(
         "GET", f"/cards/{card_id}",
         params={"fields": "name,due,closed,idMembers", "list": "true", "list_fields": "name"},
@@ -128,17 +140,21 @@ async def _handle(bot, trello, action) -> None:
     current = await holds.open_holds(card_id)
     to_close, open_new = holds.plan_member_added(current, employee.id if employee else None, member_kind, at)
     await _close(bot, card_id, to_close, at, card)
+    list_name = (card.get("list") or {}).get("name")
     if open_new:
-        await holds.open_hold(
+        task_id = await holds.open_hold(
             card_id=card_id, card_name=card["name"], employee=employee, started_at=at, deadline=_parse_dt(card.get("due")),
         )
+        if holds.is_stop_list(list_name):
+            await holds.pause_hold(task_id, at=at)  # karta stopda turibdi — soat yurmaydi
     await notification_service.notify_trello_card_assigned(
         bot,
         trello_member_id=member_id,
         member_name=(action.get("member") or {}).get("fullName"),
         card_name=card["name"],
-        list_name=(card.get("list") or {}).get("name"),
+        list_name=list_name,
         due=_parse_dt(card.get("due")),
+        at=at,
         card_member_ids=card.get("idMembers") or [],
     )
 

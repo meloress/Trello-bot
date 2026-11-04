@@ -15,6 +15,8 @@ Hech biri kodga hardcode qilinmagan.
 
 import logging
 import math
+from decimal import ROUND_HALF_UP, Decimal
+from fractions import Fraction
 from datetime import date, datetime, timedelta, timezone
 
 from core.database import async_session
@@ -70,6 +72,13 @@ def month_bounds(reference: date) -> tuple[datetime, datetime]:
     return start, end
 
 
+def round_ball(value) -> float:
+    """Kasr ballni 2 xonaga — yarmi yuqoriga (-2.125 -> -2.13, -0.495 -> -0.50).
+    `round()` float'da "bankir" usulida va ikkilik xatolik bilan yaxlitlaydi
+    (-2.125 -> -2.12, -0.495 -> -0.49)."""
+    return float(Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+
 def hourly_penalty(rules, hours: int) -> float | None:
     """Nazorat Trello (2026-11-04, foydalanuvchi talabi): `penalty_rules` har
     bir qatori "shu oraliqdagi HAR SUTKA uchun ball" — u soatlarga bo'linib
@@ -79,15 +88,15 @@ def hourly_penalty(rules, hours: int) -> float | None:
     Soat stavkasi = qator bali / oraliq kengligi (ochiq yuqori qator — 24).
     Bo'limga xos qator globaldan ustun (`find_applicable_rule` bilan bir xil).
     Biror soatni hech qaysi qator qamramasa — None."""
-    total = 0.0
+    total = Fraction(0)  # aniq kasr: 1/24 float'da yig'ilsa yaxlitlash adashadi
     for hour in range(hours):
         covering = [r for r in rules if r.min_hours_late <= hour and (r.max_hours_late is None or hour < r.max_hours_late)]
         if not covering:
             return None
         rule = min(covering, key=lambda r: r.department_id is None)
         width = (rule.max_hours_late - rule.min_hours_late) if rule.max_hours_late is not None else 24
-        total += rule.score / width
-    return round(total, 2)
+        total += Fraction(rule.score, width)
+    return round_ball(Decimal(total.numerator) / Decimal(total.denominator))
 
 
 async def _is_nazorat_trello(session, department_id: int | None) -> bool:
@@ -114,8 +123,8 @@ async def _penalize_all_for_task(session, task) -> bool:
 
 
 async def _write_scores_for_employees(
-    session, *, employee_ids: list[int], score: int, reason: str, task_id: int, task_title: str,
-    brigade_share_ratio: float, penalize_all: bool = True,
+    session, *, employee_ids: list[int], score: float, reason: str, task_id: int, task_title: str,
+    brigade_share_ratio: float, penalize_all: bool = True, fractional: bool = False,
 ) -> list[KpiLog]:
     """Minus (kechikish) va plus (muddatdan oldin) yo'llarining ikkalasi ham
     shu umumiy yadrodan foydalanadi: berilgan employee_id ro'yxatidagi
@@ -179,6 +188,7 @@ async def _write_scores_for_employees(
             ratio=brigade_share_ratio,
             task_id=task_id,
             task_title=task_title,
+            fractional=fractional,
         )
         if brigadier_log is not None:
             created_logs.append(brigadier_log)
@@ -216,7 +226,7 @@ async def apply_penalty_for_employees(
 
         app_settings = await settings_service.get_settings()
         if hourly:
-            final_score = round(raw_score * app_settings.default_penalty_multiplier, 2)
+            final_score = round_ball(Decimal(str(raw_score)) * Decimal(str(app_settings.default_penalty_multiplier)))
         else:
             final_score = round(raw_score * app_settings.default_penalty_multiplier)
 
@@ -229,6 +239,7 @@ async def apply_penalty_for_employees(
             task_title=task_title,
             brigade_share_ratio=app_settings.brigade_share_ratio,
             penalize_all=await _penalize_all_for_task(session, task),  # SPEC.md §7
+            fractional=hourly,
         )
         await session.commit()
         result_employee_ids = [log.employee_id for log in created_logs]
@@ -239,7 +250,9 @@ async def apply_penalty_for_employees(
     return created_logs
 
 
-async def apply_plus_ball_for_employees(*, task_id: int, employee_ids: list[int], hours_early: int) -> list[KpiLog]:
+async def apply_plus_ball_for_employees(
+    *, task_id: int, employee_ids: list[int], hours_early: int, fractional: bool = False,
+) -> list[KpiLog]:
     """8.4-band: `calculate_and_apply_task_penalty()` muddatdan OLDIN tugagan
     vazifa uchun chaqiradi. `calculate_plus_ball()` 0 qaytarsa (masalan
     24 soatlik "grace period"dan kam bo'lsa) hech narsa yozmaydi."""
@@ -260,6 +273,7 @@ async def apply_plus_ball_for_employees(*, task_id: int, employee_ids: list[int]
             task_id=task_id,
             task_title=task_title,
             brigade_share_ratio=app_settings.brigade_share_ratio,
+            fractional=fractional,
             penalize_all=await _penalize_all_for_task(session, task),  # SPEC.md §7
         )
         await session.commit()
@@ -343,7 +357,9 @@ async def calculate_and_apply_task_penalty(task_id: int) -> list[KpiLog]:
 
     if delta_seconds < 0:
         hours_early = int(-delta_seconds // 3600)
-        return await apply_plus_ball_for_employees(task_id=task_id, employee_ids=employee_ids, hours_early=hours_early)
+        return await apply_plus_ball_for_employees(
+            task_id=task_id, employee_ids=employee_ids, hours_early=hours_early, fractional=hourly,
+        )
 
     # Nazorat Trello: boshlangan har soat hisoblanadi (10 daqiqa ham — 1 soat).
     hours_late = math.ceil(delta_seconds / 3600) if hourly else int(delta_seconds // 3600)
@@ -435,10 +451,11 @@ async def _apply_brigade_share_for_worker(
     kpi_repo: KpiLogRepository,
     *,
     worker: Employee,
-    worker_score: int,
+    worker_score: float,
     ratio: float,
     task_id: int,
     task_title: str,
+    fractional: bool = False,
 ) -> KpiLog | None:
     """8.4-band: `worker` ball olganda (bonus/jarima), uning brigadiriga ulush
     yozadi. Brigadasi yo'q, brigadaning brigadiri tayinlanmagan, yoki ulush
@@ -465,7 +482,9 @@ async def _apply_brigade_share_for_worker(
             brigadier.id,
         )
 
-    share_score = round(await apply_brigade_share(worker_score, ratio))
+    share = await apply_brigade_share(worker_score, ratio)
+    # Nazorat Trello bali kasr (soatbay) — ulush ham 2 xonagacha; mebel butun son.
+    share_score = round_ball(Decimal(str(worker_score)) * Decimal(str(ratio))) if fractional else round(share)
     if share_score == 0:
         return None
 
@@ -557,9 +576,10 @@ async def update_payment_date_if_needed(employee_id: int) -> Employee:
             raise EmployeeNotFoundError(f"Employee {employee_id} topilmadi")
 
         logs = await kpi_repo.list_by_employee_in_range(employee_id, month_start, month_end)
-        total_minus = sum(-log.score for log in logs if log.score < 0)
+        # round: kasr ballar float'da 3.00 o'rniga 2.9999... bo'lib, bir kun kam surardi.
+        total_minus = round(sum(-log.score for log in logs if log.score < 0), 2)
         balls_per_day_shift = (await settings_service.get_settings()).balls_per_day_shift
-        shift_days = total_minus // balls_per_day_shift
+        shift_days = int(total_minus // balls_per_day_shift)
 
         new_payment_date = date(month_start.year, month_start.month, BASE_PAYMENT_DAY) + timedelta(
             days=shift_days
