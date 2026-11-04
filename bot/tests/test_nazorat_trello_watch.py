@@ -205,14 +205,14 @@ async def _job_checks():
     async def pause_hold(task_id, *, at):
         store["log"].append(("pause", task_id))
 
-    async def close_hold(bot, task_id, *, at, due, started_at):
+    async def close_hold(bot, task_id, *, at, due, started_at, given_due=None):
         store["holds"] = [h for h in store["holds"] if h[0] != task_id]
         store["log"].append(("close", task_id, at - started_at))
 
-    async def set_deadline(card_id, deadline):
+    async def set_deadline(card_id, deadline, due_changes=()):
         store["log"].append(("due", deadline))
 
-    async def card_moved(bot, card_id, *, before, after, at, due):
+    async def card_moved(bot, card_id, *, before, after, at, due, due_changes=()):
         store["log"].append(("move", before, after))
 
     async def member(mid):
@@ -234,6 +234,8 @@ async def _job_checks():
             return False
 
         async def _request(self, method, path, params=None):
+            if path.startswith("/cards/") and path.endswith("/actions"):
+                return []  # kartaning muddat tarixi — o'zgarmagan
             if path.endswith("/actions"):
                 return self.actions[:1] if params.get("limit") == 1 else self.actions
             return {"name": "2630 Test", "due": iso(due), "idMembers": [], "list": {"name": store["list"]}}
@@ -317,8 +319,8 @@ async def _close_checks():
 
     t0 = datetime(2026, 10, 24, 5, tzinfo=timezone.utc)
 
-    async def store_deadline(task_id, due):
-        return True, holds.effective_deadline(due, t0)
+    async def store_deadline(task_id, due, given_due=None):
+        return True, holds.closing_deadline(due, given_due, t0, 0)
 
     async def resume(task_id, *, at):
         calls.append(("resume", task_id))
@@ -344,8 +346,11 @@ async def _close_checks():
         await holds.close_hold(None, 2, at=t0 + timedelta(days=4), due=None, started_at=t0)
         await holds.close_hold(None, 3, at=t0 + timedelta(days=4), due=due, started_at=t0)
         await holds.close_hold(None, 4, at=t0 + timedelta(days=4), due=t0 - timedelta(days=2), started_at=t0)
+        # muddat o'tgan sanaga surilgan, lekin berilganda bor edi -> berilgandagi muddat bilan baholanadi
+        await holds.close_hold(None, 5, at=t0 + timedelta(days=4), due=t0 - timedelta(days=2), started_at=t0,
+                               given_due=t0 + timedelta(days=1))
         assert [c for c in calls if c[0] != "resume"] == [
-            ("finish", 1), ("finish", 2), ("score", 3), ("finish", 4)], calls
+            ("finish", 1), ("finish", 2), ("score", 3), ("finish", 4), ("score", 5)], calls
         assert ("resume", 3) in calls, "pauzadagi hold yopilishdan oldin davom ettirilmadi"
 
         calls.clear()

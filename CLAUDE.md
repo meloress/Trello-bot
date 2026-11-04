@@ -92,8 +92,11 @@ by hours late, early bonus, KPI notifications), against the card's due **at
 close time** + paused time. Three guards: members added within `HOLD_GRACE`
 (10 min) of each other don't close each other; a hold shorter than 10 min or
 with no due is closed unscored; a due that had **already passed when the
-person was added** counts as no due (`effective_deadline()` — a real −5 was
-written for exactly this on 2026-11-04, task #202). Pause is done in
+person was added** counts as no due (`effective_deadline()`), and a due later
+moved to *before* the hand-off is replaced by the due in force at hand-off,
+read from the card's Trello `updateCard:due` history (`closing_deadline()` /
+`due_at()`, job's `_due_changes()` — user's decision on #202, 2026-11-04: a
+real −5 became −1.04; intermediate typos like 03.11→29.11→29.10 are ignored). Pause is done in
 `trello_hold_service` itself, not via `timer_service.stop_task/resume_task`
 (those move the card and write labels), and `list_stopped_for_auto_resume`
 skips Nazorat Trello for the same reason. Also (2026-11-04 audit): a hold opened while the card sits in a stop list

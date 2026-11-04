@@ -139,6 +139,30 @@ def effective_deadline(due, started_at, stopped_seconds: int = 0):
     return due + timedelta(seconds=stopped_seconds or 0)
 
 
+def due_at(moment, due_changes, due_now):
+    """Karta muddati `moment` paytida qanday edi. due_changes: Trello
+    `updateCard:due` tarixi [(sana, eski_muddat)] o'sish tartibida."""
+    for date, old_due in due_changes:
+        if date > moment:
+            return old_due
+    return due_now
+
+
+def closing_deadline(due, given_due, started_at, stopped_seconds):
+    """Hold qaysi muddat bilan baholanadi. Odatda — kartaning hozirgi muddati.
+    Muddat odamga berilganidan OLDINGI sanaga surilgan bo'lsa (2026-11-04,
+    #202: 03.11 -> 30.10, foydalanuvchi qarori -1.04) — odamga BERILGAN
+    PAYTDAGI muddat (`given_due`): ishchi kartani olmagan kunlar uchun jarima
+    olmasin. Oraliqdagi o'zgarishlar hisobga olinmaydi (#203: 03.11 -> 29.11
+    xato -> 29.10). Muddat olib tashlansa — muddatsiz."""
+    if due is None:
+        return None
+    deadline = effective_deadline(due, started_at, stopped_seconds)
+    if deadline is None:
+        return effective_deadline(given_due, started_at, stopped_seconds)
+    return deadline
+
+
 async def open_holds(card_id: str) -> list[tuple[int, int, datetime]]:
     async with async_session() as session:
         tasks = await TaskRepository(session).list_open_by_trello_card_id(card_id)
@@ -167,14 +191,15 @@ async def open_hold(*, card_id: str, card_name: str, employee, started_at: datet
     return task.id
 
 
-async def set_card_deadline(card_id: str, deadline) -> None:
+async def set_card_deadline(card_id: str, deadline, due_changes=()) -> None:
     """Nazoratchi Trello'da muddatni o'zgartirdi — ochiq holdlar ham yangilanadi
     ("muddat yaqin"/"muddat o'tdi" eslatmalari yangi muddatga qarab qayta ishlasin)."""
     now = datetime.now(timezone.utc)
     async with async_session() as session:
         repo = TaskRepository(session)
         for task in await repo.list_open_by_trello_card_id(card_id):
-            effective = effective_deadline(deadline, task.started_at, task.stopped_seconds_total)
+            given = due_at(task.started_at, due_changes, deadline)
+            effective = closing_deadline(deadline, given, task.started_at, task.stopped_seconds_total)
             changes = {"deadline": effective, "day_left_notified_at": None, "last_overdue_reminder_at": None}
             if task.status == TaskStatus.OVERDUE and (effective is None or effective > now):
                 changes["status"] = TaskStatus.ACTIVE
@@ -236,7 +261,7 @@ async def _staff_names() -> dict[int, str]:
     return {employee_id: name for employee_id, name in rows}
 
 
-async def card_moved(bot, card_id: str, *, before: str, after: str, at: datetime, due) -> None:
+async def card_moved(bot, card_id: str, *, before: str, after: str, at: datetime, due, due_changes=()) -> None:
     holds = await open_holds(card_id)
     if not holds:
         return
@@ -250,13 +275,15 @@ async def card_moved(bot, card_id: str, *, before: str, after: str, at: datetime
         elif action == RESUME:
             await resume_hold(task_id, at=at)
         elif action == CLOSE:
-            await close_hold(bot, task_id, at=at, due=due, started_at=started[task_id])
+            await close_hold(bot, task_id, at=at, due=due, started_at=started[task_id],
+                             given_due=due_at(started[task_id], due_changes, due))
 
 
-async def close_hold(bot, task_id: int, *, at: datetime, due, started_at: datetime) -> None:
-    """Holdni yopadi va (kerak bo'lsa) eski tizim bo'yicha ball yozadi."""
+async def close_hold(bot, task_id: int, *, at: datetime, due, started_at: datetime, given_due=None) -> None:
+    """Holdni yopadi va (kerak bo'lsa) eski tizim bo'yicha ball yozadi.
+    given_due — odamga berilgan paytdagi karta muddati (`closing_deadline`)."""
     await resume_hold(task_id, at=at)  # pauzada yopilsa — pauza vaqti muddatga qo'shilsin
-    found, deadline = await _store_deadline(task_id, due)
+    found, deadline = await _store_deadline(task_id, due, given_due)
     if not found:
         return
     if at - started_at < HOLD_GRACE or deadline is None:
@@ -272,7 +299,7 @@ async def close_hold(bot, task_id: int, *, at: datetime, due, started_at: dateti
     logger.info("trello hold yopildi va baholandi: task=%s", task_id)
 
 
-async def _store_deadline(task_id: int, due) -> tuple[bool, datetime | None]:
+async def _store_deadline(task_id: int, due, given_due=None) -> tuple[bool, datetime | None]:
     """Yopilish paytidagi karta muddatini (pauza bilan) yozadi.
     (False, None) — hold allaqachon yopilgan."""
     async with async_session() as session:
@@ -280,7 +307,7 @@ async def _store_deadline(task_id: int, due) -> tuple[bool, datetime | None]:
         task = await repo.get_by_id(task_id)
         if task is None or task.status == TaskStatus.COMPLETED:
             return False, None
-        deadline = effective_deadline(due, task.started_at, task.stopped_seconds_total)
+        deadline = closing_deadline(due, given_due, task.started_at, task.stopped_seconds_total)
         await repo.update(task, deadline=deadline)
         await session.commit()
     return True, deadline
@@ -320,6 +347,16 @@ def demo() -> None:
     assert status_after_resume(t0 - timedelta(hours=1), t0) == TaskStatus.OVERDUE
     assert status_after_resume(t0 + timedelta(hours=1), t0) == TaskStatus.ACTIVE
     assert status_after_resume(None, t0) == TaskStatus.ACTIVE
+
+    # muddat odamga berilganidan oldingi sanaga surildi -> berilgan paytdagi muddat (#203 holati)
+    given, typo, past = t0 + timedelta(days=1), t0 + timedelta(days=27), t0 - timedelta(days=4)
+    changes = [(t0 - timedelta(minutes=1), None), (t0 + timedelta(days=1, hours=6), given),
+               (t0 + timedelta(days=1, hours=7), typo)]
+    assert due_at(t0, changes, past) == given and due_at(t0 + timedelta(days=2), changes, past) == past
+    assert closing_deadline(past, due_at(t0, changes, past), t0, 0) == given  # 29.11 xatosi emas
+    assert closing_deadline(t0 + timedelta(days=2), given, t0, 0) == t0 + timedelta(days=2)  # oddiy uzaytirish
+    assert closing_deadline(None, given, t0, 0) is None  # muddat olib tashlandi
+    assert closing_deadline(past, past, t0, 0) is None  # berilganda ham o'tgan edi -> ballsiz
 
     # muddat odamga berilishidan oldin o'tib ketgan bo'lsa — muddat yo'q
     assert effective_deadline(t0 - timedelta(days=3), t0) is None

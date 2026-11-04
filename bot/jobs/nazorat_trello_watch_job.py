@@ -89,11 +89,28 @@ async def _member(trello_member_id: str):
     return employee, holds.OTHER
 
 
-async def _close(bot, card_id: str, task_ids, at: datetime, card) -> None:
+async def _due_changes(trello, card_id: str) -> list:
+    """Kartaning muddat tarixi [(sana, eski_muddat)] — holdni odamga berilgan
+    paytdagi muddat bilan baholash uchun (`trello_hold_service.closing_deadline`)."""
+    actions = await trello._request(
+        "GET", f"/cards/{card_id}/actions", params={"filter": "updateCard:due", "limit": 1000, "fields": "date,data"},
+    )
+    return sorted(
+        (_parse_dt(a["date"]), _parse_dt((a.get("data", {}).get("old") or {}).get("due")))
+        for a in actions or []
+    )
+
+
+async def _close(bot, trello, card_id: str, task_ids, at: datetime, card) -> None:
     started = {task_id: started_at for task_id, _, started_at in await holds.open_holds(card_id)}
+    task_ids = [t for t in task_ids if t in started]
+    if not task_ids:
+        return
+    due = _parse_dt(card.get("due"))
+    changes = await _due_changes(trello, card_id)
     for task_id in task_ids:
-        if task_id in started:
-            await holds.close_hold(bot, task_id, at=at, due=_parse_dt(card.get("due")), started_at=started[task_id])
+        await holds.close_hold(bot, task_id, at=at, due=due, started_at=started[task_id],
+                               given_due=holds.due_at(started[task_id], changes, due))
 
 
 async def _handle(bot, trello, action) -> None:
@@ -113,15 +130,16 @@ async def _handle(bot, trello, action) -> None:
 
     if kind == "updateCard":
         if "due" in (data.get("old") or {}):
-            await holds.set_card_deadline(card_id, _parse_dt((data.get("card") or {}).get("due")))
+            await holds.set_card_deadline(card_id, _parse_dt((data.get("card") or {}).get("due")),
+                                          await _due_changes(trello, card_id))
         if (data.get("card") or {}).get("closed") and "closed" in (data.get("old") or {}):
-            await _close(bot, card_id, [task_id for task_id, _, _ in await holds.open_holds(card_id)], at, card)
+            await _close(bot, trello, card_id, [task_id for task_id, _, _ in await holds.open_holds(card_id)], at, card)
         if "idList" in (data.get("old") or {}):
             await holds.card_moved(
                 bot, card_id,
                 before=(data.get("listBefore") or {}).get("name", ""),
                 after=(data.get("listAfter") or {}).get("name", ""),
-                at=at, due=_parse_dt(card.get("due")),
+                at=at, due=_parse_dt(card.get("due")), due_changes=await _due_changes(trello, card_id),
             )
         return
 
@@ -133,13 +151,13 @@ async def _handle(bot, trello, action) -> None:
     if kind == "removeMemberFromCard":
         if employee is not None:
             mine = [task_id for task_id, emp, _ in await holds.open_holds(card_id) if emp == employee.id]
-            await _close(bot, card_id, mine, at, card)
+            await _close(bot, trello, card_id, mine, at, card)
         return
 
     # addMemberToCard
     current = await holds.open_holds(card_id)
     to_close, open_new = holds.plan_member_added(current, employee.id if employee else None, member_kind, at)
-    await _close(bot, card_id, to_close, at, card)
+    await _close(bot, trello, card_id, to_close, at, card)
     list_name = (card.get("list") or {}).get("name")
     if open_new:
         task_id = await holds.open_hold(
