@@ -8,6 +8,7 @@ from db.repositories.department_repo import DepartmentRepository
 from db.repositories.employee_repo import EmployeeRepository
 from db.repositories.kpi_log_repo import KpiLogRepository
 from db.repositories.lead_repo import LeadRepository
+from db.repositories.order_topic_repo import OrderTopicRepository
 from db.repositories.penalty_rule_repo import PenaltyRuleRepository
 from db.repositories.stop_log_repo import StopLogRepository
 from db.repositories.task_assignment_repo import TaskAssignmentRepository
@@ -26,6 +27,7 @@ __all__ = [
     "EmployeeRepository",
     "KpiLogRepository",
     "LeadRepository",
+    "OrderTopicRepository",
     "PenaltyRuleRepository",
     "StopLogRepository",
     "TaskAssignmentRepository",

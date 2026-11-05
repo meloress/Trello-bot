@@ -500,6 +500,22 @@ shart (`sales_service.add_call_log` tekshiradi, DB darajasida emas).
 
 **Bog'lanishlar**: `lead` (M-1), `recorded_by` (M-1, `employees`).
 
+### order_topics — Zakaz kartasi -> Telegram guruh topici (`d9e4f2a7b1c3`, 2026-11-05)
+
+Nazorat Trello: bot har bir yangi zakaz uchun superguruhda topic ochib, zakaz
+shablonini o'sha topicga yuboradi (`jobs/order_topics_job.py`). Bir topicda
+bir nechta karta: bir raqamli FASAD+korpus yoki polniy uyning hamma zakazlari.
+
+| Ustun | Tur | Izoh |
+|---|---|---|
+| card_id | VARCHAR(40) UNIQUE | Trello karta id |
+| order_number | VARCHAR(10) NULL | karta nomidagi zakaz raqami (keyingi FASAD nusxasi shu bo'yicha qo'shiladi) |
+| thread_id | BIGINT | Telegram `message_thread_id` |
+| house_key | VARCHAR(200) NULL | polniy uy: "ism aka manzil" (kichik harf) |
+| topic_name | VARCHAR(128) NULL | topicni shu karta nomi bilan ochgan bo'lsa — nom o'zgarsa topic qayta nomlanadi |
+| signature | TEXT NULL | oxirgi yuborilgan holat (o'zgarmasa qayta yuborilmaydi) |
+| finished_at | TIMESTAMPTZ NULL | zakaz skladga chiqdi/arxivlandi; topicning hamma kartasi tugasa topic yopiladi |
+
 ## SPEC.md §11 statistika so'rovlari (jadval qo'shilmagan)
 
 Voronka / bottleneck / STOP statistikasi uchun **yangi jadval yaratilmagan** —

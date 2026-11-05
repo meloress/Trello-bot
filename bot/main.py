@@ -12,6 +12,7 @@ from jobs import (
     daily_sync_job,
     lead_follow_up_job,
     nazorat_trello_watch_job,
+    order_topics_job,
     overdue_watch_job,
     reminder_job,
     report_job,
@@ -76,6 +77,13 @@ async def main() -> None:
     )
     scheduler.add_job(
         nazorat_trello_watch_job.run, "interval", minutes=1, args=[bot], id="nazorat_trello_watch_job"
+    )
+    scheduler.add_job(
+        order_topics_job.run, "interval", minutes=5, args=[bot], id="order_topics_job"
+    )
+    scheduler.add_job(
+        order_topics_job.run_daily, "cron", hour=8, minute=0, args=[bot], id="order_topics_daily_job",
+        misfire_grace_time=3600,  # 08:00 da bot band bo'lsa ham ertalabki hisobot o'tkazib yuborilmasin
     )
 
     scheduler.start()

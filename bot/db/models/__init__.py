@@ -7,6 +7,7 @@ from db.models.department_fork_target import DepartmentForkTarget
 from db.models.employee import Employee
 from db.models.kpi_log import KpiLog
 from db.models.lead import Lead
+from db.models.order_topic import OrderTopic
 from db.models.penalty_rule import PenaltyRule
 from db.models.stop_log import StopLog
 from db.models.task import Task
@@ -24,6 +25,7 @@ __all__ = [
     "Employee",
     "KpiLog",
     "Lead",
+    "OrderTopic",
     "PenaltyRule",
     "StopLog",
     "Task",

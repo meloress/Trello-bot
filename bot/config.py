@@ -1,3 +1,4 @@
+from datetime import datetime
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -15,6 +16,10 @@ class Settings(BaseSettings):
     # domain yoqilganda $PORT'ni beradi — shu o'zgaruvchi nomi bilan mos keladi.
     port: int = 8080
     miniapp_base_url: str = ""
+    # Zakaz topiclari (jobs/order_topics_job.py): superguruh id (-100...) va
+    # qaysi paytdan keyin yaratilgan kartalar olinadi. Ikkalasi bo'lmasa — o'chiq.
+    order_group_chat_id: int | None = None
+    order_topics_since: datetime | None = None
 
     model_config = SettingsConfigDict(
         env_file=BASE_DIR / ".env",

@@ -113,6 +113,52 @@ action-log cursor is persisted in `app_settings.nazorat_trello_cursor`
 first run only sets it (no retroactive scoring). Pinned by
 `tests/test_nazorat_trello_watch.py` (sabotage-verified).
 
+### Nazorat Trello: per-order Telegram topics (2026-11-05)
+
+Replaces a person who hand-posted an order status template to a group.
+`jobs/order_topics_job.py` (5-min interval) opens one forum topic per new
+order in a supergroup (Topics on, bot admin with "Manage topics") named
+after the Trello card, and posts `services/order_template.py`'s template
+there **every morning at 08:00** (`run_daily`, cron; 3.5 s between sends for
+Telegram's group limit) — plus the first message when the topic opens and the
+final state when the order reaches the sklad (then the topic is closed); no
+mid-day sends on stage change (user, 2026-11-05). Renames the topic with the card. State in `order_topics` (migration `d9e4f2a7b1c3`). Off
+unless env `ORDER_GROUP_CHAT_ID` and `ORDER_TOPICS_SINCE` are set (Railway
+variables; only cards created after SINCE count — "bugundan keyingilar").
+Rules are the user's, verified against the real board's history:
+- **new order** = the *first* card of an order number created after SINCE
+  (`new_orders()`), not "created in list X": intake moved from "zakaz tushti
+  stopda" (2026-07) to "KANTROLNIY AVAZ AKA" (2026-10). The FASAD card is
+  `copyCard`-ed from the korpus card at GIPLAB, so a later card with a known
+  number joins that topic, and a copy of a pre-SINCE order is ignored; its
+  kroy history lives on the korpus card (`render(sibling_events=...)`).
+- **polniy uy** = 3+ order numbers with the same "Ism aka Manzil" (first 3
+  words after the number) arriving together → one topic "… — POLNIY UY"; the
+  job waits `SETTLE` (3 min) while any new card is younger, since a house's
+  cards are created seconds apart. A later order of an open house joins it.
+- **plan**: KROY = Kontrol 1 + jiyan 2 + kroychi 2 days from the order date
+  in the card name, but KROY **real** starts only when the card enters one of
+  Abdulloh's lists ("jiyan chizish"/"kroy chizish") — "KANTROLNIY AVAZ AKA" is
+  `KONTROL`, not kroy (user); GIPLAB 1 day; SEH shpon 15 days ("Shpon va shkurka
+  sehta" → "Malyarka sklad"), laminox 7 ("LAMINOX FAYL TASHALDI" → "Laminox
+  100% tayyor"), eman = laminox, 7 days ("Eman yoki muborak fayl tashaldi" →
+  "eman 100% tayyor"). Each stage's
+  plan starts at the previous stage's REAL end; stop time inside seh extends
+  it. Real stage end = first move to a different list (taminot wait is not
+  GIPLAB). "Sehdan chiqdi" real = sklad entry, or the next later list for the
+  many cards that skip the sklad. No dostavka/ustanovka lines (user).
+  Topshirish muddati = second date in the card name.
+- **Job safety (2026-11-05 review):** the daily and 5-min runs share one
+  `asyncio.Lock` (else two topics / double sends at 08:00); every send is paced
+  `SEND_GAP_SECONDS` (a 25-card polniy uy opens 25 first messages at once);
+  the 5-min run fetches card history only for a first message or a card whose
+  current list is sklad/later (`FINISH_KINDS`) — the morning run is the only
+  full sweep (Trello client has no 429 retry); topic rename is outside the send
+  `try` (a failed rename used to drop the saved send → re-send every 5 min);
+  a card joining a closed topic (ostatka) reopens it; a topic deleted in
+  Telegram stops its tracking; the year of "dd.mm" in a card name is the one
+  closest to the card's creation; the daily cron has `misfire_grace_time=3600`.
+
 ### Nazorat Trello: 11 visible departments (2026-10-02)
 
 At the user's request only 11 `fasad_sex` departments show in the Mini App:
@@ -365,6 +411,7 @@ Web panel: `cd web && npm install && npm start` (or `npm run dev` for nodemon). 
 .venv/Scripts/python tests/test_i18n_parity.py          # uz/ru key parity + every t("key") in app.js resolves
 .venv/Scripts/python tests/test_nazorat_trello_watch.py # Trello action log -> holds/KPI + notification recipients
 .venv/Scripts/python tests/test_hourly_penalty.py      # Nazorat Trello per-hour penalty, started-hour rounding, mebel untouched
+.venv/Scripts/python tests/test_order_topics.py        # order template stages/plan, new-order + polniy uy grouping, topic job
 
 # Run all (there is no runner — this loop is the whole "test suite"):
 for t in tests/test_*.py; do printf "%-42s " "$t"; .venv/Scripts/python "$t" >/dev/null 2>&1 && echo OK || echo FAIL; done
