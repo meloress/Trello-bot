@@ -169,7 +169,12 @@ Rules are the user's, verified against the real board's history:
   The image's BALL column is the bot's own hourly penalty (`hourly_penalty` over
   global `penalty_rules`, every started hour past the stage plan; done or current
   stage only), Topshirish row = jami. It is display-only — no kpi_logs are
-  written. Stepper: Kontrol, Kroy, GIPLAB, Seh, Sklad, Ustanovka, Topshirish;
+  written. Ustanovka names show only once ustanovka has started. **Moves back
+  undo moves forward** (`rollback()`, 2669: Kontrol → 2 min in Abdulloh kroy →
+  back to "zakaz tushti stopda" = still Kontrol, kroy never started); "zakaz
+  tushti stopda" is `INTAKE` (rank of Kontrol). STOP/INTAKE lists are pauses:
+  they never end a stage, and pause time extends that stage's plan (Kontrol,
+  Kroy, GIPLAB; Seh via `seh_stop`). Stepper: Kontrol, Kroy, GIPLAB, Seh, Sklad, Ustanovka, Topshirish;
   GIPLAB 1 day; SEH shpon 15 days ("Shpon va shkurka
   sehta" → "Malyarka sklad"), laminox 7 ("LAMINOX FAYL TASHALDI" → "Laminox
   100% tayyor"), eman = laminox, 7 days ("Eman yoki muborak fayl tashaldi" →

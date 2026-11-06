@@ -24,7 +24,7 @@ def t(day, month=10, hour=10):
 
 def _kinds():
     k = ot.stage_kind
-    assert k("zakaz tushti stopda") == "STOP" and k("Shkurkadan chiqqan zakazla (stopda rang tanlanmagan)") == "STOP"
+    assert k("zakaz tushti stopda") == "INTAKE" and k("Shkurkadan chiqqan zakazla (stopda rang tanlanmagan)") == "STOP"
     # Avaz aka (kontrol) kroy REJASIGA kiradi, lekin kroy reali faqat Abdullohning listidan
     assert k("KANTROLNIY AVAZ AKA 24 soat") == "KONTROL"
     assert k("Abdulloh jiyan chizish 24 soat") == k("Abdulloh kroy chizish 24 soat") == "KROY"
@@ -191,7 +191,8 @@ def _view():
     # seh rejasi: GIPLAB real tugashi 12.10 + 15 kun (shpon — uzunrog'i) + 2 kun stop; hozirgi bosqich — bugungacha ball
     assert rows["Seh"][1:] == ("12.10 – 29.10", "12.10 – davom etmoqda", None, ("+7 kun", "red"), -6.96), rows["Seh"]
     # ustanovka: sklad (reja) -> topshirish muddati; javobgar doim ikkalasi
-    assert rows["Ustanovka"][1:] == ("29.10 – 30.10", "—", ot.UST_RESPONSIBLE, None, 0), rows["Ustanovka"]
+    # hali ustanovkaga yetmagan — javobgarlar ismi chiqmaydi
+    assert rows["Ustanovka"][1:] == ("29.10 – 30.10", "—", None, None, 0), rows["Ustanovka"]
     assert rows["Topshirish"][1:] == ("30.10", "—", None, ("+6 kun", "red"), -17.0), rows["Topshirish"]  # jami
     assert [s[1] for s in model["steps"]] == ["done", "done", "done", "run", "todo", "todo", "todo"], model["steps"]
     assert model["stop"] == "STOPDA TURGAN: jami 2 kun 0 soat" and model["footer"] == ot.PENALTY_LINE
@@ -207,6 +208,35 @@ def _view():
     # stopda turgan zakaz
     stopped = view(f_ev[:4], t(3, 11))[0]
     assert stopped["steps"][3][1] == "stop" and "hozir stopda: Shkurkadan chiqqan" in stopped["stop"]
+
+    # real 2669: Kontrol -> 2 daqiqa Abdulloh kroy (adashib) -> "zakaz tushti stopda": karta KONTROLDA, pauzada;
+    # kroyga o'tgani hisobga olinmaydi
+    back = {"id": cid(t(6, 11, 9)), "name": "2669 Mahmud aka Tuzel kuxnya ( Abdurahm ) 06.11 - 10.12", "labels": []}
+    ev = [(t(6, 11, 9), "KANTROLNIY AVAZ AKA 24 soat"), (t(6, 11, 10), "Abdulloh kroy chizish 48 soat"),
+          (t(6, 11, 11), "zakaz tushti stopda")]
+    m = ot.order_view([ot.analyze(back, ev, [], t(6, 11, 18))], t(6, 11, 18), staff, penalty)[0]
+    assert [s[1] for s in m["steps"]][:2] == ["stop", "todo"], m["steps"]
+    rows3 = dict((r[0], r) for r in m["rows"])
+    assert rows3["Kontrol"][2] == "06.11 – davom etmoqda" and rows3["Kroy"][2] == "—", m["rows"]
+    assert m["banner"][0] == "STOPDA", m["banner"]
+    # pauza Kontrol rejasini uzaytiradi: 1 kun + 7 soat pauza -> 07.11 16:00, ertasi kuni ham ball yo'q
+    m1 = ot.order_view([ot.analyze(back, ev, [], t(7, 11, 15))], t(7, 11, 15), staff, penalty)[0]
+    assert dict((r[0], r) for r in m1["rows"])["Kontrol"][5] == 0, m1["rows"]
+    # kroyda stop listiga o'tsa — kroy tugamaydi (pauza), reja pauza vaqtiga uzayadi
+    paused = [(t(6, 11, 9), "KANTROLNIY AVAZ AKA 24 soat"), (t(6, 11, 10), "Abdulloh kroy chizish 48 soat"),
+              (t(6, 11, 11), "Shkurkadan chiqqan zakazla (stopda rang tanlanmagan)")]
+    m2 = ot.order_view([ot.analyze(back, paused, [], t(8, 11, 12))], t(8, 11, 12), staff, penalty)[0]
+    assert [s[1] for s in m2["steps"]][:3] == ["done", "stop", "todo"], m2["steps"]
+    k2 = dict((r[0], r) for r in m2["rows"])["Kroy"]
+    assert k2[1:3] == ("06.11 – 12.11", "06.11 – davom etmoqda"), k2   # 10.11 + 2 kun 1 soat pauza
+    # ... stopdan keyin GIPLAB'ga o'tsa — kroy GIPLAB'ga o'tganda tugaydi, pauza tufayli o'z vaqtida
+    m3 = ot.order_view([ot.analyze(back, paused + [(t(8, 11), "GIPLAB Abdulloh 24")], [], t(8, 11, 12))],
+                       t(8, 11, 12), staff, penalty)[0]
+    k3 = dict((r[0], r) for r in m3["rows"])["Kroy"]
+    assert k3[2] == "06.11 – 08.11" and k3[4] == ("o'z vaqtida", "green"), k3
+    # orqaga qaytish faqat bosqich tartibi bo'yicha: rollback toza funksiya
+    assert ot.rollback([(t(1, 11), "KANTROLNIY AVAZ AKA"), (t(2, 11), "Abdulloh kroy chizish"),
+                        (t(3, 11), "zakaz tushti stopda")]) == [(t(1, 11), "KANTROLNIY AVAZ AKA"), (t(3, 11), "zakaz tushti stopda")]
 
     # Kontrolda: kroy hali boshlanmagan — ko'k "KONTROLDA", kroyga ball/farq yo'q
     fresh = {"id": cid(t(1, 11)), "name": "2700 Ali aka Chilonzor kuxnya ( Jasur ) 01.11 - 01.12", "labels": []}
@@ -227,7 +257,7 @@ def _view():
     assert finished2 and sig2 != sig
     assert model2["banner"][0] == "TOPSHIRILDI — KECHIKDI" and model2["banner"][3] == "13 kun kech", model2["banner"]
     rows2 = dict((r[0], r) for r in model2["rows"])
-    assert rows2["Seh"][2] == "12.10 – 06.11" and rows2["Ustanovka"][2] == "20.10 – 12.11", rows2
+    assert rows2["Seh"][2] == "12.10 – 06.11" and rows2["Ustanovka"][2:4] == ("20.10 – 12.11", ot.UST_RESPONSIBLE), rows2
     assert rows2["Topshirish"][2] == "12.11" and rows2["Topshirish"][4] == ("+13 kun", "red")
     assert [s[1] for s in model2["steps"]] == ["done"] * 7 and model2["footer"] == ot.FINAL_LINE
     assert model2["stop"] == "STOPDA TURGAN: jami 2 kun 0 soat"  # oxirgi xabarda ham jami stop qoladi

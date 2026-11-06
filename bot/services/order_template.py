@@ -49,6 +49,8 @@ PENALTY_FOOTER = (
 def stage_kind(list_name: str) -> str | None:
     """Real doskadagi list nomi -> shablon bosqichi (None = shablonga ta'sir qilmaydi)."""
     n = (list_name or "").lower()
+    if "zakaz tushti" in n:
+        return "INTAKE"  # "zakaz tushti stopda": zakazning boshi — Kontrol bosqichidagi pauza
     if "stop" in n:
         return "STOP"
     if "kantrolniy" in n:
@@ -76,6 +78,26 @@ def stage_kind(list_name: str) -> str | None:
     if any(k in n for k in _LATER):
         return "FINISH"
     return None
+
+
+# pauza listlari: bosqichni tugatmaydi, vaqti shu bosqich rejasiga qo'shiladi
+_PAUSE = ("STOP", "INTAKE")
+# bosqichlar tartibi: karta OLDINGI bosqichga qaytsa, keyingisiga adashib o'tgani hisobga olinmaydi
+# (2669: Kontrol -> 2 daqiqa Abdulloh kroy -> "zakaz tushti stopda")
+_RANK = {"INTAKE": 0, "KONTROL": 0, "KROY": 1, "GIPLAB": 2, "SEH_SHPON": 3, "SEH_LAMINOX": 3, "SEH_EMAN": 3,
+         "SKLAD_SHPON": 4, "SKLAD_LAMINOX": 4, "SKLAD_EMAN": 4, "FINISH": 5, "UST": 5, "CLOSED": 6}
+
+
+def rollback(events):
+    """Karta orqaga (oldingi bosqich listiga) qaytsa — undan keyingi bosqichlarga
+    o'tishlar o'chiriladi: hozirgi joyi haqiqat, adashib surilgani emas."""
+    out = []
+    for at, lst in sorted(events):
+        rank = _RANK.get(stage_kind(lst))
+        if rank is not None:
+            out = [(a, x) for a, x in out if _RANK.get(stage_kind(x), -1) <= rank]
+        out.append((at, lst))
+    return out
 
 
 # sehdan keyingi listlar (sklad'ni o'tkazib yuborgan karta uchun "sehdan chiqdi")
@@ -221,20 +243,22 @@ def _span(events, stage):
     if idx is None:
         return None, None
     start = events[idx][0]
-    end = next((at for at, lst in events[idx:] if stage_kind(lst) != stage), None)
+    # stop listi — pauza, bosqich tugashi emas (2669: kroydan "zakaz tushti stopda"ga qaytarilgan)
+    end = next((at for at, lst in events[idx:] if stage_kind(lst) not in (stage, *_PAUSE)), None)
     return start, end
 
 
-def _plan(start, kon_s, kon_e, kroy_e, gip_e, seh_days, seh_stop):
+def _plan(start, kon_s, kon_e, kroy_e, gip_e, seh_days, seh_stop, paused=None):
     """Reja: har bosqich oldingisining REAL tugashidan (bo'lmasa — rejasidan) boshlanadi.
     Kontrol 1 kun — karta Kontrolga tushgan paytdan (karta ochilmasdan oldingi kunlar
     Avaz akaga yozilmaydi), bo'lmasa zakaz sanasidan; Abdulloh (jiyan 2 + kroychi 2) — unga o'tgan kundan."""
+    paused = paused or {}
     p_kon_s = kon_s or start
-    p_kon_e = p_kon_s + timedelta(days=KONTROL_DAYS)
+    p_kon_e = p_kon_s + timedelta(days=KONTROL_DAYS) + paused.get("KONTROL", timedelta())
     p_kroy_s = kon_e or p_kon_e
-    p_kroy_e = p_kroy_s + timedelta(days=KROY_DAYS)
+    p_kroy_e = p_kroy_s + timedelta(days=KROY_DAYS) + paused.get("KROY", timedelta())
     p_gip_s = kroy_e or p_kroy_e
-    p_gip_e = p_gip_s + timedelta(days=GIPLAB_DAYS)
+    p_gip_e = p_gip_s + timedelta(days=GIPLAB_DAYS) + paused.get("GIPLAB", timedelta())
     p_seh_s = gip_e or p_gip_e
     return {"kon_s": p_kon_s, "kon_e": p_kon_e, "kroy_s": p_kroy_s, "kroy_e": p_kroy_e, "gip_s": p_gip_s, "gip_e": p_gip_e,
             "seh_s": p_seh_s, "seh_e": p_seh_s + timedelta(days=seh_days) + seh_stop}
@@ -247,7 +271,8 @@ def analyze(card: dict, events, sibling_events=(), now: datetime | None = None, 
     kartada); people — [(vaqt, ism)]: kartaga qo'shilgan ishchi/brigadirlar.
     Imzo faqat haqiqiy o'zgarishda o'zgaradi (kun hisobi kiritilmagan)."""
     now = now or datetime.now(timezone.utc)
-    events = sorted(events)
+    events = rollback(events)
+    sibling_events = [rollback(ev) for ev in sibling_events]
     created = card_created(card["id"])
     start, deadline = order_dates(card["name"], created)
     start = start or created.astimezone(TASHKENT_TZ)
@@ -282,16 +307,17 @@ def analyze(card: dict, events, sibling_events=(), now: datetime | None = None, 
 
     # stop: zakaz ishga tushgandan keyin (boshlang'ich "zakaz tushti stopda" kutishi stop emas)
     begun = min([x for x in (kon_s, kroy_s, gip_s, seh_s) if x], default=None)
-    stop, seh_stop, since, stops = timedelta(), timedelta(), None, 0
+    stop, seh_stop, since, stops, pauses = timedelta(), timedelta(), None, 0, []
     for at, lst in events + [(now, "")]:
         if since is not None:
             stop += at - since
+            pauses.append((since, at))
             if seh_s and since >= seh_s:
                 seh_stop += at - since
             since = None
-        if lst and stage_kind(lst) == "STOP" and begun and at >= begun and not (out and at >= out):
+        if lst and stage_kind(lst) in _PAUSE and begun and at >= begun and not (out and at >= out):
             since, stops = at, stops + 1
-    stopped_now = bool(events) and stage_kind(events[-1][1]) == "STOP" and stops > 0
+    stopped_now = bool(events) and stage_kind(events[-1][1]) in _PAUSE and stops > 0
     signature = "|".join([card["name"], route, *(_d(x) for x in (kon_s, kroy_s, kroy_e, gip_s, gip_e, seh_s, out,
                                                                  ust_s, ust_e)), str(stops), str(stopped_now)])
     lists = {}  # bosqich -> birinchi list nomi ("GIPLAB Abdulloh 24") — kim ishlaganini list nomidan bilish uchun
@@ -303,7 +329,7 @@ def analyze(card: dict, events, sibling_events=(), now: datetime | None = None, 
             "lists": lists, "kon_s": kon_s, "kon_e": kon_e,
             "kroy_s": kroy_s, "kroy_e": kroy_e, "gip_s": gip_s, "gip_e": gip_e, "seh_s": seh_s, "out": out,
             "ust_s": ust_s, "ust_e": ust_e,
-            "stop": stop, "stops": stops, "stopped_now": stopped_now, "seh_stop": seh_stop,
+            "stop": stop, "stops": stops, "stopped_now": stopped_now, "seh_stop": seh_stop, "pauses": pauses,
             "last": events[-1] if events else None, "people": sorted(people), "signature": signature}
 
 
@@ -410,8 +436,16 @@ def order_view(parts, now: datetime | None = None, staff=(), penalty=None):
     ust_s = min((p["ust_s"] for p in parts if p["ust_s"]), default=None)
     finished = all(p["ust_e"] for p in parts)
     closed = max(p["ust_e"] for p in parts) if finished else None
+    def paused(s, e):
+        if not s:
+            return timedelta()
+        e = e or now
+        return max(sum((min(b, e) - max(a, s) for a, b in p["pauses"] if min(b, e) > max(a, s)), timedelta())
+                   for p in parts)
+
     plan = _plan(start, kon_s, kon_e, kroy_e, gip_e, max(SEH_DAYS[p["route"]] for p in parts),
-                 max(p["seh_stop"] for p in parts))
+                 max(p["seh_stop"] for p in parts),
+                 {"KONTROL": paused(kon_s, kon_e), "KROY": paused(kroy_s, kroy_e), "GIPLAB": paused(gip_s, gip_e)})
     open_parts = [p for p in parts if not p["ust_e"]]
     stopped_now = any(p["stopped_now"] for p in open_parts)
     joined = {}  # odam zakazga BIRINCHI marta qachon qo'shilgan (FASAD nusxasi uni qayta qo'shadi — bu hisob emas)
@@ -462,7 +496,8 @@ def order_view(parts, now: datetime | None = None, staff=(), penalty=None):
     rows = []
     for key, label, s, e, p_s, p_e in stages:
         rows.append((label, f"{_d(p_s)} – {_d(p_e)}" if p_e else "—", _real(s, e),
-                     UST_RESPONSIBLE if key == "UST" else who(key, s, e),
+                     # ustanovka javobgarlari — faqat zakaz ustanovkaga yetib borganda (boshqa bosqichlardek)
+                     (UST_RESPONSIBLE if s else None) if key == "UST" else who(key, s, e),
                      _late(p_e, e, current == key, today.date()), ball(p_e, e, current == key)))
     late = (_day(closed) - _day(deadline)).days if finished and deadline else None
     left = (_day(deadline) - today.date()).days if deadline else None
