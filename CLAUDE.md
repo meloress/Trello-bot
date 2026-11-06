@@ -122,7 +122,27 @@ after the Trello card, and posts `services/order_template.py`'s template
 there **every morning at 08:00** (`run_daily`, cron; 3.5 s between sends for
 Telegram's group limit) — plus the first message when the topic opens and the
 final state when the order reaches the sklad (then the topic is closed); no
-mid-day sends on stage change (user, 2026-11-05). Renames the topic with the card. State in `order_topics` (migration `d9e4f2a7b1c3`). Off
+mid-day sends on stage change (user, 2026-11-05). Renames the topic with the card. State in `order_topics` (migration `d9e4f2a7b1c3`).
+**Since 2026-11-06 it sends a PNG, not text** (user-approved design):
+`order_template.analyze()` per card → `order_view()` merges all cards of one
+order number (korpus + FASAD) into one picture → `services/order_card_image.py`
+draws it with the bundled DejaVu fonts (`bot/assets/fonts/` — Railway has no
+system fonts; Pillow in `requirements.txt`). The order finishes only when its
+LAST card is out (2600: korpus on time, FASAD 8 days late). The banner reflects
+*now* (deadline passed or the current stage over plan), not a past late stage.
+"Kim" under REAL = the WORKER/BRIGADIER first added to the order during that
+stage (a FASAD copy re-adds Abdulloh — not a seh worker), else a staff name
+found in the stage's list name ("GIPLAB Abdulloh"; ambiguous → the bare word).
+A joined FASAD card does not trigger a mid-day send. If drawing fails the old
+text (`render()`) is sent instead. **Human-factor digest (2026-11-06, user):**
+after the 08:00 run every OBSERVER (today: Bahrom) gets one DM listing what a
+person must fix — card name not in format (no topic), number reused by another
+client, no dates in the name, an order card copied into a date list ("13
+DEKABR" — such copies are now excluded from topics, else the topic would never
+close), Trello members not registered in the bot, orders whose image failed.
+Stateless: rebuilt each morning, nothing sent when clean. If Trello/Telegram is
+down at 08:00, `run_daily` retries 6×5 min, then DMs "hisobot ketmadi". A
+failing topic creation no longer blocks updates of existing orders. Off
 unless env `ORDER_GROUP_CHAT_ID` and `ORDER_TOPICS_SINCE` are set (Railway
 variables; only cards created after SINCE count — "bugundan keyingilar").
 Rules are the user's, verified against the real board's history:

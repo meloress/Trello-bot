@@ -48,6 +48,29 @@ def _new_orders():
     assert ot.new_orders(new, cards, since, {"2610"}) == new
 
 
+def _issues():
+    since = t(1, 11)
+    lists = {"W": "KANTROLNIY AVAZ AKA", "D": "13 DEKABR"}
+    old = {"id": cid(t(1, 9)), "name": "2700 Karim aka Yunusobod kuxnya ( Jasur ) 01.09 - 01.10", "idList": "W", "closed": True}
+    cards = [
+        old,
+        {"id": cid(t(3, 11), 1), "name": "2700 Ali aka Chilonzor kuxnya ( Jasur ) 03.11 - 03.12", "idList": "W"},  # raqam band
+        {"id": cid(t(3, 11), 2), "name": "2701 Vali aka Sergili shkaf ( Jasur )", "idList": "W"},                 # sana yo'q
+        {"id": cid(t(3, 11), 3), "name": "2702 Gani aka Olmazor shkaf", "idList": "W"},                           # format
+        {"id": cid(t(3, 11), 4), "name": "2703 Gul opa Tuzel shkaf ( Jasur ) 03.11 - 03.12", "idList": "D"},     # nusxa
+        {"id": cid(t(3, 11), 5), "name": "2704-2710 Nodir aka Novza", "idList": "D"},                             # eslatma — jim
+        {"id": cid(t(3, 11), 6), "name": "FASAD 2701 Vali aka Sergili shkaf ( Jasur ) 03.11 - 03.12", "idList": "W"},  # o'sha mijoz
+    ]
+    got = {title.split(" —")[0]: lines for title, lines in ot.name_issues(cards, lists, since, set())}
+    assert len(got) == 4, got
+    assert got["Nomi formatda emas"] == ["2702 Gani aka Olmazor shkaf — «KANTROLNIY AVAZ AKA»"]
+    assert len(got["Raqam boshqa mijozda ishlatilgan"]) == 1 and "avval «Karim»" in got["Raqam boshqa mijozda ishlatilgan"][0]
+    assert got["Nomida topshirish sanasi yo'q"] == ["2701 Vali aka Sergili shkaf ( Jasur )"]
+    assert got["Zakaz kartasi sana listiga nusxalangan"][0].startswith("2703 Gul opa")
+    # hammasi to'g'ri bo'lsa — bo'sh (nazoratchiga xabar ketmaydi)
+    assert ot.name_issues([cards[6]], lists, since, set()) == []
+
+
 def _plan_topics():
     house = [(cid(t(3, 11), i), f"{2700 + i} Anvar aka Tuzel xona{i} ( Jasur ) 03.11 - 30.12") for i in range(3)]
     single = [(cid(t(3, 11), 9), "2710 Ali aka Chilonzor kuxnya ( Jasur ) 03.11 - 03.12"),
@@ -121,18 +144,79 @@ def _render():
     assert "STOPDA TURGAN: \n" in ot.render(card, intake, [], t(2, 10))[0]
 
 
+def _view():
+    """Rasm ma'lumoti: korpus + FASAD bitta zakaz; zakaz OXIRGI kartasi chiqqanda tugaydi."""
+    from services import order_card_image
+
+    korpus = {"id": cid(t(20, 9)), "name": "2610 Adxam aka Chig'atoy shkaf ( Husniddin ) 28.09 - 30.10", "labels": []}
+    fasad = {"id": cid(t(28, 9)), "name": "FASAD 2610 Adxam aka Chig'atoy shkaf ( Husniddin ) 28.09 - 30.10", "labels": []}
+    k_ev = [(t(29, 9), "KANTROLNIY AVAZ AKA"), (t(5, 10), "Abdulloh kroy chizish 24"), (t(6, 10), "GIPLAB Abdulloh 24"),
+            (t(12, 10, 11), "taminot srochniymas"), (t(12, 10, 12), "LAMINOX FAYL TASHALDI 24"),
+            (t(16, 10), "Laminox 100% tayyor")]
+    f_ev = [(t(12, 10, 9), "Fayl yeg'ish  va zapchast 24"), (t(12, 10, 11), "taminot srochniymas"),
+            (t(12, 10, 14), "Shpon va shkurka sehta yasalvotti 15 sutka"),
+            (t(2, 11), "Shkurkadan chiqqan zakazla (stopda rang tanlanmagan)"), (t(4, 11), "kraska seh 72 soat")]
+    abdulloh = [(t(5, 10, 9) + timedelta(minutes=55), "Muruvatullayev Abdulloh")]  # ko'chirishdan 5 daqiqa oldin
+    readded = [(t(12, 10, 14), "Muruvatullayev Abdulloh")]  # FASAD nusxasi uni sehda qayta qo'shadi — seh ishchisi emas
+    staff = ["Muruvatullayev Abdulloh", "Jasurbek Qosimov"]
+
+    def view(f_events, now, staff=staff):
+        parts = [ot.analyze(korpus, k_ev, [f_events], now, abdulloh),
+                 ot.analyze(fasad, f_events, [k_ev], now, readded)]
+        return ot.order_view(parts, now, staff)
+
+    model, sig, finished = view(f_ev, t(5, 11))
+    assert not finished                                          # korpus 16.10 da chiqdi, FASAD hali sehda
+    assert model["title"] == "2610 Adxam aka Chig'atoy shkaf  (+FASAD)", model["title"]
+    assert model["banner"][0] == "KECHIKMOQDA" and model["banner"][3] == "6 kun o'tdi" and model["banner"][4] == "red"
+    assert model["banner"][1] == "Hozir (04.11 dan): kraska seh", model["banner"][1]
+    rows = {r[0]: r for r in model["rows"]}
+    assert rows["Kroy"][2:] == ("05.10 – 06.10", "Muruvatullayev Abdulloh", ("+3 kun", "red")), rows["Kroy"]
+    assert rows["GIPLAB"][2:] == ("06.10 – 12.10", "Muruvatullayev Abdulloh", ("+5 kun", "red"))  # list nomidan
+    assert rows["Seh"][3] is None, rows["Seh"]
+    # ikki xodim bir xil ismli — list nomidagi so'z o'zi
+    two = view(f_ev, t(5, 11), staff + ["Karimov Abdulloh"])[0]["rows"][1][3]
+    assert two == "Abdulloh", two
+    # o'tgan bosqich kechikkani banner'ni qizil qilmaydi — hozirgi bosqich rejada bo'lsa VAQTIDA
+    early = view(f_ev[:3], t(20, 10))[0]
+    assert early["banner"][0] == "VAQTIDA" and early["banner"][3] == "10 kun bor", early["banner"]
+    # seh rejasi: GIPLAB real tugashi 12.10 + 15 kun (shpon — uzunrog'i) + 2 kun stop
+    assert rows["Seh"][1:3] == ("12.10 – 29.10", "12.10 – davom etmoqda") and rows["Seh"][4] == ("+7 kun", "red")
+    assert rows["Topshirish"][2:] == ("—", None, ("+6 kun", "red"))
+    assert [s[1] for s in model["steps"]] == ["done", "done", "run", "todo", "todo"], model["steps"]
+    assert model["stop"] == "STOPDA TURGAN: jami 2 kun 0 soat" and model["footer"] == ot.PENALTY_LINE
+    assert model["subtitle"] == "Sotuvchi: Husniddin   ·   Zakaz: 28.09   ·   Bugun: 05.11.2026   ·   38-kun"
+    assert view(f_ev, t(6, 11))[1] == sig                       # kun o'tgani imzoni o'zgartirmaydi
+    assert order_card_image.draw(model)[1:4] == b"PNG"
+
+    # stopda turgan zakaz
+    stopped = view(f_ev[:4], t(3, 11))[0]
+    assert stopped["steps"][2][1] == "stop" and "hozir stopda: Shkurkadan chiqqan" in stopped["stop"]
+
+    # FASAD ham skladga chiqdi — zakaz tugadi, kechikkani zakazning oxirgi kartasidan
+    model2, sig2, finished2 = view(f_ev + [(t(6, 11), "Malyarka sklad Qurish va O'rash 24 soat")], t(7, 11))
+    assert finished2 and sig2 != sig
+    assert model2["banner"][0] == "TOPSHIRILDI — KECHIKDI" and model2["banner"][3] == "7 kun kech", model2["banner"]
+    assert dict((r[0], r) for r in model2["rows"])["Seh"][2] == "12.10 – 06.11"
+    assert [s[1] for s in model2["steps"]] == ["done"] * 5 and model2["footer"] == ot.FINAL_LINE
+    assert model2["stop"] == "STOPDA TURGAN: jami 2 kun 0 soat"  # oxirgi xabarda ham jami stop qoladi
+    assert order_card_image.draw(model2)[1:4] == b"PNG"
+
+
 def _job():
     """Job: yangi zakazga topic ochadi, shablon yuboradi, o'zgarmasa qayta yubormaydi,
     tugasa topicni yopadi; kartalar ochilayotganda (SETTLE) kutadi."""
     import asyncio
     from types import SimpleNamespace
     from jobs import order_topics_job as job
+    from utils.enums import Role
 
     now = datetime.now(timezone.utc)
     rows, calls = [], []
     card = {"id": cid(now - timedelta(minutes=10)), "name": "2700 Ali aka Chilonzor kuxnya ( Jasur ) 03.11 - 03.12",
             "labels": [], "closed": False, "idList": "L1"}
-    history_calls = []
+    history_calls, photos, dms = [], [], []
+    trello_down, down_calls = False, []
     moves = [{"date": (now - timedelta(minutes=9)).isoformat(), "data": {"list": {"name": "KANTROLNIY AVAZ AKA"}}}]
 
     class Trello:
@@ -143,10 +227,14 @@ def _job():
             return False
 
         async def _request(self, method, path, params=None):
+            if trello_down:
+                down_calls.append(path)
+                raise RuntimeError("Trello javob bermadi")
             if path.endswith("/cards/all"):
-                return [card]
+                return list(board)
             if path.endswith("/lists"):
-                return [{"id": "L1", "name": "KANTROLNIY AVAZ AKA"}, {"id": "L2", "name": "Malyarka sklad Qurish va O'rash"}]
+                return [{"id": "L1", "name": "KANTROLNIY AVAZ AKA"}, {"id": "L2", "name": "Malyarka sklad Qurish va O'rash"},
+                        {"id": "L3", "name": "13 DEKABR"}]
             history_calls.append(path)
             return list(reversed(moves))
 
@@ -156,7 +244,15 @@ def _job():
             return SimpleNamespace(message_thread_id=500)
 
         async def send_message(self, chat_id, text, message_thread_id=None):
+            if message_thread_id is None:  # guruh emas — nazoratchiga shaxsiy xabar
+                dms.append((chat_id, text))
+                return
             calls.append(("send", message_thread_id))
+            photos.append(None)  # matn — rasm chizilmagan (zaxira)
+
+        async def send_photo(self, chat_id, photo, caption=None, message_thread_id=None):
+            calls.append(("send", message_thread_id))
+            photos.append(caption)
 
         async def close_forum_topic(self, chat_id, thread_id):
             calls.append(("close", thread_id))
@@ -197,15 +293,25 @@ def _job():
             for k, v in kw.items():
                 setattr(obj, k, v)
 
-    async def board(_trello):
+    async def board_id(_trello):
         return "B"
+
+    async def staff():
+        return {"m-a": ("Abdulloh", Role.WORKER)}
+
+    async def observers():
+        return [999]
+
+    board = [card]
 
     fail_rename = False
 
     saved = (job.async_session, job.OrderTopicRepository, job.nazorat_trello_watch_job._resolve_board_id,
-             job.settings.order_group_chat_id, job.settings.order_topics_since)
-    job.async_session, job.OrderTopicRepository = Session, Repo
-    job.nazorat_trello_watch_job._resolve_board_id = board
+             job.settings.order_group_chat_id, job.settings.order_topics_since, job._staff, job._observers,
+             job.DAILY_RETRY_SECONDS)
+    job.async_session, job.OrderTopicRepository, job._staff, job._observers = Session, Repo, staff, observers
+    job.DAILY_RETRY_SECONDS = 0
+    job.nazorat_trello_watch_job._resolve_board_id = board_id
     job.settings.order_group_chat_id, job.settings.order_topics_since = -100, now - timedelta(days=1)
     try:
         run = lambda: asyncio.run(job.run(Bot(), Trello))
@@ -245,15 +351,69 @@ def _job():
         card["id"] = cid(now - timedelta(minutes=1))
         card["name"] = "2701 Vali aka Yunusobod shkaf ( Jasur ) 03.11 - 10.12"
         assert run() == 0 and calls == [] and rows == []
+        assert photos and None not in photos, photos  # hammasi rasm, matn zaxirasi ishlatilmagan
+
+        # korpus + keyin GIPLAB'da nusxalangan FASAD — bitta zakaz, bitta rasm
+        rows.clear()
+        korpus = {"id": cid(now - timedelta(minutes=10), 20), "name": "2702 Gul opa Sergili shkaf ( Jasur ) 03.11 - 10.12",
+                  "labels": [], "closed": False, "idList": "L1"}
+        board[:] = [korpus]
+        assert run() == 1 and calls == [("topic", korpus["name"]), ("send", 500)], calls
+        calls.clear()
+        fasad = dict(korpus, id=cid(now - timedelta(minutes=5), 21), name="FASAD " + korpus["name"])
+        board.append(fasad)
+        assert run() == 0 and calls == [], calls                # qo'shilgan FASAD kun davomida alohida xabar chiqarmaydi
+        assert len(rows) == 2 and rows[1].thread_id == 500 and rows[1].signature is not None
+        history_calls.clear()
+        assert run() == 0 and history_calls == []               # ... va keyin har 5 daqiqada tarix so'ramaydi
+        assert asyncio.run(job.run_daily(Bot(), Trello)) == 1 and calls == [("send", 500)], calls  # ertalab: 2 karta — 1 rasm
+        calls.clear()
+        moves.append({"date": now.isoformat(), "data": {"listAfter": {"name": "Malyarka sklad Qurish va O'rash"}}})
+        korpus["idList"] = "L2"
+        assert run() == 0 and calls == []                       # korpus skladda, FASAD hali yo'q — zakaz tugamagan
+        fasad["idList"] = "L2"
+        assert run() == 1 and calls == [("send", 500), ("close", 500)], calls
+        assert all(r.finished_at for r in rows)
+        assert dms == []                                        # kamchilik yo'q — nazoratchiga xabar ham yo'q
+
+        # nazoratchiga: formati buzuq karta (topic ochilmaydi), botda yo'q Trello odami; sana listidagi nusxa — zakaz emas
+        rows.clear()
+        calls.clear()
+        good = dict(korpus, id=cid(now - timedelta(minutes=10), 30), name="2703 Ali aka Olmazor shkaf ( Jasur ) 03.11 - 10.12",
+                    idList="L1")
+        broken = dict(good, id=cid(now - timedelta(minutes=10), 31), name="2704 Vali aka Sergili shkaf 03.11 - 10.12")
+        copy = dict(good, id=cid(now - timedelta(minutes=10), 32), name="2705 Gani aka Chilonzor shkaf ( Jasur ) 03.11 - 10.12",
+                    idList="L3")
+        board[:] = [good, broken, copy]
+        moves[:] = moves[:1] + [{"type": "addMemberToCard", "date": now.isoformat(), "data": {"idMember": "m-x"},
+                                 "member": {"id": "m-x", "fullName": "Jama Jamwid"}}]
+        assert asyncio.run(job.run_daily(Bot(), Trello)) == 1 and calls == [("topic", good["name"]), ("send", 500)], calls
+        assert [r.card_id for r in rows] == [good["id"]]          # formati buzuq va sana listidagi — topicsiz
+        assert len(dms) == 1 and dms[0][0] == 999, dms
+        text = dms[0][1]
+        assert "topic OCHILMADI" in text and broken["name"] in text, text
+        assert "sana listiga nusxalangan" in text and copy["name"] in text, text
+        assert "Jama Jamwid — zakaz 2703" in text, text
+        dms.clear()
+        calls.clear()
+
+        # 08:00 da Trello javob bermadi — 6 marta urinadi, keyin nazoratchiga "hisobot ketmadi"
+        trello_down = True
+        assert asyncio.run(job.run_daily(Bot(), Trello)) == 0 and calls == []
+        assert len(dms) == 1 and "UMUMAN ketmadi" in dms[0][1], dms
+        assert len(down_calls) == job.DAILY_ATTEMPTS == 6, down_calls  # 30 daqiqa davomida qayta urindi
     finally:
         (job.async_session, job.OrderTopicRepository, job.nazorat_trello_watch_job._resolve_board_id,
-         job.settings.order_group_chat_id, job.settings.order_topics_since) = saved
+         job.settings.order_group_chat_id, job.settings.order_topics_since, job._staff, job._observers,
+         job.DAILY_RETRY_SECONDS) = saved
 
 
 if __name__ == "__main__":
     _kinds()
     _new_orders()
+    _issues()
     _plan_topics()
     _render()
+    _view()
     _job()
     print("test_order_topics: OK")

@@ -7,3 +7,4 @@ pydantic-settings==2.7.*
 APScheduler==3.11.*
 requests==2.32.*
 python-dotenv==1.0.*
+Pillow==11.3.*
