@@ -156,17 +156,30 @@ Rules are the user's, verified against the real board's history:
   words after the number) arriving together → one topic "… — POLNIY UY"; the
   job waits `SETTLE` (3 min) while any new card is younger, since a house's
   cards are created seconds apart. A later order of an open house joins it.
-- **plan**: KROY = Kontrol 1 + jiyan 2 + kroychi 2 days from the order date
-  in the card name, but KROY **real** starts only when the card enters one of
-  Abdulloh's lists ("jiyan chizish"/"kroy chizish") — "KANTROLNIY AVAZ AKA" is
-  `KONTROL`, not kroy (user); GIPLAB 1 day; SEH shpon 15 days ("Shpon va shkurka
+- **plan (re-cut 2026-11-06, user)**: KONTROL is its own stage, 1 day from the
+  card's arrival in "KANTROLNIY AVAZ AKA" (days before the card existed are not
+  Avaz's); KROY = jiyan 2 + kroychi 2 days from the card's move into one of
+  Abdulloh's lists ("jiyan chizish"/"kroy chizish"), real starts there too;
+  USTANOVKA = "Dastafka qilingan"/brigade/ustanovka lists after the sklad →
+  "yopilgan zakazlar(punkti kop zakazlar)" (korpus cards end in "bitkan
+  korpuslar (ARXIV)"), planned from the sklad to the topshirish muddati (inside
+  the overall 60/30/45 term, user), responsible always "Avaz Axrarov · Mohir
+  Mavlonov" (`UST_RESPONSIBLE`). **The order and its topic now close only when
+  every card is in a CLOSED list**, not at the sklad (`FINISH_KINDS = ("CLOSED",)`).
+  The image's BALL column is the bot's own hourly penalty (`hourly_penalty` over
+  global `penalty_rules`, every started hour past the stage plan; done or current
+  stage only), Topshirish row = jami. It is display-only — no kpi_logs are
+  written. Stepper: Kontrol, Kroy, GIPLAB, Seh, Sklad, Ustanovka, Topshirish;
+  GIPLAB 1 day; SEH shpon 15 days ("Shpon va shkurka
   sehta" → "Malyarka sklad"), laminox 7 ("LAMINOX FAYL TASHALDI" → "Laminox
   100% tayyor"), eman = laminox, 7 days ("Eman yoki muborak fayl tashaldi" →
   "eman 100% tayyor"). Each stage's
   plan starts at the previous stage's REAL end; stop time inside seh extends
   it. Real stage end = first move to a different list (taminot wait is not
   GIPLAB). "Sehdan chiqdi" real = sklad entry, or the next later list for the
-  many cards that skip the sklad. No dostavka/ustanovka lines (user).
+  many cards that skip the sklad. "Kim" for a stage = the worker first added in
+  that stage, but one added in the last 10 min of a stage belongs to the next
+  (people are added just before the card is moved).
   Topshirish muddati = second date in the card name.
 - **Job safety (2026-11-05 review):** the daily and 5-min runs share one
   `asyncio.Lock` (else two topics / double sends at 08:00); every send is paced

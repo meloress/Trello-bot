@@ -33,6 +33,9 @@ def _kinds():
     assert k("LAMINOX FAYL TASHALDI 24") == "SEH_LAMINOX" and k("Laminox 100% tayyor") == "SKLAD_LAMINOX"
     assert k("Malyarka sklad Qurish va O'rash 24 soat") == "SKLAD_SHPON"
     assert k("Dostavka qilinishi kerak 24") == "FINISH" and k("5 NOYABR") is None and k("taminot srochniymas") is None
+    # ustanovka: "Dastafka qilingan" -> brigada -> "yopilgan zakazlar"; korpus kartasi "bitkan korpuslar (ARXIV)"
+    assert k("Dastafka qilingan") == k("Olim brigada") == k("Mirodilla ustanovka") == "UST"
+    assert k("yopilgan zakazlar(punkti kop zakazlar)") == k("bitkan korpuslar (ARXIV)") == "CLOSED"
 
 
 def _new_orders():
@@ -102,7 +105,7 @@ def _render():
     text, sig, finished = ot.render(card, own, [korpus], now)
     lines = text.split("\n")
     assert "BUYURTMANI     38- KUNI" in lines[2], lines[2]
-    assert "KROY BO'LIMI 28.09-03.10" in text                       # 1+2+2 kun zakaz sanasidan
+    assert "KROY BO'LIMI 05.10-09.10" in text, text                 # Abdullohga o'tgan kundan 2+2 kun
     assert "Real                      05.10__06.10" in text, text    # kroy tarixi korpus kartasidan; Avaz akadagi 29.09 emas
     assert "GIPLAB 06.10-07.10" in text and "06.10__12.10" in text   # reja kroyning REAL tugashidan, chiqish = birinchi boshqa list
     assert "sehga KETTI 12.10" in text
@@ -113,7 +116,11 @@ def _render():
     # skladga chiqdi -> tugadi; imzo o'zgaradi
     done = own + [(t(6, 11), "Malyarka sklad Qurish va O'rash 24 soat"), (t(6, 11, 11), "Dostavka qilinishi kerak 24")]
     text2, sig2, finished2 = ot.render(card, done, [korpus], t(7, 11))
-    assert finished2 and "♦️real    06.11" in text2 and "TOPSHIRILGAN MUDDAT: 06.11" in text2 and sig2 != sig
+    assert not finished2 and "♦️real    06.11" in text2 and sig2 != sig        # sklad — hali tugamagan
+    closed = done + [(t(8, 11), "Dastafka qilingan"), (t(9, 11), "Olim brigada"),
+                     (t(12, 11), "yopilgan zakazlar(punkti kop zakazlar)")]
+    text5, _, finished5 = ot.render(card, closed, [korpus], t(13, 11))
+    assert finished5 and "USTANOVKA    real 08.11__12.11" in text5 and "TOPSHIRILGAN MUDDAT: 12.11" in text5, text5
     # skladni o'tkazib yuborgan karta — keyingi listga o'tgan kun
     skip = own + [(t(7, 11), "Dastafka qilingan")]
     assert "♦️real    07.11" in ot.render(card, skip, [korpus], t(8, 11))[0]
@@ -134,18 +141,20 @@ def _render():
     # laminox yo'li: 7 kun, chiqish = "Laminox 100% tayyor"
     lam = [(t(12, 10, 14), "LAMINOX FAYL TASHALDI 24"), (t(18, 10), "Laminox 100% tayyor")]
     text3, _, fin3 = ot.render(card, lam, [korpus], t(20, 10))
-    assert "SEHDAN CHIQDI 19.10" in text3 and "♦️real    18.10" in text3 and fin3, text3
+    assert "SEHDAN CHIQDI 19.10" in text3 and "♦️real    18.10" in text3 and not fin3, text3
     # eman yo'li — laminox bilan bir xil: 7 kun, chiqish = "eman 100% tayyor"
     eman = [(t(12, 10, 14), "Eman yoki muborak fayl tashaldi"), (t(18, 10), "eman 100% tayyor")]
     text4, _, fin4 = ot.render(card, eman, [korpus], t(20, 10))
-    assert "SEHDAN CHIQDI 19.10" in text4 and "♦️real    18.10" in text4 and fin4, text4
+    assert "SEHDAN CHIQDI 19.10" in text4 and "♦️real    18.10" in text4 and not fin4, text4
     # boshlang'ich "zakaz tushti stopda" kutishi stop emas
     intake = [(t(28, 9), "zakaz tushti stopda"), (t(1, 10), "KANTROLNIY AVAZ AKA")]
     assert "STOPDA TURGAN: \n" in ot.render(card, intake, [], t(2, 10))[0]
 
 
 def _view():
-    """Rasm ma'lumoti: korpus + FASAD bitta zakaz; zakaz OXIRGI kartasi chiqqanda tugaydi."""
+    """Rasm ma'lumoti: korpus + FASAD bitta zakaz; Kontrol 1 kun, Abdulloh 2+2 kun (unga o'tgan
+    kundan), ustanovka sklad'dan topshirish muddatigacha; zakaz OXIRGI kartasi yopilganda tugaydi;
+    BALL — botning soatbay jarimasi (bu yerda soxta: soatiga -1/24)."""
     from services import order_card_image
 
     korpus = {"id": cid(t(20, 9)), "name": "2610 Adxam aka Chig'atoy shkaf ( Husniddin ) 28.09 - 30.10", "labels": []}
@@ -159,48 +168,72 @@ def _view():
     abdulloh = [(t(5, 10, 9) + timedelta(minutes=55), "Muruvatullayev Abdulloh")]  # ko'chirishdan 5 daqiqa oldin
     readded = [(t(12, 10, 14), "Muruvatullayev Abdulloh")]  # FASAD nusxasi uni sehda qayta qo'shadi — seh ishchisi emas
     staff = ["Muruvatullayev Abdulloh", "Jasurbek Qosimov"]
+    penalty = lambda hours: -round(hours / 24, 2)  # noqa: E731
 
-    def view(f_events, now, staff=staff):
-        parts = [ot.analyze(korpus, k_ev, [f_events], now, abdulloh),
-                 ot.analyze(fasad, f_events, [k_ev], now, readded)]
-        return ot.order_view(parts, now, staff)
+    def view(f_events, now, staff=staff, k_events=k_ev):
+        parts = [ot.analyze(korpus, k_events, [f_events], now, abdulloh),
+                 ot.analyze(fasad, f_events, [k_events], now, readded)]
+        return ot.order_view(parts, now, staff, penalty)
 
     model, sig, finished = view(f_ev, t(5, 11))
-    assert not finished                                          # korpus 16.10 da chiqdi, FASAD hali sehda
+    assert not finished                                          # FASAD hali sehda
     assert model["title"] == "2610 Adxam aka Chig'atoy shkaf  (+FASAD)", model["title"]
     assert model["banner"][0] == "KECHIKMOQDA" and model["banner"][3] == "6 kun o'tdi" and model["banner"][4] == "red"
-    assert model["banner"][1] == "Hozir (04.11 dan): kraska seh", model["banner"][1]
+    # korpus skladda (16.10) — lekin zakaz yopilmagan, u ham "hozir" qatorida
+    assert model["banner"][1] == "Hozir (16.10 dan): Laminox 100% tayyor · kraska seh", model["banner"][1]
     rows = {r[0]: r for r in model["rows"]}
-    assert rows["Kroy"][2:] == ("05.10 – 06.10", "Muruvatullayev Abdulloh", ("+3 kun", "red")), rows["Kroy"]
-    assert rows["GIPLAB"][2:] == ("06.10 – 12.10", "Muruvatullayev Abdulloh", ("+5 kun", "red"))  # list nomidan
-    assert rows["Seh"][3] is None, rows["Seh"]
-    # ikki xodim bir xil ismli — list nomidagi so'z o'zi
-    two = view(f_ev, t(5, 11), staff + ["Karimov Abdulloh"])[0]["rows"][1][3]
-    assert two == "Abdulloh", two
-    # o'tgan bosqich kechikkani banner'ni qizil qilmaydi — hozirgi bosqich rejada bo'lsa VAQTIDA
-    early = view(f_ev[:3], t(20, 10))[0]
-    assert early["banner"][0] == "VAQTIDA" and early["banner"][3] == "10 kun bor", early["banner"]
-    # seh rejasi: GIPLAB real tugashi 12.10 + 15 kun (shpon — uzunrog'i) + 2 kun stop
-    assert rows["Seh"][1:3] == ("12.10 – 29.10", "12.10 – davom etmoqda") and rows["Seh"][4] == ("+7 kun", "red")
-    assert rows["Topshirish"][2:] == ("—", None, ("+6 kun", "red"))
-    assert [s[1] for s in model["steps"]] == ["done", "done", "run", "todo", "todo"], model["steps"]
+    assert [r[0] for r in model["rows"]] == ["Kontrol", "Kroy", "GIPLAB", "Seh", "Ustanovka", "Topshirish"]
+    # Kontrol: 1 kun karta Kontrolga tushgan paytdan (29.09 10:00 -> 30.09), real 29.09-05.10; 120 soat kech
+    assert rows["Kontrol"][1:] == ("29.09 – 30.09", "29.09 – 05.10", None, ("+5 kun", "red"), -5.0), rows["Kontrol"]
+    # Kroy: reja Abdullohga o'tgan kundan (05.10) 2+2 kun — Avaz akadagi kun kroyga yozilmaydi
+    assert rows["Kroy"][1:] == ("05.10 – 09.10", "05.10 – 06.10", "Muruvatullayev Abdulloh", ("o'z vaqtida", "green"), 0), rows["Kroy"]
+    assert rows["GIPLAB"][1:] == ("06.10 – 07.10", "06.10 – 12.10", "Muruvatullayev Abdulloh", ("+5 kun", "red"), -5.04), rows["GIPLAB"]
+    # seh rejasi: GIPLAB real tugashi 12.10 + 15 kun (shpon — uzunrog'i) + 2 kun stop; hozirgi bosqich — bugungacha ball
+    assert rows["Seh"][1:] == ("12.10 – 29.10", "12.10 – davom etmoqda", None, ("+7 kun", "red"), -6.96), rows["Seh"]
+    # ustanovka: sklad (reja) -> topshirish muddati; javobgar doim ikkalasi
+    assert rows["Ustanovka"][1:] == ("29.10 – 30.10", "—", ot.UST_RESPONSIBLE, None, 0), rows["Ustanovka"]
+    assert rows["Topshirish"][1:] == ("30.10", "—", None, ("+6 kun", "red"), -17.0), rows["Topshirish"]  # jami
+    assert [s[1] for s in model["steps"]] == ["done", "done", "done", "run", "todo", "todo", "todo"], model["steps"]
     assert model["stop"] == "STOPDA TURGAN: jami 2 kun 0 soat" and model["footer"] == ot.PENALTY_LINE
     assert model["subtitle"] == "Sotuvchi: Husniddin   ·   Zakaz: 28.09   ·   Bugun: 05.11.2026   ·   38-kun"
     assert view(f_ev, t(6, 11))[1] == sig                       # kun o'tgani imzoni o'zgartirmaydi
     assert order_card_image.draw(model)[1:4] == b"PNG"
-
+    # ikki xodim bir xil ismli — list nomidagi so'z o'zi
+    two = view(f_ev, t(5, 11), staff + ["Karimov Abdulloh"])[0]["rows"][2][3]
+    assert two == "Abdulloh", two
+    # o'tgan bosqich kechikkani banner'ni qizil qilmaydi — hozirgi bosqich rejada bo'lsa VAQTIDA
+    early = view(f_ev[:3], t(20, 10))[0]
+    assert early["banner"][0] == "VAQTIDA" and early["banner"][3] == "10 kun bor", early["banner"]
     # stopda turgan zakaz
     stopped = view(f_ev[:4], t(3, 11))[0]
-    assert stopped["steps"][2][1] == "stop" and "hozir stopda: Shkurkadan chiqqan" in stopped["stop"]
+    assert stopped["steps"][3][1] == "stop" and "hozir stopda: Shkurkadan chiqqan" in stopped["stop"]
 
-    # FASAD ham skladga chiqdi — zakaz tugadi, kechikkani zakazning oxirgi kartasidan
-    model2, sig2, finished2 = view(f_ev + [(t(6, 11), "Malyarka sklad Qurish va O'rash 24 soat")], t(7, 11))
+    # Kontrolda: kroy hali boshlanmagan — ko'k "KONTROLDA", kroyga ball/farq yo'q
+    fresh = {"id": cid(t(1, 11)), "name": "2700 Ali aka Chilonzor kuxnya ( Jasur ) 01.11 - 01.12", "labels": []}
+    kon = ot.order_view([ot.analyze(fresh, [(t(1, 11), "KANTROLNIY AVAZ AKA 24 soat")], [], t(1, 11, 18))],
+                        t(1, 11, 18), staff, penalty)[0]
+    assert kon["banner"][0] == "KONTROLDA" and kon["banner"][4] == "blue", kon["banner"]
+    assert kon["banner"][1].endswith("kroy hali boshlanmagan"), kon["banner"]
+    assert [s[1] for s in kon["steps"]] == ["run"] + ["todo"] * 6
+    assert dict((r[0], r) for r in kon["rows"])["Kroy"][2:] == ("—", None, None, 0)
+
+    # skladga chiqdi — hali tugamagan; ustanovkadan o'tib "yopilgan zakazlar" — tugadi
+    f_sklad = f_ev + [(t(6, 11), "Malyarka sklad Qurish va O'rash 24 soat")]
+    assert not view(f_sklad, t(7, 11))[2]
+    f_done = f_sklad + [(t(8, 11), "Dastafka qilingan"), (t(9, 11), "Olim brigada"),
+                        (t(12, 11), "yopilgan zakazlar(punkti kop zakazlar)")]
+    k_done = k_ev + [(t(20, 10), "Dastafka qilingan"), (t(10, 11), "bitkan korpuslar (ARXIV)")]
+    model2, sig2, finished2 = view(f_done, t(13, 11), k_events=k_done)
     assert finished2 and sig2 != sig
-    assert model2["banner"][0] == "TOPSHIRILDI — KECHIKDI" and model2["banner"][3] == "7 kun kech", model2["banner"]
-    assert dict((r[0], r) for r in model2["rows"])["Seh"][2] == "12.10 – 06.11"
-    assert [s[1] for s in model2["steps"]] == ["done"] * 5 and model2["footer"] == ot.FINAL_LINE
+    assert model2["banner"][0] == "TOPSHIRILDI — KECHIKDI" and model2["banner"][3] == "13 kun kech", model2["banner"]
+    rows2 = dict((r[0], r) for r in model2["rows"])
+    assert rows2["Seh"][2] == "12.10 – 06.11" and rows2["Ustanovka"][2] == "20.10 – 12.11", rows2
+    assert rows2["Topshirish"][2] == "12.11" and rows2["Topshirish"][4] == ("+13 kun", "red")
+    assert [s[1] for s in model2["steps"]] == ["done"] * 7 and model2["footer"] == ot.FINAL_LINE
     assert model2["stop"] == "STOPDA TURGAN: jami 2 kun 0 soat"  # oxirgi xabarda ham jami stop qoladi
     assert order_card_image.draw(model2)[1:4] == b"PNG"
+    # korpus yopildi, FASAD hali ustanovkada — zakaz tugamagan
+    assert not view(f_done[:-1], t(13, 11), k_events=k_done)[2]
 
 
 def _job():
@@ -233,7 +266,7 @@ def _job():
             if path.endswith("/cards/all"):
                 return list(board)
             if path.endswith("/lists"):
-                return [{"id": "L1", "name": "KANTROLNIY AVAZ AKA"}, {"id": "L2", "name": "Malyarka sklad Qurish va O'rash"},
+                return [{"id": "L1", "name": "KANTROLNIY AVAZ AKA"}, {"id": "L2", "name": "yopilgan zakazlar(punkti kop zakazlar)"},
                         {"id": "L3", "name": "13 DEKABR"}]
             history_calls.append(path)
             return list(reversed(moves))
@@ -302,14 +335,18 @@ def _job():
     async def observers():
         return [999]
 
+    async def penalty_fn():
+        return lambda hours: -hours / 24
+
     board = [card]
 
     fail_rename = False
 
     saved = (job.async_session, job.OrderTopicRepository, job.nazorat_trello_watch_job._resolve_board_id,
              job.settings.order_group_chat_id, job.settings.order_topics_since, job._staff, job._observers,
-             job.DAILY_RETRY_SECONDS)
+             job.DAILY_RETRY_SECONDS, job._penalty)
     job.async_session, job.OrderTopicRepository, job._staff, job._observers = Session, Repo, staff, observers
+    job._penalty = penalty_fn
     job.DAILY_RETRY_SECONDS = 0
     job.nazorat_trello_watch_job._resolve_board_id = board_id
     job.settings.order_group_chat_id, job.settings.order_topics_since = -100, now - timedelta(days=1)
@@ -331,7 +368,7 @@ def _job():
         assert run() == 0 and calls == [("rename", card["name"])], calls
         fail_rename = False
         calls.clear()
-        moves.append({"date": now.isoformat(), "data": {"listAfter": {"name": "Malyarka sklad Qurish va O'rash"}}})
+        moves.append({"date": now.isoformat(), "data": {"listAfter": {"name": "yopilgan zakazlar(punkti kop zakazlar)"}}})
         card["idList"] = "L2"
         card["name"] = "2700 Ali aka Chilonzor kuxnya ( Jasur ) 03.11 - 10.12"
         assert run() == 1 and calls == [("send", 500), ("rename", card["name"]), ("close", 500)], calls
@@ -368,7 +405,7 @@ def _job():
         assert run() == 0 and history_calls == []               # ... va keyin har 5 daqiqada tarix so'ramaydi
         assert asyncio.run(job.run_daily(Bot(), Trello)) == 1 and calls == [("send", 500)], calls  # ertalab: 2 karta — 1 rasm
         calls.clear()
-        moves.append({"date": now.isoformat(), "data": {"listAfter": {"name": "Malyarka sklad Qurish va O'rash"}}})
+        moves.append({"date": now.isoformat(), "data": {"listAfter": {"name": "yopilgan zakazlar(punkti kop zakazlar)"}}})
         korpus["idList"] = "L2"
         assert run() == 0 and calls == []                       # korpus skladda, FASAD hali yo'q — zakaz tugamagan
         fasad["idList"] = "L2"
@@ -405,7 +442,7 @@ def _job():
     finally:
         (job.async_session, job.OrderTopicRepository, job.nazorat_trello_watch_job._resolve_board_id,
          job.settings.order_group_chat_id, job.settings.order_topics_since, job._staff, job._observers,
-         job.DAILY_RETRY_SECONDS) = saved
+         job.DAILY_RETRY_SECONDS, job._penalty) = saved
 
 
 if __name__ == "__main__":

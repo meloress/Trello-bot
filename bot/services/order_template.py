@@ -18,19 +18,24 @@ Foydalanuvchi qoidalari:
   - polniy uy = bir vaqtda tushgan, ismi+manzili bir xil 3+ zakaz — bitta topic.
 """
 
+import math
 import re
 from datetime import datetime, timedelta, timezone
 
 from utils.formatters import TASHKENT_TZ
 
 HOUSE_MIN_ORDERS = 3
-KROY_DAYS, GIPLAB_DAYS = 1 + 2 + 2, 1
+# Kontrol (Avaz aka) 1 kun; Abdulloh: jiyan 2 + kroychi 2 — karta unga o'tgan kundan (foydalanuvchi, 2026-11-06)
+KONTROL_DAYS, KROY_DAYS, GIPLAB_DAYS = 1, 2 + 2, 1
 SEH_DAYS = {"SHPON": 15, "LAMINOX": 7, "EMAN": 7}  # eman = laminox (foydalanuvchi, 2026-11-05)
 _NUMBER = re.compile(r"\b(\d{3,5})\b")
 _HEADER = re.compile(r"\b(\d{3,5})\s+(.+?)\s*\(\s*([^)]*?)\s*\)")
 _DATES = re.compile(r"(\d{1,2})\.(\d{1,2})\.?\s*[-/]+\s*(\d{1,2})\.{1,2}(\d{1,2})")
-_LATER = ("korpus sehga keldi", "korpus sklad", "dostavka", "dastafka", "brigada", "ustanovka",
-          "arxiv", "yopilgan", "pul olinishi")
+_LATER = ("korpus sehga keldi", "korpus sklad", "dostavka", "pul olinishi")
+# ustanovka: "Dastafka qilingan" -> brigada/ustanovka listlari -> "yopilgan zakazlar(punkti kop zakazlar)";
+# korpus kartasi esa "bitkan korpuslar (ARXIV)" ga tushadi — u ham yopilgan (2026-11-06, real doska)
+_UST = ("dastafka qilingan", "ustanovka", "brigada")
+_CLOSED = ("yopilgan zakaz", "bitkan korpus", "yopildi")
 
 PENALTY_FOOTER = (
     "ESLATIB O'TAMIZ VAQTIDA BITIRMAGANLIK UCHUN JARIMALAR!\n"
@@ -64,12 +69,19 @@ def stage_kind(list_name: str) -> str | None:
         return "SEH_LAMINOX"
     if "eman yoki muborak fayl" in n:
         return "SEH_EMAN"
+    if any(k in n for k in _CLOSED):
+        return "CLOSED"
+    if any(k in n for k in _UST):
+        return "UST"
     if any(k in n for k in _LATER):
         return "FINISH"
     return None
 
 
-FINISH_KINDS = ("SKLAD_SHPON", "SKLAD_LAMINOX", "SKLAD_EMAN", "FINISH")
+# sehdan keyingi listlar (sklad'ni o'tkazib yuborgan karta uchun "sehdan chiqdi")
+_AFTER_SEH = ("FINISH", "UST", "CLOSED")
+# zakaz shu yerda tugaydi — 5 daqiqalik yurish faqat shunda karta tarixini so'raydi
+FINISH_KINDS = ("CLOSED",)
 
 
 def card_created(card_id: str) -> datetime:
@@ -213,19 +225,25 @@ def _span(events, stage):
     return start, end
 
 
-def _plan(start, kroy_e, gip_e, seh_days, seh_stop):
-    """Reja: har bosqich oldingisining REAL tugashidan (bo'lmasa — rejasidan) boshlanadi."""
-    p_kroy_e = start + timedelta(days=KROY_DAYS)
+def _plan(start, kon_s, kon_e, kroy_e, gip_e, seh_days, seh_stop):
+    """Reja: har bosqich oldingisining REAL tugashidan (bo'lmasa — rejasidan) boshlanadi.
+    Kontrol 1 kun — karta Kontrolga tushgan paytdan (karta ochilmasdan oldingi kunlar
+    Avaz akaga yozilmaydi), bo'lmasa zakaz sanasidan; Abdulloh (jiyan 2 + kroychi 2) — unga o'tgan kundan."""
+    p_kon_s = kon_s or start
+    p_kon_e = p_kon_s + timedelta(days=KONTROL_DAYS)
+    p_kroy_s = kon_e or p_kon_e
+    p_kroy_e = p_kroy_s + timedelta(days=KROY_DAYS)
     p_gip_s = kroy_e or p_kroy_e
     p_gip_e = p_gip_s + timedelta(days=GIPLAB_DAYS)
     p_seh_s = gip_e or p_gip_e
-    return p_kroy_e, p_gip_s, p_gip_e, p_seh_s, p_seh_s + timedelta(days=seh_days) + seh_stop
+    return {"kon_s": p_kon_s, "kon_e": p_kon_e, "kroy_s": p_kroy_s, "kroy_e": p_kroy_e, "gip_s": p_gip_s, "gip_e": p_gip_e,
+            "seh_s": p_seh_s, "seh_e": p_seh_s + timedelta(days=seh_days) + seh_stop}
 
 
 def analyze(card: dict, events, sibling_events=(), now: datetime | None = None, people=()) -> dict:
     """Bitta kartaning tarixidan bosqich sanalari. events — kartaning o'z
     [(vaqt, list nomi)] tarixi; sibling_events — shu raqamli boshqa kartalarniki
-    (FASAD karta GIPLAB'da korpus kartadan nusxalanadi — kroy tarixi o'sha
+    (FASAD karta GIPLAB'da korpus kartadan nusxalanadi — kontrol/kroy tarixi o'sha
     kartada); people — [(vaqt, ism)]: kartaga qo'shilgan ishchi/brigadirlar.
     Imzo faqat haqiqiy o'zgarishda o'zgaradi (kun hisobi kiritilmagan)."""
     now = now or datetime.now(timezone.utc)
@@ -239,13 +257,13 @@ def analyze(card: dict, events, sibling_events=(), now: datetime | None = None, 
         first.setdefault(stage_kind(lst), at)
 
     spans = {}
-    for stage in ("KROY", "GIPLAB"):
+    for stage in ("KONTROL", "KROY", "GIPLAB"):
         own = _span(events, stage)
         others = [s for s in (_span(sorted(ev), stage) for ev in sibling_events) if s[0]]
         s0 = min([x for x in [own[0]] + [s[0] for s in others] if x], default=None)
         e0 = own[1] if own[0] else next((s[1] for s in others if s[1]), None)
         spans[stage] = (s0, e0)
-    (kroy_s, kroy_e), (gip_s, gip_e) = spans["KROY"], spans["GIPLAB"]
+    (kon_s, kon_e), (kroy_s, kroy_e), (gip_s, gip_e) = spans["KONTROL"], spans["KROY"], spans["GIPLAB"]
 
     route = next((k[4:] for at, lst in events if (k := stage_kind(lst) or "").startswith("SEH_")), None)
     if route is None:
@@ -256,10 +274,14 @@ def analyze(card: dict, events, sibling_events=(), now: datetime | None = None, 
     # sehdan OLDINGI tasodifiy ko'chirish (masalan adashib dostavkaga) chiqish emas
     after = [(at, stage_kind(lst)) for at, lst in events if seh_s is None or at >= seh_s]
     out = (next((at for at, k in after if k == "SKLAD_" + route), None)
-           or next((at for at, k in after if k == "FINISH"), None))
+           or next((at for at, k in after if k in _AFTER_SEH), None))
+    # ustanovka: sklad'dan keyin "Dastafka qilingan"/brigada -> "yopilgan zakazlar" ("bitkan korpuslar")
+    later = [(at, k) for at, k in after if out and at >= out]
+    ust_e = next((at for at, k in later if k == "CLOSED"), None)
+    ust_s = next((at for at, k in later if k in ("UST", "CLOSED")), None)
 
     # stop: zakaz ishga tushgandan keyin (boshlang'ich "zakaz tushti stopda" kutishi stop emas)
-    begun = min([x for x in (first.get("KONTROL"), kroy_s, gip_s, seh_s) if x], default=None)
+    begun = min([x for x in (kon_s, kroy_s, gip_s, seh_s) if x], default=None)
     stop, seh_stop, since, stops = timedelta(), timedelta(), None, 0
     for at, lst in events + [(now, "")]:
         if since is not None:
@@ -270,16 +292,17 @@ def analyze(card: dict, events, sibling_events=(), now: datetime | None = None, 
         if lst and stage_kind(lst) == "STOP" and begun and at >= begun and not (out and at >= out):
             since, stops = at, stops + 1
     stopped_now = bool(events) and stage_kind(events[-1][1]) == "STOP" and stops > 0
-    signature = "|".join([card["name"], route, *(_d(x) for x in (kroy_s, kroy_e, gip_s, gip_e, seh_s, out)),
-                          str(stops), str(stopped_now)])
+    signature = "|".join([card["name"], route, *(_d(x) for x in (kon_s, kroy_s, kroy_e, gip_s, gip_e, seh_s, out,
+                                                                 ust_s, ust_e)), str(stops), str(stopped_now)])
     lists = {}  # bosqich -> birinchi list nomi ("GIPLAB Abdulloh 24") — kim ishlaganini list nomidan bilish uchun
     for ev in [events, *sibling_events]:
         for _, lst in ev:
-            if (k := stage_kind(lst) or "") in ("KROY", "GIPLAB") or k.startswith("SEH_"):
+            if (k := stage_kind(lst) or "") in ("KONTROL", "KROY", "GIPLAB") or k.startswith("SEH_"):
                 lists.setdefault(k[:3] if k.startswith("SEH_") else k, lst)
     return {"name": card["name"], "created": created, "start": start, "deadline": deadline, "route": route,
-            "lists": lists,
+            "lists": lists, "kon_s": kon_s, "kon_e": kon_e,
             "kroy_s": kroy_s, "kroy_e": kroy_e, "gip_s": gip_s, "gip_e": gip_e, "seh_s": seh_s, "out": out,
+            "ust_s": ust_s, "ust_e": ust_e,
             "stop": stop, "stops": stops, "stopped_now": stopped_now, "seh_stop": seh_stop,
             "last": events[-1] if events else None, "people": sorted(people), "signature": signature}
 
@@ -296,7 +319,7 @@ def render(card: dict, events, sibling_events=(), now: datetime | None = None):
     a = analyze(card, events, sibling_events, now)
     start, deadline, kroy_s, kroy_e, gip_s, gip_e, seh_s, out = (
         a[k] for k in ("start", "deadline", "kroy_s", "kroy_e", "gip_s", "gip_e", "seh_s", "out"))
-    p_kroy_e, p_gip_s, p_gip_e, p_seh_s, p_seh_e = _plan(start, kroy_e, gip_e, SEH_DAYS[a["route"]], a["seh_stop"])
+    p = _plan(start, a["kon_s"], a["kon_e"], kroy_e, gip_e, SEH_DAYS[a["route"]], a["seh_stop"])
     stop_txt = _hours(a["stop"]) + (" (hozir stopda)" if a["stopped_now"] else "") if a["stops"] else ""
     today = now.astimezone(TASHKENT_TZ)
     text = "\n".join([
@@ -304,25 +327,28 @@ def render(card: dict, events, sibling_events=(), now: datetime | None = None):
         " Zakaz muddatlari:",
         f" BUGUN {today:%d.%m.%y} Y.    BUYURTMANI     {(today.date() - start.date()).days}- KUNI",
         "PLAN",
-        f"KROY BO'LIMI {_d(start)}-{_d(p_kroy_e)}",
+        f"KROY BO'LIMI {_d(p['kroy_s'])}-{_d(p['kroy_e'])}",
         f"Real                      {_d(kroy_s)}__{_d(kroy_e)}",
-        f"GIPLAB {_d(p_gip_s)}-{_d(p_gip_e)}",
+        f"GIPLAB {_d(p['gip_s'])}-{_d(p['gip_e'])}",
         f"Real                      {_d(gip_s)}__{_d(gip_e)}",
-        f"SEHGA O'TDI  {_d(p_seh_s)}",
+        f"SEHGA O'TDI  {_d(p['seh_s'])}",
         f"real                        sehga KETTI {_d(seh_s)}",
-        f"SEHDAN CHIQDI {_d(p_seh_e)}",
+        f"SEHDAN CHIQDI {_d(p['seh_e'])}",
         f"♦️real    {_d(out)}",
+        f"USTANOVKA    real {_d(a['ust_s'])}__{_d(a['ust_e'])}",
         "",
         f"📌ZAKAZ TOPSHIRISH MUDDATI: {_d(deadline)}",
-        f"♻️ZAKAZ TOPSHIRILGAN MUDDAT: {_d(out)}",
+        f"♻️ZAKAZ TOPSHIRILGAN MUDDAT: {_d(a['ust_e'])}",
         f"❗️STOPDA TURGAN: {stop_txt}",
         PENALTY_FOOTER,
     ])
-    return text, a["signature"], out is not None
+    return text, a["signature"], a["ust_e"] is not None
 
 
 PENALTY_LINE = "Jarimalar: 1–2 kun: kuniga −1 ball  ·  2–4 kun: kuniga −3 ball  ·  4–6 kun: ish haqidan 50%  ·  6+ kun: 100%"
 FINAL_LINE = "Bu oxirgi xabar — zakaz topici yopiladi (o'chirilmaydi, tarix qoladi)."
+# ustanovkaga doim shu ikkalasi javobgar (foydalanuvchi, 2026-11-06)
+UST_RESPONSIBLE = "Avaz Axrarov · Mohir Mavlonov"
 # kartaga odam qo'shish ko'pincha listga ko'chirishdan bir necha soniya oldin bo'ladi
 PEOPLE_SLACK = timedelta(minutes=10)
 _LIST_TAIL = re.compile(r"\s*\d+\s*(soat|sutka)?\s*$", re.I)
@@ -343,6 +369,8 @@ def _day(x):
 
 def _late(plan_e, real_e, current, today):
     """FARQ ustuni: tugagan — reja bilan farq; hozirgi bosqich — rejagacha qolgan kun."""
+    if plan_e is None:
+        return None
     if real_e:
         late = (_day(real_e) - _day(plan_e)).days
         return (f"+{late} kun", "red") if late > 0 else ("o'z vaqtida", "green")
@@ -362,24 +390,29 @@ def _words(text, min_len=1):
     return {w for w in re.findall(r"[a-z']+", (text or "").lower()) if len(w) >= min_len}
 
 
-def order_view(parts, now: datetime | None = None, staff=()):
+def order_view(parts, now: datetime | None = None, staff=(), penalty=None):
     """Bitta zakaz (bir raqamli hamma kartalar: korpus + FASAD ...) uchun rasm
     ma'lumoti. parts — har karta uchun `analyze()` natijasi. Zakaz OXIRGI
-    kartasi skladga chiqqanda tugaydi (korpus erta chiqsa ham zakaz tugamagan).
-    staff — bazadagi ishchi/brigadir ismlari (list nomidagi ismni tanish uchun).
+    kartasi ustanovkadan chiqib yopilganda tugaydi ("yopilgan zakazlar";
+    korpus kartasi — "bitkan korpuslar"). staff — bazadagi ishchi/brigadir
+    ismlari (list nomidagi ismni tanish uchun). penalty(soat) — botning soatbay
+    jarima hisobi (`penalty_service.hourly_penalty`); BALL ustuni shu bilan.
     Qaytaradi: (model, imzo, tugadi_mi) — model `order_card_image.draw()` uchun."""
     now = now or datetime.now(timezone.utc)
     today = now.astimezone(TASHKENT_TZ)
     main = min(parts, key=lambda p: p["created"])
     start, deadline = min(p["start"] for p in parts), main["deadline"]
+    kon_s, kon_e = _merge(parts, "kon_s", "kon_e")
     kroy_s, kroy_e = _merge(parts, "kroy_s", "kroy_e")
     gip_s, gip_e = _merge(parts, "gip_s", "gip_e")
     seh_s = min((p["seh_s"] for p in parts if p["seh_s"]), default=None)
-    finished = all(p["out"] for p in parts)
-    out = max(p["out"] for p in parts) if finished else None
-    p_kroy_e, p_gip_s, p_gip_e, p_seh_s, p_seh_e = _plan(
-        start, kroy_e, gip_e, max(SEH_DAYS[p["route"]] for p in parts), max(p["seh_stop"] for p in parts))
-    open_parts = [p for p in parts if not p["out"]]
+    out = max(p["out"] for p in parts) if all(p["out"] for p in parts) else None
+    ust_s = min((p["ust_s"] for p in parts if p["ust_s"]), default=None)
+    finished = all(p["ust_e"] for p in parts)
+    closed = max(p["ust_e"] for p in parts) if finished else None
+    plan = _plan(start, kon_s, kon_e, kroy_e, gip_e, max(SEH_DAYS[p["route"]] for p in parts),
+                 max(p["seh_stop"] for p in parts))
+    open_parts = [p for p in parts if not p["ust_e"]]
     stopped_now = any(p["stopped_now"] for p in open_parts)
     joined = {}  # odam zakazga BIRINCHI marta qachon qo'shilgan (FASAD nusxasi uni qayta qo'shadi — bu hisob emas)
     for at, name in sorted(x for p in parts for x in p["people"]):
@@ -393,7 +426,9 @@ def order_view(parts, now: datetime | None = None, staff=()):
         """Kim: shu bosqichda kartaga qo'shilgan ishchi/brigadir; bo'lmasa — list nomidagi ism."""
         if not s:
             return None
-        names = [n for n, at in sorted(joined.items(), key=lambda x: x[1]) if s - PEOPLE_SLACK <= at <= (e or now)]
+        # bosqich tugashidan 10 daqiqa oldin qo'shilgan odam — KEYINGI bosqichniki (oldin qo'shib, keyin ko'chiradi)
+        end = e - PEOPLE_SLACK if e else now
+        names = [n for n, at in sorted(joined.items(), key=lambda x: x[1]) if s - PEOPLE_SLACK <= at < end]
         if names:
             return names[-1]
         words = _words(lists.get(stage))
@@ -402,20 +437,34 @@ def order_view(parts, now: datetime | None = None, staff=()):
             return hits[0][0]
         return hits[0][1][0].capitalize() if hits else None  # ikki xodim bir xil ismli ("abdulloh") — list nomidagicha
 
-    # bosqichni chetlab o'tgan karta (masalan GIPLAB'siz) — keyingi bosqich boshlangan bo'lsa o'tgan hisoblanadi
-    kroy_done = bool(kroy_e) or (not kroy_s and bool(gip_s or seh_s or finished))
-    gip_done = bool(gip_e) or (not gip_s and bool(seh_s or finished))
-    current = None if finished else "KROY" if not kroy_done else "GIPLAB" if not gip_done else "SEH"
-
-    rows = [
-        ("Kroy", f"{_d(start)} – {_d(p_kroy_e)}", _real(kroy_s, kroy_e), who("KROY", kroy_s, kroy_e),
-         _late(p_kroy_e, kroy_e, current == "KROY", today.date())),
-        ("GIPLAB", f"{_d(p_gip_s)} – {_d(p_gip_e)}", _real(gip_s, gip_e), who("GIPLAB", gip_s, gip_e),
-         _late(p_gip_e, gip_e, current == "GIPLAB", today.date())),
-        ("Seh", f"{_d(p_seh_s)} – {_d(p_seh_e)}", _real(seh_s, out), who("SEH", seh_s, out),
-         _late(p_seh_e, out, current == "SEH", today.date())),
+    # (kalit, nom, real boshi, real oxiri, reja boshi, reja oxiri, kim)
+    stages = [
+        ("KONTROL", "Kontrol", kon_s, kon_e, plan["kon_s"], plan["kon_e"]),
+        ("KROY", "Kroy", kroy_s, kroy_e, plan["kroy_s"], plan["kroy_e"]),
+        ("GIPLAB", "GIPLAB", gip_s, gip_e, plan["gip_s"], plan["gip_e"]),
+        ("SEH", "Seh", seh_s, out, plan["seh_s"], plan["seh_e"]),
+        # ustanovka rejasi — sklad'dan zakazning topshirish muddatigacha (umumiy srok ichida)
+        ("UST", "Ustanovka", ust_s, closed, out or plan["seh_e"], deadline),
     ]
-    late = (_day(out) - _day(deadline)).days if finished and deadline else None
+    # bosqichni chetlab o'tgan karta (masalan GIPLAB'siz) — keyingi bosqich boshlangan bo'lsa o'tgan hisoblanadi
+    done = {}
+    for i, (key, _, s, e, _, _) in enumerate(stages):
+        done[key] = bool(e) or (not s and any(x[2] or x[3] for x in stages[i + 1:]))
+    current = next((key for key, *_ in stages if not done[key]), None)
+
+    def ball(plan_e, real_e, cur):
+        """Botning soatbay jarima tizimi: reja tugaganidan keyin boshlangan har soat."""
+        if penalty is None or plan_e is None or not (real_e or cur):
+            return 0
+        hours = math.ceil(((real_e or now) - plan_e).total_seconds() / 3600)
+        return (penalty(hours) or 0) if hours > 0 else 0
+
+    rows = []
+    for key, label, s, e, p_s, p_e in stages:
+        rows.append((label, f"{_d(p_s)} – {_d(p_e)}" if p_e else "—", _real(s, e),
+                     UST_RESPONSIBLE if key == "UST" else who(key, s, e),
+                     _late(p_e, e, current == key, today.date()), ball(p_e, e, current == key)))
+    late = (_day(closed) - _day(deadline)).days if finished and deadline else None
     left = (_day(deadline) - today.date()).days if deadline else None
     if finished:
         top = None if late is None else (f"{-late} kun oldin", "green") if late < 0 else \
@@ -425,35 +474,42 @@ def order_view(parts, now: datetime | None = None, staff=()):
         top = None if left is None else (f"{left} kun bor", "green") if left > 0 else \
             ("bugun", "amber") if left == 0 else (f"+{-left} kun", "red")
         big = "" if left is None else f"{left} kun bor" if left > 0 else "bugun" if left == 0 else f"{-left} kun o'tdi"
-    rows.append(("Topshirish", _d(deadline) or "—", _d(out) or "—", None, top))
+    rows.append(("Topshirish", _d(deadline) or "—", _d(closed) or "—", None, top, round(sum(r[5] for r in rows), 2)))
 
     if finished:
         tone = "red" if late and late > 0 else "green"
         word = "TOPSHIRILDI — " + ("KECHIKDI" if tone == "red" else "VAQTIDA")
-        line2 = f"Zakaz {_d(out)} da sehdan chiqdi. Kuzatuv yakunlandi."
+        line2 = f"Zakaz {_d(closed)} da yopildi — ustanovka tugadi. Kuzatuv yakunlandi."
     else:
         # banner — HOZIRGI holat: muddat o'tgan yoki hozirgi bosqich rejadan chiqqan (o'tgan kechikish jadvalda)
-        now_row = rows[{"KROY": 0, "GIPLAB": 1, "SEH": 2}[current]][4]
+        now_row = rows[[key for key, *_ in stages].index(current)][4]
         behind = (left is not None and left < 0) or bool(now_row and now_row[1] == "red")
-        tone = "red" if behind else "amber" if stopped_now else "green"
-        word = {"red": "KECHIKMOQDA", "amber": "STOPDA", "green": "VAQTIDA"}[tone]
+        tone = "red" if behind else "amber" if stopped_now else "blue" if current == "KONTROL" else "green"
+        word = {"red": "KECHIKMOQDA", "amber": "STOPDA", "blue": "KONTROLDA", "green": "VAQTIDA"}[tone]
         lasts = [p["last"] for p in open_parts if p["last"]]
         labels = list(dict.fromkeys(_LIST_TAIL.sub("", name).strip() for _, name in lasts))
         line2 = f"Hozir ({_d(min(at for at, _ in lasts))} dan): " + " · ".join(labels) if lasts else "Hozir: —"
+        if current == "KONTROL":
+            line2 += " — kroy hali boshlanmagan"
     right_small = f"Topshirish muddati {_d(deadline)}" if deadline else "Topshirish muddati yozilmagan"
 
-    def step(label, done, cur, done_sub, cur_sub, todo_sub):
-        if done:
+    def step(label, key, done_sub, cur_sub, todo_sub):
+        if done[key]:
             return label, "done", done_sub
-        return (label, "stop" if stopped_now else "run", cur_sub) if cur else (label, "todo", todo_sub)
+        if current == key:
+            return label, "stop" if stopped_now else "run", cur_sub
+        return label, "todo", todo_sub
 
     steps = [
-        step("Kroy", kroy_done, current == "KROY", _d(kroy_e), f"reja {_d(p_kroy_e)} gacha", f"reja {_d(p_kroy_e)}"),
-        step("GIPLAB", gip_done, current == "GIPLAB", _d(gip_e), f"reja {_d(p_gip_e)} gacha", f"reja {_d(p_gip_e)}"),
-        step("Seh", finished, current == "SEH", _real(seh_s, out) if seh_s else _d(out),
-             f"{_d(seh_s)} dan" if seh_s else f"reja {_d(p_seh_e)} gacha", f"reja {_d(p_seh_s)} dan"),
-        step("Sklad", finished, False, _d(out), "", f"reja {_d(p_seh_e)}"),
-        step("Topshirish", finished, False, _d(out), "", f"reja {_d(deadline)}" if deadline else ""),
+        step("Kontrol", "KONTROL", _d(kon_e), f"reja {_d(plan['kon_e'])} gacha", f"reja {_d(plan['kon_e'])}"),
+        step("Kroy", "KROY", _d(kroy_e), f"reja {_d(plan['kroy_e'])} gacha", f"reja {_d(plan['kroy_e'])}"),
+        step("GIPLAB", "GIPLAB", _d(gip_e), f"reja {_d(plan['gip_e'])} gacha", f"reja {_d(plan['gip_e'])}"),
+        step("Seh", "SEH", _real(seh_s, out) if seh_s else _d(out),
+             f"{_d(seh_s)} dan" if seh_s else f"reja {_d(plan['seh_e'])} gacha", f"reja {_d(plan['seh_s'])} dan"),
+        ("Sklad", "done", _d(out)) if done["SEH"] else ("Sklad", "todo", f"reja {_d(plan['seh_e'])}"),
+        step("Ustanovka", "UST", _real(ust_s, closed) if ust_s else _d(closed),
+             f"{_d(ust_s)} dan" if ust_s else "", ""),
+        ("Topshirish", "done", _d(closed)) if finished else ("Topshirish", "todo", f"reja {_d(deadline)}" if deadline else ""),
     ]
 
     stop_total = max(p["stop"] for p in parts)
@@ -472,7 +528,7 @@ def order_view(parts, now: datetime | None = None, staff=()):
     bits = [f"Sotuvchi: {header[3]}"] if header and header[3] else []
     bits.append(f"Zakaz: {_d(start)}")
     if finished:
-        bits += [f"Tugadi: {out.astimezone(TASHKENT_TZ):%d.%m.%Y}", f"{(_day(out) - start.date()).days} kunda"]
+        bits += [f"Tugadi: {closed.astimezone(TASHKENT_TZ):%d.%m.%Y}", f"{(_day(closed) - start.date()).days} kunda"]
     else:
         bits += [f"Bugun: {today:%d.%m.%Y}", f"{(today.date() - start.date()).days}-kun"]
     model = {

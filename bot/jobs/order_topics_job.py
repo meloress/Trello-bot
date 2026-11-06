@@ -9,7 +9,7 @@ shablonini (`services/order_template.py`) o'sha topicga yuborib turadi
   - shablon HAR KUNI ertalab 08:00 da har bir ochiq zakaz topiciga yuboriladi
     (`run_daily`); topic ochilganda birinchi xabar darhol, zakaz tugaganda
     oxirgi holat yuboriladi va topic yopiladi (5 daqiqalik `run`);
-  - karta nomi o'zgarsa — topic nomi ham; zakaz skladga chiqsa — topic yopiladi.
+  - karta nomi o'zgarsa — topic nomi ham; zakaz ustanovkadan chiqib yopilsa — topic yopiladi.
 
 Bot Trello'ga HECH NARSA yozmaydi. `ORDER_GROUP_CHAT_ID` yoki
 `ORDER_TOPICS_SINCE` bo'lmasa job hech narsa qilmaydi. Guruh — "Topics"
@@ -30,9 +30,9 @@ from aiogram.types import BufferedInputFile
 
 from config import settings
 from core.database import async_session
-from db.repositories import EmployeeRepository, OrderTopicRepository
+from db.repositories import EmployeeRepository, OrderTopicRepository, PenaltyRuleRepository
 from jobs import nazorat_trello_watch_job
-from services import order_card_image, order_template
+from services import order_card_image, order_template, penalty_service
 from trello.client import TrelloClient
 from utils.enums import Role
 from utils.formatters import TASHKENT_TZ
@@ -122,9 +122,16 @@ async def _notify_observers(bot: Bot, report: dict) -> None:
                 logger.exception("order_topics: nazoratchiga (%s) yuborilmadi", chat)
 
 
-def _image(parts, now, staff):
+async def _penalty():
+    """Botning soatbay jarima hisobi (`penalty_rules` global qatorlari) — rasmdagi BALL ustuni uchun."""
+    async with async_session() as session:
+        rules = await PenaltyRuleRepository(session).list_for_department(None)
+    return lambda hours: penalty_service.hourly_penalty(rules, hours)
+
+
+def _image(parts, now, staff, penalty=None):
     """(rasm yoki None, imzo, tugadi_mi, model). Rasm chizilmasa — eski matn yuboriladi."""
-    model, signature, finished = order_template.order_view(parts, now, staff)
+    model, signature, finished = order_template.order_view(parts, now, staff, penalty)
     try:
         return order_card_image.draw(model), signature, finished, model
     except Exception:
@@ -197,12 +204,12 @@ async def _update(bot: Bot, chat_id: int, trello, cards_by_id: dict, list_names:
                 changes[row.id]["order_number"] = number
         live = [(row, card) for row, card in members if card is not None]
         try:
-            # tarix (Trello so'rovi) faqat kerak bo'lganda: ertalab, yangi karta, hamma kartasi skladga/keyin o'tganda
+            # tarix (Trello so'rovi) faqat kerak bo'lganda: ertalab, yangi karta, hamma kartasi yopilgan listda bo'lsa
             if live and (daily or any(row.signature is None for row, _ in live) or all(
                     order_template.stage_kind(list_names.get(card.get("idList"))) in order_template.FINISH_KINDS
                     for _, card in live)):
                 if people is None:
-                    staff = await _staff()
+                    staff, penalty = await _staff(), await _penalty()
                     # ism faqat ishchi/brigadirniki (sotuvchi ham kartada bo'ladi — u ko'rsatilmaydi)
                     people = {m: n for m, (n, role) in staff.items() if role in (Role.WORKER, Role.BRIGADIER)}
                 parts, texts = [], []
@@ -217,7 +224,7 @@ async def _update(bot: Bot, chat_id: int, trello, cards_by_id: dict, list_names:
                     parts.append(order_template.analyze(card, moves, siblings, now,
                                                         [(at, people[m]) for at, m, _ in adds if m in people]))
                     texts.append(order_template.render(card, moves, siblings, now)[0])
-                png, signature, finished, model = _image(parts, now, list(people.values()))
+                png, signature, finished, model = _image(parts, now, list(people.values()), penalty)
                 # ertalab — hammaga; kun davomida — faqat yangi zakazning birinchi xabari va tugaganda
                 # (mavjud zakazga qo'shilgan FASAD kartasi alohida xabar chiqarmaydi)
                 if daily or all(row.signature is None for row, _ in live) or finished:

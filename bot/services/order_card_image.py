@@ -10,6 +10,8 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
+from utils.formatters import fmt_ball
+
 S = 2  # telefon ekranida tiniq bo'lishi uchun 2x
 W = 1080
 _FONTS = Path(__file__).resolve().parent.parent / "assets" / "fonts"
@@ -64,7 +66,7 @@ def draw(model: dict) -> bytes:
 
     steps = model["steps"]
     n = len(steps)
-    left, right = x0 + 70, x1 - 70
+    left, right = x0 + 56, x1 - 56
     cy = y + 30
     xs = [left + i * (right - left) / (n - 1) for i in range(n)]
     for i in range(n - 1):
@@ -88,11 +90,12 @@ def draw(model: dict) -> bytes:
         else:
             g.ellipse(P(cx - r, cy - r, cx + r, cy + r), fill="white", outline=GREY, width=4 * S)
         sub_col = {"done": TONE["green"][0], "run": BLUE, "stop": TONE["amber"][0], "todo": SOFT}[state]
-        g.text(P(cx, cy + 36), label, font=font(17, True), fill=SOFT if state == "todo" else INK, anchor="ma")
-        g.text(P(cx, cy + 60), _fit(g, sub, font(14), 200), font=font(14), fill=sub_col, anchor="ma")
+        g.text(P(cx, cy + 36), label, font=font(16, True), fill=SOFT if state == "todo" else INK, anchor="ma")
+        g.text(P(cx, cy + 60), _fit(g, sub, font(13), (right - left) / (n - 1) - 8), font=font(13), fill=sub_col,
+               anchor="ma")
     y = cy + 96
 
-    cols = [("BOSQICH", 190), ("PLAN", 220), ("REAL", 330), ("FARQ", x1 - x0 - 740)]
+    cols = [("BOSQICH", 160), ("PLAN", 190), ("REAL", 290), ("FARQ", 180), ("BALL", x1 - x0 - 820)]
     g.rectangle(P(x0, y, x1, y + 40), fill="#f1f3f4")
     cx = x0
     for name, w in cols:
@@ -100,25 +103,31 @@ def draw(model: dict) -> bytes:
         cx += w
     top = y
     y += 40
-    for stage, plan, real, who, diff in model["rows"]:
+    rows = model["rows"]
+    for i, (stage, plan, real, who, diff, ball) in enumerate(rows):
         cx = x0
-        g.text(P(cx + 16, y + 20), stage, font=font(18, True), fill=INK)
+        g.text(P(cx + 16, y + 20), stage, font=font(17, True), fill=INK)
         cx += cols[0][1]
-        g.text(P(cx + 16, y + 21), plan, font=font(17), fill=SOFT)
+        g.text(P(cx + 16, y + 21), plan, font=font(16), fill=SOFT)
         cx += cols[1][1]
         if who:
-            g.text(P(cx + 16, y + 10), real, font=font(17, True), fill=INK)
-            g.text(P(cx + 16, y + 36), _fit(g, who, font(14, True), cols[2][1] - 24), font=font(14, True), fill=BLUE)
+            g.text(P(cx + 16, y + 10), real, font=font(16, True), fill=SOFT if real == "—" else INK)
+            g.text(P(cx + 16, y + 36), _fit(g, who, font(13, True), cols[2][1] - 24), font=font(13, True), fill=BLUE)
         else:
-            g.text(P(cx + 16, y + 21), real, font=font(17, True), fill=SOFT if real == "—" else INK)
+            g.text(P(cx + 16, y + 21), real, font=font(16, True), fill=SOFT if real == "—" else INK)
         cx += cols[2][1]
         if diff:
             dfg, dbg = TONE[diff[1]]
-            tw = g.textlength(diff[0], font=font(16, True)) / S
+            tw = g.textlength(diff[0], font=font(15, True)) / S
             g.rounded_rectangle(P(cx + 14, y + 15, cx + 38 + tw, y + 49), 17 * S, fill=dbg)
-            g.text(P(cx + 26, y + 22), diff[0], font=font(16, True), fill=dfg)
+            g.text(P(cx + 26, y + 23), diff[0], font=font(15, True), fill=dfg)
         else:
-            g.text(P(cx + 16, y + 21), "—", font=font(17), fill=SOFT)
+            g.text(P(cx + 16, y + 21), "—", font=font(16), fill=SOFT)
+        cx += cols[3][1]
+        # BALL: botning soatbay jarimasi; oxirgi qator (Topshirish) — zakaz bo'yicha jami
+        tone = TONE["red"][0] if ball < 0 else TONE["green"][0] if ball > 0 else SOFT
+        text = ("Jami " if i == len(rows) - 1 else "") + fmt_ball(ball).replace("-", "−")
+        g.text(P(cx + 16, y + 21), text, font=font(17, True), fill=tone)
         y += 64
         g.line(P(x0, y, x1, y), fill=LINE, width=S)
     g.rectangle(P(x0, top, x1, y), outline=LINE, width=S)
