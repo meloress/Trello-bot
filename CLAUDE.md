@@ -107,7 +107,13 @@ mebel/department-less staff would be scored the wrong way); fractional balls
 are exact (`Fraction`) and rounded half-up (`penalty_service.round_ball`), and
 the brigadier share is fractional too for Nazorat Trello. Bot never writes to Trello: `daily_sync_job` skips Nazorat
 Trello orders (no labels), and the worker Mini App has no Stop/Finish for them
-(`util.is_trello_owned_order` 409s, `trelloOnly` in `screenTaskDetail`); the same guard 409s admin `/tasks/{id}/deadline`, `/urgent`, `/activate`, `/reassign` and brigadier `/delegate`, so `screenAdminOrderDetail` is read-only and `screenNewWork` only shows an "assign in Trello" hint (2026-10-24). The
+(`util.is_trello_owned_order` 409s, `trelloOnly` in `screenTaskDetail`); the same guard 409s admin `/tasks/{id}/deadline`, `/urgent`, `/activate`, `/reassign` and brigadier `/delegate`, so `screenAdminOrderDetail` is read-only and `screenNewWork` only shows an "assign in Trello" hint (2026-10-24).
+**Members carried by a copy are ignored** (2026-11-06, user): Copy card/Copy
+list makes Trello log `addMemberToCard` for every member ~1 s after `copyCard`
+(one "copy list" of a 50-card list ×3 sent ~230 "yangi zakaz" DMs), so an add
+within `COPY_WINDOW` (10 s) of the card's `copyCard` opens no hold and sends
+nothing (`_copied_with_card()`; only cards ≤10 s old cost a Trello call). This
+includes the FASAD copy made at GIPLAB — a hand-added member still counts. The
 action-log cursor is persisted in `app_settings.nazorat_trello_cursor`
 (migration `b7e2c4d91a05`) so a deploy can't drop a "removed" event; the very
 first run only sets it (no retroactive scoring). Pinned by

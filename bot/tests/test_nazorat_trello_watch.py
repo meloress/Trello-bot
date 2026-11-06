@@ -308,6 +308,18 @@ async def _job_checks():
                      listBefore={"name": "a"}, listAfter={"name": "b"})]
         assert await job.run(None, lambda: FakeTrello(moved)) == 1 and store["log"] == [], store["log"]
         assert await job.run(None, lambda: FakeTrello(list(reversed(events)))) == 0, "hodisa ikki marta ishlandi"
+
+        # Karta/list nusxalandi: a'zolar nusxa bilan ko'chdi — xabar ham, vaqt ham yo'q.
+        # Yangi kartaga odam qo'lda qo'shilsa (nusxa emas) — odatdagidek.
+        copy_at = t0 + timedelta(hours=230)
+        new_id = f"{int(copy_at.timestamp()):08x}0000000000000000"
+        store["card_actions"] = [{"date": iso(copy_at), "data": {}}]
+        copied = [act("addMemberToCard", copy_at + timedelta(seconds=1), "m-a", card={"id": new_id})]
+        assert await job.run(None, lambda: FakeTrello(copied)) == 1 and store["log"] == [], store["log"]
+        store["card_actions"] = []
+        fresh = [act("addMemberToCard", copy_at + timedelta(seconds=7), "m-b", card={"id": new_id})]
+        assert await job.run(None, lambda: FakeTrello(fresh)) == 1
+        assert ("notify", "m-b") in store["log"] and store["log"][0][0] == "open", store["log"]
     finally:
         (job.settings_service.get_trello_cursor, job.settings_service.set_trello_cursor, holds.open_holds,
          holds.open_hold, holds.close_hold, holds.set_card_deadline, holds.card_moved, job._member,

@@ -28,7 +28,7 @@ sahifalash qo'shiladi.
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot
 from sqlalchemy import select
@@ -38,6 +38,7 @@ from core.database import async_session
 from db.models.department import Department
 from db.repositories import DepartmentRepository, EmployeeRepository
 from services import notification_service, settings_service, task_service, trello_hold_service as holds
+from services.order_template import card_created
 from trello.client import TrelloClient
 from utils.modules import NAZORAT_TRELLO
 
@@ -46,6 +47,10 @@ logger = logging.getLogger(__name__)
 _FILTER = "addMemberToCard,removeMemberFromCard,updateCard:closed,updateCard:due,updateCard:idList"
 
 _board_id: str | None = None
+
+# Karta nusxalanganda (Copy card / Copy list) a'zolari ham ko'chadi va Trello har
+# biriga addMemberToCard yozadi — nusxadan ~1 s ichida. Odam qo'lda qo'shsa 6+ s.
+COPY_WINDOW = timedelta(seconds=10)
 
 
 async def _resolve_board_id(trello) -> str | None:
@@ -101,6 +106,16 @@ async def _due_changes(trello, card_id: str) -> list:
     )
 
 
+async def _copied_with_card(trello, card_id: str, at: datetime) -> bool:
+    """A'zo kartaga qo'shilmagan, nusxa bilan birga ko'chgan: hech kimga ish
+    berilmagan (2026-11-06: list 3 marta nusxalandi -> ~230 ta "yangi zakaz" xabari)."""
+    if at - card_created(card_id) > COPY_WINDOW:
+        return False  # eski karta — Trello so'rovisiz
+    copies = await trello._request("GET", f"/cards/{card_id}/actions",
+                                   params={"filter": "copyCard", "limit": 1, "fields": "date"})
+    return bool(copies) and at - _parse_dt(copies[0]["date"]) <= COPY_WINDOW
+
+
 async def _close(bot, trello, card_id: str, task_ids, at: datetime, card) -> None:
     started = {task_id: started_at for task_id, _, started_at in await holds.open_holds(card_id)}
     task_ids = [t for t in task_ids if t in started]
@@ -123,6 +138,8 @@ async def _handle(bot, trello, action) -> None:
     old = data.get("old") or {}
     if kind == "updateCard" and "idList" in old and not await holds.open_holds(card_id):
         return  # hisobi yo'q karta ko'chdi — Trello/baza so'rovisiz o'tkazib yuboriladi
+    if kind == "addMemberToCard" and await _copied_with_card(trello, card_id, at):
+        return  # nusxa bilan ko'chgan a'zo: xabar ham, vaqt ham yo'q
     card = await trello._request(
         "GET", f"/cards/{card_id}",
         params={"fields": "name,due,closed,idMembers", "list": "true", "list_fields": "name"},
