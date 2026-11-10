@@ -15,18 +15,26 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
+def include_object(obj, name, type_, reflected, compare_to):
+    """`checklist_*` jadvallari alohida "checklist bot" repo'siniki (shu
+    bazada) — autogenerate ularni "ortiqcha" deb DROP qilishni taklif qilmasin."""
+    table = obj if type_ == "table" else getattr(obj, "table", None)
+    return not (table is not None and table.name.startswith("checklist_"))
+
+
 def run_migrations_offline() -> None:
     context.configure(
         url=settings.database_url,
         target_metadata=target_metadata,
         literal_binds=True,
+        include_object=include_object,
     )
     with context.begin_transaction():
         context.run_migrations()
 
 
 def do_run_migrations(connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata)
+    context.configure(connection=connection, target_metadata=target_metadata, include_object=include_object)
     with context.begin_transaction():
         context.run_migrations()
 
