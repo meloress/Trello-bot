@@ -247,9 +247,29 @@ async def _job_checks():
             d["idMember"] = member_id
         return {"id": f"{kind}{at}", "type": kind, "date": iso(at), "data": d}
 
+    raspil = SimpleNamespace(id=105, name="Raspil Muborak", trello_label="muborak")
+
+    async def label_departments():
+        return [raspil]
+
+    async def open_label_hold(*, card_id, card_name, department, started_at, card_due):
+        store["log"].append(("label-open", department.id))
+        return 99
+
+    async def close_label_holds(bot, card_id, *, at, department_id=None):
+        store["log"].append(("label-close", department_id))
+
+    async def notify_label(bot, task_id, **kw):
+        store["log"].append(("label-notify", task_id))
+
     saved = (job.settings_service.get_trello_cursor, job.settings_service.set_trello_cursor, holds.open_holds,
              holds.open_hold, holds.close_hold, holds.set_card_deadline, holds.card_moved, job._member,
              job.notification_service.notify_trello_card_assigned, job._board_id, holds.pause_hold)
+    saved_label = (holds.label_departments, holds.open_label_hold, holds.close_label_holds,
+                   job.notification_service.notify_label_order)
+    holds.label_departments, holds.open_label_hold, holds.close_label_holds = (
+        label_departments, open_label_hold, close_label_holds)
+    job.notification_service.notify_label_order = notify_label
     holds.card_moved, holds.pause_hold = card_moved, pause_hold
     job.settings_service.get_trello_cursor, job.settings_service.set_trello_cursor = get_cursor, set_cursor
     holds.open_holds, holds.open_hold, holds.close_hold, holds.set_card_deadline = open_holds, open_hold, close_hold, set_deadline
@@ -280,6 +300,7 @@ async def _job_checks():
             ("open", 1, due),
             ("move", "Abdulloh kroy chizish 24", "zakaz tushti stopda"),
             ("close", 3, timedelta(hours=4)),
+            ("label-close", None),  # arxiv raspil holdini ham yopadi
         ], kinds
         assert store["holds"] == [], "arxivdan keyin ochiq vaqt qoldi"
         assert "updateCard:idList" in job._FILTER, "list ko'chirish hodisasi o'qilmayapti"
@@ -320,7 +341,19 @@ async def _job_checks():
         fresh = [act("addMemberToCard", copy_at + timedelta(seconds=7), "m-b", card={"id": new_id})]
         assert await job.run(None, lambda: FakeTrello(fresh)) == 1
         assert ("notify", "m-b") in store["log"] and store["log"][0][0] == "open", store["log"]
+
+        # Raspil (Trello'ga kirmaydigan bo'lim): "MUBORAK" label qo'yildi -> zakaz bo'limga,
+        # olindi -> yopiladi. Boshqa label ("SROK O'TGAN") hech narsa qilmaydi.
+        store["log"].clear()
+        labels = [act("addLabelToCard", t0 + timedelta(hours=300), label={"name": "SROK O'TGAN"}),
+                  act("addLabelToCard", t0 + timedelta(hours=301), label={"name": "MUBORAK", "color": "purple"}),
+                  act("removeLabelFromCard", t0 + timedelta(hours=400), label={"name": "MUBORAK"})]
+        assert await job.run(None, lambda: FakeTrello(labels)) == 3
+        assert store["log"] == [("label-open", 105), ("label-notify", 99), ("label-close", 105)], store["log"]
+        assert "addLabelToCard" in job._FILTER and "removeLabelFromCard" in job._FILTER
     finally:
+        (holds.label_departments, holds.open_label_hold, holds.close_label_holds,
+         job.notification_service.notify_label_order) = saved_label
         (job.settings_service.get_trello_cursor, job.settings_service.set_trello_cursor, holds.open_holds,
          holds.open_hold, holds.close_hold, holds.set_card_deadline, holds.card_moved, job._member,
          job.notification_service.notify_trello_card_assigned, job._board_id, holds.pause_hold) = saved

@@ -42,7 +42,8 @@ function tabDefsForRole(role, module) {
       { key: "tasks", icon: icon("list"), label: "tab_tasks", screen: () => screenTaskList("misc") },
       { key: "score", icon: icon("star"), label: "tab_score", screen: screenWorkerScore },
       { key: "profile", icon: icon("user"), label: "tab_profile", screen: screenProfile },
-    ];
+      // Raspilchi (departments.silent_penalty): ball yoziladi, lekin o'ziga ko'rsatilmaydi.
+    ].filter((tab) => !(tab.key === "score" && state.employee && state.employee.hide_score));
   }
   // TZ 2/3-band: nazoratchi (sex nachalnigi) — "biriktirilgan yo'nalish
   // boardini boshqarish, MUDDATLARNI KUZATISH". Uning ekrani rahbarnikidan

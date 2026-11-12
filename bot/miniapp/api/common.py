@@ -72,6 +72,8 @@ async def get_me(request: web.Request) -> web.Response:
             "department": department_name,
             "brigade": brigade_name,
             "language": employee.language,
+            # Raspilchi: Ball bo'limi yo'q (ball faqat rahbar/nazoratchida).
+            "hide_score": bool(department and department.silent_penalty),
             # O'chirilgan modul (`MEBEL_ENABLED`) shu yerda chiqariladi, resolver
             # ichida emas — u muzlatilgan qoidani saqlaydi, qayta yoqish = bayroq.
             "available_modules": [

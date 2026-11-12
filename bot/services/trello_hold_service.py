@@ -163,9 +163,37 @@ def closing_deadline(due, given_due, started_at, stopped_seconds):
     return deadline
 
 
-async def open_holds(card_id: str) -> list[tuple[int, int, datetime]]:
+def match_label(label_name: str | None, departments) -> Department | None:
+    """Label nomida bo'limning `trello_label` so'zi bor ("MUBORAK" -> Raspil Muborak).
+    Rang odamlar uchun, bot nomdan taniydi: bir xil rangli ikki label bo'lishi mumkin."""
+    name = (label_name or "").lower()
+    return next((d for d in departments if d.trello_label and d.trello_label.lower() in name), None)
+
+
+def label_deadline(started_at: datetime, sla_hours: int | None, card_due):
+    """Label holdi muddati: qo'yilgan payt + bo'lim SLA'si; SLA yo'q bo'lsa — karta muddati."""
+    if sla_hours:
+        return started_at + timedelta(hours=sla_hours)
+    return effective_deadline(card_due, started_at)
+
+
+async def label_departments() -> list[Department]:
     async with async_session() as session:
-        tasks = await TaskRepository(session).list_open_by_trello_card_id(card_id)
+        return list((await session.scalars(select(Department).where(
+            Department.module == NAZORAT_TRELLO, Department.trello_label.isnot(None)))).all())
+
+
+async def _label_dept_ids(session) -> set[int]:
+    return set(await session.scalars(select(Department.id).where(Department.trello_label.isnot(None))))
+
+
+async def open_holds(card_id: str, *, label: bool = False) -> list[tuple[int, int, datetime]]:
+    """Kartadagi ochiq holdlar. Label holdlari (raspil) a'zo/list/muddat
+    hodisalariga bog'liq emas — ular faqat `label=True` bilan qaytadi."""
+    async with async_session() as session:
+        label_ids = await _label_dept_ids(session)
+        tasks = [t for t in await TaskRepository(session).list_open_by_trello_card_id(card_id)
+                 if (t.current_department_id in label_ids) == label]
         assignment_repo = TaskAssignmentRepository(session)
         holds = []
         for task in tasks:
@@ -197,7 +225,10 @@ async def set_card_deadline(card_id: str, deadline, due_changes=()) -> None:
     now = datetime.now(timezone.utc)
     async with async_session() as session:
         repo = TaskRepository(session)
+        label_ids = await _label_dept_ids(session)  # raspil muddati karta muddatiga bog'liq emas
         for task in await repo.list_open_by_trello_card_id(card_id):
+            if task.current_department_id in label_ids:
+                continue
             given = due_at(task.started_at, due_changes, deadline)
             effective = closing_deadline(deadline, given, task.started_at, task.stopped_seconds_total)
             changes = {"deadline": effective, "day_left_notified_at": None, "last_overdue_reminder_at": None}
@@ -299,6 +330,54 @@ async def close_hold(bot, task_id: int, *, at: datetime, due, started_at: dateti
     logger.info("trello hold yopildi va baholandi: task=%s", task_id)
 
 
+async def open_label_hold(*, card_id: str, card_name: str, department: Department,
+                          started_at: datetime, card_due) -> int | None:
+    """Kartaga bo'lim labeli qo'yildi — bo'limning hamma faol ishchi/brigadiriga
+    bitta hold (Trello a'zosi emas). Shu bo'limning ochiq holdi bo'lsa — None."""
+    async with async_session() as session:
+        repo = TaskRepository(session)
+        if any(t.current_department_id == department.id for t in await repo.list_open_by_trello_card_id(card_id)):
+            return None
+        staff = list(await session.scalars(select(Employee.id).where(
+            Employee.department_id == department.id, Employee.is_active,
+            Employee.role.in_([Role.WORKER, Role.BRIGADIER]))))
+        task = await repo.create(
+            trello_card_id=card_id,
+            task_type=TaskType.ORDER,
+            title=card_name[:255],
+            deadline=label_deadline(started_at, department.default_sla_hours, card_due),
+            status=TaskStatus.ACTIVE,
+            current_department_id=department.id,
+            started_at=started_at,
+        )
+        assignment_repo = TaskAssignmentRepository(session)
+        for employee_id in staff:
+            await assignment_repo.create(task_id=task.id, employee_id=employee_id)
+        await session.commit()
+    logger.info("trello label holdi ochildi: task=%s karta=%s bo'lim=%s xodimlar=%s muddat=%s",
+                task.id, card_id, department.id, staff, task.deadline)
+    return task.id
+
+
+async def close_label_holds(bot, card_id: str, *, at: datetime, department_id: int | None = None) -> None:
+    """Label olindi (yoki karta arxivlandi) — label holdlari yopiladi va
+    o'z muddati (qo'yilganda belgilangan) bilan baholanadi."""
+    async with async_session() as session:
+        label_ids = {department_id} if department_id is not None else await _label_dept_ids(session)
+        tasks = [t for t in await TaskRepository(session).list_open_by_trello_card_id(card_id)
+                 if t.current_department_id in label_ids]
+    for task in tasks:
+        if at - task.started_at < HOLD_GRACE or task.deadline is None:
+            try:
+                await timer_service.finish_task(task.id, finished_at=at)
+            except (timer_service.InvalidTaskStateError, timer_service.TaskNotFoundError):
+                pass
+            logger.info("trello label holdi ballsiz yopildi: task=%s", task.id)
+            continue
+        await penalty_service.finalize_task_and_apply_penalty(bot, task.id, finished_at=at)
+        logger.info("trello label holdi yopildi va baholandi: task=%s", task.id)
+
+
 async def _store_deadline(task_id: int, due, given_due=None) -> tuple[bool, datetime | None]:
     """Yopilish paytidagi karta muddatini (pauza bilan) yozadi.
     (False, None) — hold allaqachon yopilgan."""
@@ -362,6 +441,15 @@ def demo() -> None:
     assert effective_deadline(t0 - timedelta(days=3), t0) is None
     assert effective_deadline(t0, t0) is None
     assert effective_deadline(t0 + timedelta(days=1), t0, 3600) == t0 + timedelta(days=1, hours=1)
+    # label (raspil): nomdan taniladi, katta-kichik harf farqisiz; muddat — SLA, bo'lmasa karta muddati
+    raspil = Department(id=105, name="Raspil Muborak", trello_label="muborak")
+    other = Department(id=1, name="Kroychi", trello_label=None)
+    assert match_label("MUBORAK", [other, raspil]) is raspil
+    assert match_label("Muborak raspil", [raspil]) is raspil
+    assert match_label("SROK O'TGAN", [other, raspil]) is None and match_label(None, [raspil]) is None
+    assert label_deadline(t0, 168, None) == t0 + timedelta(days=7)
+    assert label_deadline(t0, None, t0 + timedelta(days=2)) == t0 + timedelta(days=2)
+    assert label_deadline(t0, None, t0 - timedelta(days=1)) is None
     print("trello_hold_service: OK")
 
 

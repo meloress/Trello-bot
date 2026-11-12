@@ -407,6 +407,11 @@ async def claim_status(request: web.Request) -> web.Response:
 @routes.get("/score")
 async def score(request: web.Request) -> web.Response:
     employee = request["employee"]
+    if employee.department_id is not None:
+        async with async_session() as session:
+            department = await DepartmentRepository(session).get_by_id(employee.department_id)
+        if department is not None and department.silent_penalty:
+            return err("forbidden", 403)  # raspilchi o'z balini ko'rmaydi
     since, until = penalty_service.month_bounds(datetime.now(timezone.utc).date())
     total = await penalty_service.calculate_total_score(employee.id, since=since, until=until)
 

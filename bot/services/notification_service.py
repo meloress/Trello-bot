@@ -326,6 +326,40 @@ async def notify_trello_card_assigned(
             await _send(bot, telegram_id, text)
 
 
+async def notify_label_order(bot: Bot, task_id: int, *, list_name: str | None,
+                             card_member_ids: list[str] = ()) -> None:
+    """Trello'ga kirmaydigan bo'lim (raspil, 2026-11-12): kartaga bo'lim labeli
+    qo'yildi — bo'limning hamma ishchisiga "yangi zakaz" (muddati bilan, ball
+    haqida hech narsa), kartadagi sotuvchilarga va nazoratchilarga — uchinchi shaxsda."""
+    async with async_session() as session:
+        task = await TaskRepository(session).get_by_id(task_id)
+        if task is None:
+            logger.warning("notify_label_order: task %s topilmadi", task_id)
+            return
+        department = await _department_name(session, task.current_department_id) or "bo'lim"
+        staff = await _collect_assignees(session, task_id)
+        employee_repo = EmployeeRepository(session)
+        sellers = {}
+        for member_id in card_member_ids:
+            member = await employee_repo.get_by_trello_member_id(member_id)
+            if member is not None and member.role == Role.SELLER and member.is_active:
+                sellers[member.id] = member.telegram_id
+        watchers: dict[int, int | None] = {}
+        await _add_supervisors(session, watchers, task.current_department_id)
+
+    due_text = f"{_format_dt(task.deadline)}{_deadline_window(task.deadline)}" if task.deadline else "belgilanmagan"
+    tail = (f"\n📋 {list_name}" if list_name else "") + f"\n⏰ Muddat: {due_text}"
+    for telegram_id in staff.values():
+        await _send(bot, telegram_id, f"🆕 Sizga yangi zakaz: «{task.title}»{tail}")
+    for telegram_id in sellers.values():
+        await _send(bot, telegram_id, f"📌 Zakazingiz «{department}» bo'limiga berildi: «{task.title}»{tail}")
+    nobody = "" if staff else "\n⚠️ Bo'limda botga ulangan xodim yo'q — zakaz hech kimga bormadi"
+    text = f"📌 {department} — «{task.title}» zakazini oldi ({len(staff)} kishi){tail}{nobody}"
+    for employee_id, telegram_id in watchers.items():
+        if employee_id not in staff and employee_id not in sellers:
+            await _send(bot, telegram_id, text)
+
+
 async def notify_task_started(bot: Bot, task_id: int) -> None:
     """7.1-band: vazifa boshlanganda unga biriktirilgan barcha xodimlarga xabar."""
     async with async_session() as session:
@@ -557,10 +591,15 @@ async def notify_penalty_applied(bot: Bot, kpi_log_id: int) -> None:
         # O'Z bo'limi ishlatiladi.
         exclude = {employee.id} | ({manager.id} if manager is not None else set())
         supervisor_chat_ids = await _supervisor_chat_ids(session, employee.department_id, exclude)
+        # Raspilchi (2026-11-12): ball yoziladi, lekin o'ziga aytilmaydi — faqat rahbar/nazoratchi.
+        department = (await DepartmentRepository(session).get_by_id(employee.department_id)
+                      if employee.department_id is not None else None)
+        silent = department is not None and department.silent_penalty
 
     title = "🎁 Sizga bonus ball yozildi" if kpi_log.score > 0 else "⚠️ Sizga jarima ball yozildi"
     text = f"{title}: {fmt_ball(kpi_log.score)} ball\nSabab: {kpi_log.reason}"
-    await _send(bot, employee.telegram_id, text)
+    if not silent:
+        await _send(bot, employee.telegram_id, text)
     if manager is not None:
         await _send(
             bot,

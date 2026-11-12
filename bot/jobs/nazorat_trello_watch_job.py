@@ -9,7 +9,11 @@ doskasining hodisalar jurnalini (`/boards/{id}/actions`) har daqiqada o'qiydi:
   - karta arxivlandi (`updateCard:closed`) — hammaning vaqti yopiladi;
   - muddat o'zgardi (`updateCard:due`) — ochiq vaqtlarning muddati yangilanadi;
   - karta boshqa listga o'tdi (`updateCard:idList`) — vaqt yopiladi, pauzaga
-    tushadi yoki o'zgarmaydi (`trello_hold_service.plan_list_move`).
+    tushadi yoki o'zgarmaydi (`trello_hold_service.plan_list_move`);
+  - kartaga bo'lim labeli qo'yildi/olindi (`addLabelToCard`/`removeLabelFromCard`,
+    2026-11-12) — Trello'ga kirmaydigan bo'lim (raspil, `departments.trello_label`):
+    zakaz bo'limning hamma ishchisiga beriladi / tugaydi va baholanadi. Bu holdlar
+    a'zo, list va muddat hodisalaridan mustaqil (`open_holds(label=True)`).
 
 Vaqt yopilganda ball ESKI tizim bo'yicha yoziladi — qoidalar
 `services/trello_hold_service.py` boshida. Bot Trello'ga HECH NARSA yozmaydi.
@@ -44,7 +48,8 @@ from utils.modules import NAZORAT_TRELLO
 
 logger = logging.getLogger(__name__)
 
-_FILTER = "addMemberToCard,removeMemberFromCard,updateCard:closed,updateCard:due,updateCard:idList"
+_FILTER = ("addMemberToCard,removeMemberFromCard,updateCard:closed,updateCard:due,updateCard:idList,"
+           "addLabelToCard,removeLabelFromCard")
 
 _board_id: str | None = None
 
@@ -140,10 +145,28 @@ async def _handle(bot, trello, action) -> None:
         return  # hisobi yo'q karta ko'chdi — Trello/baza so'rovisiz o'tkazib yuboriladi
     if kind == "addMemberToCard" and await _copied_with_card(trello, card_id, at):
         return  # nusxa bilan ko'chgan a'zo: xabar ham, vaqt ham yo'q
+    department = None
+    if kind in ("addLabelToCard", "removeLabelFromCard"):
+        department = holds.match_label((data.get("label") or {}).get("name"), await holds.label_departments())
+        if department is None:
+            return  # boshqa label ("SROK O'TGAN" va h.k.) — Trello so'rovisiz
+        if kind == "removeLabelFromCard":
+            await holds.close_label_holds(bot, card_id, at=at, department_id=department.id)
+            return
     card = await trello._request(
         "GET", f"/cards/{card_id}",
         params={"fields": "name,due,closed,idMembers", "list": "true", "list_fields": "name"},
     )
+
+    if kind == "addLabelToCard":
+        task_id = await holds.open_label_hold(card_id=card_id, card_name=card["name"], department=department,
+                                              started_at=at, card_due=_parse_dt(card.get("due")))
+        if task_id is not None:
+            await notification_service.notify_label_order(
+                bot, task_id, list_name=(card.get("list") or {}).get("name"),
+                card_member_ids=card.get("idMembers") or [],
+            )
+        return
 
     if kind == "updateCard":
         if "due" in (data.get("old") or {}):
@@ -151,6 +174,7 @@ async def _handle(bot, trello, action) -> None:
                                           await _due_changes(trello, card_id))
         if (data.get("card") or {}).get("closed") and "closed" in (data.get("old") or {}):
             await _close(bot, trello, card_id, [task_id for task_id, _, _ in await holds.open_holds(card_id)], at, card)
+            await holds.close_label_holds(bot, card_id, at=at)
         if "idList" in (data.get("old") or {}):
             await holds.card_moved(
                 bot, card_id,

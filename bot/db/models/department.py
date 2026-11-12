@@ -133,6 +133,14 @@ class Department(TimestampedBase):
     # buyurtma zanjiri (`next_department_id`, fork/join) o'zgarmaydi.
     # Faqat ko'rinish — boshqa hech qanday mantiqqa ta'sir qilmaydi.
     is_hidden: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    # Nazorat Trello, Trello'ga kirmaydigan bo'lim (2026-11-12, raspil): kartaga
+    # nomida shu so'z bo'lgan label qo'yilsa — zakaz bo'limning hamma ishchisiga
+    # beriladi, label olinsa (yoki karta arxivlansa) tugaydi va baholanadi.
+    # Muddat = qo'yilgan payt + `default_sla_hours` (`trello_hold_service`).
+    trello_label: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    # Ball yoziladi, lekin xodimning O'ZIGA aytilmaydi (xabar ham, Mini App "Ball"
+    # bo'limi ham yo'q) — faqat rahbar/nazoratchi ko'radi. Muddat ogohlantirishlari boradi.
+    silent_penalty: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
 
     brigades: Mapped[list["Brigade"]] = relationship(back_populates="department")
     employees: Mapped[list["Employee"]] = relationship(back_populates="department")

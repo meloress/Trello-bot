@@ -203,6 +203,29 @@ Rules are the user's, verified against the real board's history:
   Telegram stops its tracking; the year of "dd.mm" in a card name is the one
   closest to the card's creation; the daily cron has `misfire_grace_time=3600`.
 
+### Nazorat Trello: raspilchilar — no Trello account, driven by a card LABEL (2026-11-12)
+
+User: raspilchilar never join Trello; they only get the bot link (register by
+phone like everyone else, department "Raspil Muborak", role worker, no
+`trello_member_id`). A Trello label whose name contains
+`departments.trello_label` ("muborak" — the colour is for people, the bot reads
+the name, since two labels can share a colour) drives the department:
+`addLabelToCard` → `trello_hold_service.open_label_hold()` (one task, ALL active
+worker/brigadier of the department assigned, deadline = now +
+`default_sla_hours`, 168 = the order-topic plan's 7 days) +
+`notification_service.notify_label_order()`; `removeLabelFromCard` or archive →
+`close_label_holds()` (scored by the old engine against that deadline).
+Label holds are invisible to the member/list/due logic (`open_holds(label=True)`
+vs default) — a card moving lists or getting a new member must not close the
+raspil. `departments.silent_penalty` (user: "jarima yozayotganini aytmasin"):
+the ball is written and shown to supervisors/observers/stats as usual, but the
+worker gets no ball DM and has no Ball tab (`/me.hide_score`, `/score` 403);
+overdue warnings ("muddat o'tdi", repeated every `overdue_repeat_hours`) still
+reach them — they never mention balls. Pinned in `test_nazorat_trello_watch.py`
+(label flow) and `test_supervisor_notify.py` 7b (silence, sabotage-verified).
+Not done: a label carried by a Copy card adds no `addLabelToCard` action, so a
+copied card starts no raspil; the order-topic image's "Kim" for that stage stays empty.
+
 ### Nazorat Trello: 11 visible departments (2026-10-02)
 
 At the user's request only 11 `fasad_sex` departments show in the Mini App:
@@ -628,7 +651,7 @@ the reference for the shape it had, rather than reverse-engineering it.
 
 ## Gotchas
 
-- **`checklist_*` tables belong to a separate repo** (`Desktop/checklist bot`, 2026-11-09): a second Telegram bot (daily per-employee questions 19:00–21:00, penalty per unanswered question) that shares this Postgres — reads `employees`, writes `kpi_logs` (reason prefix `Checklist:`) and `employees.next_payment_date` (hand-duplicated `update_payment_date_if_needed` — change both). It creates its own tables via `create_all`; `db/migrations/env.py`'s `include_object` hides them from autogenerate so a migration never drops them.
+- **`checklist_*` tables belong to a separate repo** (`Desktop/checklist bot`, 2026-11-09): a second Telegram bot (daily per-employee questions 19:00–21:00, penalty per unanswered question) that shares this Postgres. Since 2026-11-11 it has its **own** employee table `checklist_employees` (one-time copy of `employees`, then independent — adding an employee here does not add one there). `checklist_employees.trello_employee_id` → `employees.id` (`ON DELETE SET NULL`); for those linked rows it still writes `kpi_logs` (reason prefix `Checklist:`) and `employees.next_payment_date` (hand-duplicated `update_payment_date_if_needed` — change both), and reads `kpi_logs` for the general ball. It creates its own tables via `create_all`; `db/migrations/env.py`'s `include_object` hides them from autogenerate so a migration never drops them.
 - **The Trello "Test" board is not a clean sandbox** — discovered 2026-07-17: it contains at least one list with real-looking customer orders (e.g. specific names/addresses in card titles), not just throwaway test fixtures. Treat it as "don't touch, ambiguous provenance" rather than "safe to modify freely." For any new Trello-touching verification work, create a fresh dedicated board (`TrelloClient.create_board`) rather than assuming "Test" is empty/disposable — `bot/_seed_demo_data.py` does exactly this. **Exception, and the default target for Nazorat Trello work: "Nazorat Trello demo"** (`6a6b9b185fcbec9605db82a0`) — a card-less copy of the real `nazorat trello` board, and what the 23 `fasad_sex` departments now point at. Cards created there are safe to make and delete. The account holds several similarly-named boards; before writing, match the board by **exact name**, not by a substring — `Fasad seh`, `Fasad seh demo`, `Fasad sex — Ishlab chiqarish`, `Fasad sex — Ishlab chiqarish (DEMO)`, `nazorat trello` and `Nazorat Trello demo` all coexist, and only the last one is disposable.
 - **`core/database.py`'s engine has `pool_pre_ping=True`** — added after a real incident where a `_seed_demo_data.py` run hung indefinitely mid-script with zero error output. Cause: Railway's Postgres proxy silently drops idle connections; without pre-ping, SQLAlchemy hands out a dead connection and the query just hangs forever (no timeout configured anywhere in the stack). Don't remove this to "simplify" the engine config.
 - **Circular FK**: `brigades.brigadier_id` ↔ `employees.brigade_id`. Alembic autogenerate warns about an "unresolvable cycle" — harmless, ignore it. But when deleting test data, null out both FK columns before deleting rows, or you'll hit `ForeignKeyViolationError`.

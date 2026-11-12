@@ -105,7 +105,11 @@ class _FakeDepartmentRepo:
         if department_id not in names:
             return None
         module = "fasad_sex" if department_id == NAZORAT_DEPT else "mebel"
-        return SimpleNamespace(id=department_id, name=names[department_id], module=module)
+        return SimpleNamespace(id=department_id, name=names[department_id], module=module,
+                               silent_penalty=department_id in SILENT_DEPTS)
+
+
+SILENT_DEPTS: set[int] = set()  # departments.silent_penalty (raspil) — 7b-qadam yoqadi
 
 
 KPI_LOGS = {
@@ -229,6 +233,17 @@ async def main() -> None:
             assert all(WORKER.full_name in txt for txt in supervisor_texts)
             worker_text = next(text for chat, text in bot.sent if chat == WORKER.telegram_id)
             assert "Sizga" in worker_text, "ishchining o'z xabari o'zgarib ketdi"
+
+        # --- 7b. Raspilchi (silent_penalty): ball o'ziga aytilmaydi, nazoratchi baribir oladi ---
+        SILENT_DEPTS.add(SHPON)
+        try:
+            bot = _FakeBot()
+            await ns.notify_penalty_applied(bot, 1)
+            assert not [t for chat, t in bot.sent if chat == WORKER.telegram_id], "raspilchiga ball aytildi"
+            assert len([t for chat, t in bot.sent
+                        if chat in (GLOBAL_SUPERVISOR.telegram_id, SHPON_SUPERVISOR.telegram_id)]) == 2
+        finally:
+            SILENT_DEPTS.clear()
 
         # --- 8. Ikki marta yubormaslik: nazoratchi ayni paytda ijrochi ---
         # `_supervisor_chat_ids` asosiy matnni olganlarni chiqarib tashlashi kerak.
