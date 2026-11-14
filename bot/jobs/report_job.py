@@ -24,9 +24,10 @@ _JOB_PREFIX = "report_job_"
 
 async def run_daily(bot: Bot) -> None:
     try:
-        stats = await stats_service.get_daily_stats()
-        text = stats_service.format_stats_table(stats, "📅 Kunlik hisobot")
-        await notification_service.notify_admins_report(bot, text)
+        # Trello + checklist ballari birga (2026-11-14, user)
+        day, rows = await stats_service.get_daily_report()
+        text = stats_service.format_daily_report(day, rows)
+        await notification_service.notify_admins_report(bot, text, parse_mode="HTML")
     except Exception:
         logger.exception("report_job: kunlik hisobot xatosi")
 

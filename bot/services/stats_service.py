@@ -637,3 +637,134 @@ def format_stats_table(stats: list[EmployeeStats], title: str) -> str:
         lines.append(f"Eng ko'p jarima (past unumdorlik): {worst.full_name} ({worst.penalty_count} marta)")
 
     return "```\n" + "\n".join(lines) + "\n```"
+
+
+# --- Kunlik hisobot: Trello + checklist (2026-11-14, user) -------------------
+# Checklist boti shu bazada (`checklist_*` jadvallari, alohida repo — CLAUDE.md
+# Gotchas). Trello'ga bog'langan checklist xodimining jarimasi `kpi_logs`ga
+# "Checklist:" prefiksi bilan tushadi — shu prefiks bilan ikkiga ajratiladi.
+CHECKLIST_REASON = "Checklist:%"
+
+
+@dataclass(frozen=True)
+class DailyRow:
+    full_name: str
+    done: int  # bugun yakunlangan zakaz/vazifa
+    trello_day: float
+    trello_month: float
+    cl_asked: int | None  # None — bugun checklist savoli yo'q
+    cl_answered: int
+    cl_day: float  # bugungi checklist jarimasi (musbat son)
+    cl_delivered: bool
+    cl_month: float  # oy bo'yicha checklist bali (manfiy yoki 0)
+    penalties: int = 0  # bugungi Trello jarimalari soni (checklist'siz)
+
+    @property
+    def total_month(self) -> float:
+        return round(self.trello_month + self.cl_month, 2)
+
+
+async def get_daily_report(now: datetime | None = None):
+    """(Toshkent kuni, qatorlar): hisobotdagi faol xodimlar + Trello'ga bog'lanmagan
+    checklist qatnashchilari. Oy — `penalty_service.month_bounds` (Ball ekrani bilan bir xil)."""
+    from sqlalchemy import text
+    from services.penalty_service import month_bounds
+    from utils.formatters import TASHKENT_TZ
+
+    day = (now or datetime.now(timezone.utc)).astimezone(TASHKENT_TZ).date()
+    day_since = datetime(day.year, day.month, day.day, tzinfo=TASHKENT_TZ)
+    day_until = day_since + timedelta(days=1)
+    m_since, m_until = month_bounds(day)
+    month_first = day.replace(day=1)
+
+    async with async_session() as session:
+        employees = (await session.execute(_active_employees_in_enabled_modules())).all()
+        kpi = {r[0]: r[1:] for r in (await session.execute(text("""
+            select employee_id,
+              coalesce(sum(score) filter (where coalesce(reason,'') not like :cl and created_at >= :ds and created_at < :du), 0),
+              coalesce(sum(score) filter (where coalesce(reason,'') not like :cl), 0),
+              coalesce(sum(score) filter (where coalesce(reason,'') like :cl), 0),
+              count(*) filter (where score < 0 and coalesce(reason,'') not like :cl and created_at >= :ds and created_at < :du)
+            from kpi_logs where created_at >= :ms and created_at < :mu group by employee_id"""),
+            {"cl": CHECKLIST_REASON, "ds": day_since, "du": day_until, "ms": m_since, "mu": min(m_until, day_until)})).all()}
+        cl_rows = (await session.execute(text("""
+            select ce.id, ce.trello_employee_id, ce.full_name,
+                   d.asked, d.answered, case when d.cancelled_at is null then d.penalty else 0 end,
+                   d.delivered_at is not null,
+                   (select coalesce(sum(x.penalty), 0) from checklist_days x
+                     where x.employee_id = ce.id and x.cancelled_at is null and x.day >= :mf and x.day <= :d)
+            from checklist_employees ce
+            left join checklist_days d on d.employee_id = ce.id and d.day = :d
+            where ce.is_active and exists (select 1 from checklist_days y where y.employee_id = ce.id and y.day >= :mf)"""),
+            {"d": day, "mf": month_first})).all()
+    done = {s.employee_id: s.completed_tasks for s in await _compute_stats(employees, day_since, day_until)}
+    linked = {r[1]: r for r in cl_rows if r[1] is not None}
+
+    def _row(name, emp_id, cl):
+        t_day, t_month, c_month, pens = kpi.get(emp_id, (0, 0, 0, 0))
+        t_day, t_month, c_month = float(t_day), float(t_month), float(c_month)
+        if cl is None:
+            return DailyRow(name, done.get(emp_id, 0), t_day, t_month, None, 0, 0.0, False, c_month, pens)
+        _, _, _, asked, answered, pen, delivered, cl_month_pen = cl
+        # bog'langan xodim — oy bali kpi_logs'dan (bekor qilingani u yerdan o'chadi)
+        month = c_month if emp_id is not None else -float(cl_month_pen)
+        return DailyRow(name, done.get(emp_id, 0), t_day, t_month, asked, answered or 0,
+                        float(pen or 0), bool(delivered), month, pens)
+
+    ids = {e[0] for e in employees}
+    rows = [_row(name, emp_id, linked.get(emp_id)) for emp_id, name, _ in employees]
+    rows += [_row(r[2], None, r) for r in cl_rows if r[1] is None or r[1] not in ids]
+    return day, rows
+
+
+NAME_WIDTH = 13  # telefonda <pre> ~40 belgi sig'adi (2026-11-14, iPhone skrinshoti)
+
+
+def short_name(name: str, width: int = NAME_WIDTH) -> str:
+    """"Habibulla Yusupkho'jayev" -> "Habibulla Y.": sig'gancha so'z, keyingisidan bosh harf."""
+    if len(name) <= width:
+        return name
+    out = ""
+    for word in name.split():
+        if len(out) + len(word) + (1 if out else 0) <= width:
+            out = f"{out} {word}".strip()
+        else:
+            if out and len(out) + 3 <= width:
+                out += f" {word[0]}."
+            break
+    return out or name[: width - 1] + "…"
+
+
+def format_daily_report(day, rows: list[DailyRow]) -> str:
+    """Eski jadval (Bajar./Ball/Jarima — bugungi Trello) + checklist ustunlari, telefonga
+    sig'adigan ~38 belgi: qisqa ism, qisqa sarlavha, `|`siz. Sarlavha va xulosa —
+    <pre>dan tashqarida (oddiy matn telefonda o'zi o'raladi). HTML, ismlar escape qilinadi.
+    ponytail: ~60 xodimgacha 4096 belgiga sig'adi; ko'paysa ikki xabarga bo'lish kerak."""
+    from html import escape
+
+    title = f"📅 <b>Kunlik hisobot · {day:%d.%m.%Y}</b> ({len(rows)} xodim)"
+    if not rows:
+        return f"{title}\n\nFaol xodimlar topilmadi."
+    rows = sorted(rows, key=lambda r: (-(r.trello_day - r.cl_day), r.full_name))
+    cells = [(short_name(r.full_name), str(r.done), fmt_ball(r.trello_day).lstrip("+"), str(r.penalties),
+              "—" if r.cl_asked is None else f"{r.cl_answered}/{r.cl_asked}",
+              "—" if r.cl_asked is None else fmt_ball(-r.cl_day)) for r in rows]
+    head = ("Xodim", "Baj", "Ball", "Jar", "Chek", "ChB")
+    widths = [max(len(c[i]) for c in [head, *cells]) for i in range(len(head))]
+
+    def line(c):
+        return " ".join([c[0].ljust(widths[0])] + [v.rjust(w) for v, w in zip(c[1:], widths[1:])])
+
+    table = "\n".join([line(head), "-" * len(line(head)), *map(line, cells)])
+    out = [title, f"<pre>{escape(table, quote=False)}</pre>"]
+    best = max(rows, key=lambda r: r.trello_day)
+    if best.trello_day > 0:
+        out.append(f"Eng yuqori ball: {escape(best.full_name)} ({fmt_ball(best.trello_day)})")
+    worst = max(rows, key=lambda r: r.penalties)
+    if worst.penalties > 0:
+        out.append(f"Eng ko'p jarima (past unumdorlik): {escape(worst.full_name)} ({worst.penalties} marta)")
+    asked = [r for r in rows if r.cl_asked is not None]
+    if asked:
+        full = sum(1 for r in asked if r.cl_answered >= r.cl_asked)
+        out.append(f"Checklist: to'liq javob {full}/{len(asked)}, jarima {fmt_ball(-sum(r.cl_day for r in asked))}")
+    return "\n".join(out)

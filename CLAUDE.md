@@ -491,6 +491,7 @@ Web panel: `cd web && npm install && npm start` (or `npm run dev` for nodemon). 
 .venv/Scripts/python tests/test_nazorat_trello_watch.py # Trello action log -> holds/KPI + notification recipients
 .venv/Scripts/python tests/test_hourly_penalty.py      # Nazorat Trello per-hour penalty, started-hour rounding, mebel untouched
 .venv/Scripts/python tests/test_order_topics.py        # order template stages/plan, new-order + polniy uy grouping, topic job
+.venv/Scripts/python tests/test_daily_report.py        # 21:30 daily report: Trello + checklist columns, ≤40 chars wide for phones
 
 # Run all (there is no runner — this loop is the whole "test suite"):
 for t in tests/test_*.py; do printf "%-42s " "$t"; .venv/Scripts/python "$t" >/dev/null 2>&1 && echo OK || echo FAIL; done

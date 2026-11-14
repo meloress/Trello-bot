@@ -889,7 +889,7 @@ async def notify_reassignment_candidate(bot: Bot, task_id: int) -> None:
         await _send(bot, telegram_id, text)
 
 
-async def notify_admins_report(bot: Bot, text: str) -> None:
+async def notify_admins_report(bot: Bot, text: str, parse_mode: str = "Markdown") -> None:
     """10.2-band: `jobs/report_job.py`ning kunlik/haftalik/oylik hisobotlari
     barcha ADMIN+SUPERVISOR+OBSERVER'larga shu orqali yuboriladi (Markdown kod-blok
     matni — `stats_service.format_stats_table()` chiqarishi)."""
@@ -904,7 +904,7 @@ async def notify_admins_report(bot: Bot, text: str) -> None:
         if telegram_id is None:
             continue
         try:
-            await bot.send_message(telegram_id, text, parse_mode="Markdown")
+            await bot.send_message(telegram_id, text, parse_mode=parse_mode)
         except (TelegramForbiddenError, TelegramBadRequest, TelegramAPIError):
             logger.warning("notify_admins_report: xabar yetmadi (telegram_id=%s)", telegram_id)
 
