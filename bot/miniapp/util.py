@@ -73,6 +73,18 @@ async def is_mebel_task(task_id: int) -> bool:
     return department is not None and department.module == MEBEL
 
 
+async def is_label_order(task_id: int) -> bool:
+    """Label bo'limi (raspil) zakazi: Trello a'zosi yo'q, shu sabab brigadir uni
+    Mini App'da ishchiga topshiradi — `is_trello_owned_order`ning yagona istisnosi
+    (faqat topshirish uchun; Stop/Tugatish baribir Trello labelidan)."""
+    async with async_session() as session:
+        task = await TaskRepository(session).get_by_id(task_id)
+        if task is None or task.current_department_id is None:
+            return False
+        department = await DepartmentRepository(session).get_by_id(task.current_department_id)
+    return department is not None and bool(department.trello_label)
+
+
 async def is_trello_owned_order(task_id: int) -> bool:
     """Nazorat Trello zakazi (2026-10-24): vaqt va ball FAQAT Trello'dagi
     harakatdan (`jobs/nazorat_trello_watch_job.py`) — ishchi Mini App'dan

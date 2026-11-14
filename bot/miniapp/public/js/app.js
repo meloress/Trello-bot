@@ -2250,7 +2250,10 @@ async function screenBrigadierHome(brigadeId) {
         <div class="member-actions"><button class="btn-report">${icon("calendar")} ${esc(t("weeklyReport"))}</button><button class="btn-tasks">${icon("list")} ${esc(t("currentTasks"))}</button></div>
       </div>
     `).join("") : `<p class="empty-state">${esc(t("noBrigadeMembers"))}</p>`}
+    ${brigade.can_add_members ? `<button class="btn" id="btn-add-worker">${icon("plus")} ${esc(t("addWorker"))}</button>` : ""}
   `);
+  const addWorkerBtn = root.querySelector("#btn-add-worker");
+  if (addWorkerBtn) addWorkerBtn.onclick = () => show(screenAddBrigadeMember, brigade.id);
   root.querySelectorAll(".brand-pill").forEach((btn) => {
     btn.onclick = () => replaceTop(screenBrigadierHome, Number(btn.dataset.bid));
   });
@@ -2280,12 +2283,83 @@ async function screenNewWork() {
     setScreen(`<p class="page-title">${esc(t("newWorkTitle"))}</p><p class="empty-state">${esc(t("noNewWork"))}</p>`);
     return;
   }
+  // Raspil (label) zakazi — ishchini shu yerda belgilaydi; qolganlari Trello'da.
   setScreen(`
     <p class="page-title">${esc(t("newWorkTitle"))}</p>
-    ${items.map((tsk) => `
+    ${items.map((tsk, i) => tsk.delegable ? `
+      <button class="nav-card js-delegate" data-i="${i}"><span class="ic">${icon("inbox")}</span><span class="grow">${esc(tsk.title)}<div class="t-sub">${esc(t("deadline"))}: ${esc(formatDt(tsk.deadline))}</div><div class="t-sub">${esc(t("pickWorkersHint"))}</div></span><span class="chev">›</span></button>
+    ` : `
       <div class="nav-card"><span class="ic">${icon("inbox")}</span><span class="grow">${esc(tsk.title)}<div class="t-sub">${esc(t("deadline"))}: ${esc(formatDt(tsk.deadline))}</div><div class="t-sub">${esc(t("assignViaTrelloHint"))}</div></span></div>
     `).join("")}
   `);
+  root.querySelectorAll(".js-delegate").forEach((el) => {
+    el.onclick = () => show(screenDelegate, items[Number(el.dataset.i)]);
+  });
+}
+
+async function screenDelegate(tsk) {
+  setScreen(`<p class="loading">${esc(t("loading"))}</p>`);
+  const members = (await api("/brigadier/brigade-members")).filter((m) => m.id !== state.employee.id);
+  setScreen(`
+    <p class="page-title">${esc(tsk.title)}</p>
+    <p class="t-sub" style="margin-top:-8px">${esc(t("deadline"))}: ${esc(formatDt(tsk.deadline))}</p>
+    <p class="section-lbl">${esc(t("pickWorkers"))}</p>
+    ${members.length ? members.map((m) => `
+      <label class="check-row"><input type="checkbox" value="${m.id}" class="f-worker" />${esc(m.full_name)}</label>
+    `).join("") : `<p class="empty-state">${esc(t("noBrigadeMembers"))}</p>`}
+  `);
+  if (!members.length) return;
+  setMainButton(`📤 ${t("sendToWorkers")}`, async () => {
+    const ids = Array.from(root.querySelectorAll(".f-worker:checked")).map((el) => Number(el.value));
+    if (!ids.length) {
+      showError(t("pickWorkers"));
+      return;
+    }
+    const app = tg();
+    app.MainButton.showProgress();
+    try {
+      await api(`/brigadier/tasks/${tsk.id}/delegate`, { method: "POST", body: JSON.stringify({ employee_ids: ids }) });
+      app.HapticFeedback && app.HapticFeedback.notificationOccurred("success");
+      await goBack();
+    } catch (e) {
+      showError(e.message);
+    } finally {
+      app.MainButton.hideProgress();
+    }
+  }, "#4f3ff0");
+}
+
+/* Raspil brigadiri o'z brigadasiga ishchi qo'shadi (ism + telefon) — u keyin
+   botga /start bosib, raqamini ulashib kiradi. */
+async function screenAddBrigadeMember(brigadeId) {
+  setScreen(`
+    <p class="page-title">${esc(t("addWorker"))}</p>
+    <div class="field"><label>${esc(t("fullName"))}</label><input id="f-name" type="text" /></div>
+    <div class="field"><label>${esc(t("phoneNumber"))}</label><input id="f-phone" type="text" inputmode="tel" placeholder="+998901234567" /></div>
+    <p class="t-sub">${esc(t("addWorkerHint"))}</p>
+  `);
+  setMainButton(`➕ ${t("create")}`, async () => {
+    const fullName = root.querySelector("#f-name").value.trim();
+    const phone = root.querySelector("#f-phone").value.trim();
+    if (!fullName || !phone) {
+      showError(t("fullName") + ", " + t("phoneNumber"));
+      return;
+    }
+    const app = tg();
+    app.MainButton.showProgress();
+    try {
+      await api(`/brigadier/members${brigadeId ? `?brigade_id=${brigadeId}` : ""}`, {
+        method: "POST",
+        body: JSON.stringify({ full_name: fullName, phone_number: phone }),
+      });
+      app.HapticFeedback && app.HapticFeedback.notificationOccurred("success");
+      await goBack();
+    } catch (e) {
+      showError(e.message);
+    } finally {
+      app.MainButton.hideProgress();
+    }
+  }, "#4f3ff0");
 }
 
 async function screenMemberTasks(employeeId, fullName) {

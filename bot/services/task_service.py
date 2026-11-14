@@ -35,7 +35,7 @@ from services import penalty_service
 from trello.client import TrelloClient
 from utils.enums import MiscCategory, Role, TaskStatus, TaskType
 from utils.formatters import TASHKENT_TZ
-from utils.modules import MEBEL
+from utils.modules import MEBEL, NAZORAT_TRELLO
 
 logger = logging.getLogger(__name__)
 
@@ -51,13 +51,15 @@ ASSIGNABLE_ROLES = (Role.WORKER, Role.BRIGADIER)
 async def _trello_writes_disabled(department_id: int | None) -> bool:
     """Mebel moduli endi bir tomonlama (faqat Trello -> bot): shu bo'limlar
     uchun karta mutatsiyasi funksiyalari (a'zo qo'shish/olib tashlash,
-    checklist yaratish) hech narsa qilmasligi kerak. `fasad_sex` uchun
-    doim False qaytadi — xatti-harakat o'zgarishsiz qoladi."""
+    checklist yaratish) hech narsa qilmasligi kerak. Nazorat Trello ham
+    (2026-11-14): bot u doskani faqat o'qiydi — raspil brigadirining
+    `delegate_task`i real kartaga a'zo qo'shib/olib, a'zo holdlarini
+    buzmasin."""
     if department_id is None:
         return False
     async with async_session() as session:
         department = await DepartmentRepository(session).get_by_id(department_id)
-    return department is not None and department.module == MEBEL
+    return department is not None and department.module in (MEBEL, NAZORAT_TRELLO)
 
 
 class DepartmentNotFoundError(Exception):

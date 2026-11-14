@@ -170,6 +170,14 @@ def match_label(label_name: str | None, departments) -> Department | None:
     return next((d for d in departments if d.trello_label and d.trello_label.lower() in name), None)
 
 
+def label_staff(rows) -> list[int]:
+    """Label zakazi kimga (2026-11-14, user): bo'limda brigadir bo'lsa — faqat
+    brigadir(lar)ga, u Mini App'ning "Yangi ish"ida ishchilarni belgilab topshiradi
+    (`task_service.delegate_task`); brigadir yo'q bo'lsa — hamma ishchiga."""
+    brigadiers = [i for i, role in rows if role == Role.BRIGADIER]
+    return brigadiers or [i for i, _ in rows]
+
+
 def label_deadline(started_at: datetime, sla_hours: int | None, card_due):
     """Label holdi muddati: qo'yilgan payt + bo'lim SLA'si; SLA yo'q bo'lsa — karta muddati."""
     if sla_hours:
@@ -338,9 +346,9 @@ async def open_label_hold(*, card_id: str, card_name: str, department: Departmen
         repo = TaskRepository(session)
         if any(t.current_department_id == department.id for t in await repo.list_open_by_trello_card_id(card_id)):
             return None
-        staff = list(await session.scalars(select(Employee.id).where(
+        staff = label_staff((await session.execute(select(Employee.id, Employee.role).where(
             Employee.department_id == department.id, Employee.is_active,
-            Employee.role.in_([Role.WORKER, Role.BRIGADIER]))))
+            Employee.role.in_([Role.WORKER, Role.BRIGADIER])))).all())
         task = await repo.create(
             trello_card_id=card_id,
             task_type=TaskType.ORDER,
@@ -450,6 +458,10 @@ def demo() -> None:
     assert label_deadline(t0, 168, None) == t0 + timedelta(days=7)
     assert label_deadline(t0, None, t0 + timedelta(days=2)) == t0 + timedelta(days=2)
     assert label_deadline(t0, None, t0 - timedelta(days=1)) is None
+    # brigadir bor -> zakaz faqat unga; yo'q -> hamma ishchiga
+    assert label_staff([(1, Role.WORKER), (2, Role.BRIGADIER), (3, Role.WORKER)]) == [2]
+    assert label_staff([(1, Role.WORKER), (3, Role.WORKER)]) == [1, 3]
+    assert label_staff([]) == []
     print("trello_hold_service: OK")
 
 

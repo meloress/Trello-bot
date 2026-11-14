@@ -21,8 +21,8 @@ from db.repositories import (
     TaskClaimRepository,
     TaskRepository,
 )
-from miniapp.util import err, is_mebel_task, is_trello_owned_order
-from services import claim_service, notification_service, penalty_service, stats_service, task_service
+from miniapp.util import err, is_label_order, is_mebel_task, is_trello_owned_order
+from services import claim_service, employee_service, notification_service, penalty_service, stats_service, task_service
 from utils.enums import ClaimActionType, Role, TaskStatus, TaskType
 
 routes = web.RouteTableDef()
@@ -100,10 +100,13 @@ async def brigade_overview(request: web.Request) -> web.Response:
     own_score = await penalty_service.calculate_total_score(employee.id, since=since, until=until)
 
     stats = await stats_service.get_brigade_monthly_stats(brigade.id)
+    async with async_session() as session:
+        department = await DepartmentRepository(session).get_by_id(brigade.department_id)
     return web.json_response(
         {
             "id": brigade.id,
             "name": brigade.name,
+            "can_add_members": employee.role == Role.BRIGADIER and bool(department and department.trello_label),
             "own_score": own_score,
             "brigades": [{"id": b.id, "name": b.name} for b in brigades],
             "members": [
@@ -158,16 +161,17 @@ async def list_pending_delegation(request: web.Request) -> web.Response:
             task = await task_repo.get_by_id(assignment.task_id)
             if task is None or task.task_type != TaskType.ORDER or task.status == TaskStatus.COMPLETED:
                 continue
-            module = None
+            department = None
             if task.current_department_id is not None:
                 department = await department_repo.get_by_id(task.current_department_id)
-                module = department.module if department else None
             items.append(
                 {
                     "id": task.id,
                     "title": task.title,
                     "deadline": task.deadline.isoformat() if task.deadline else None,
-                    "module": module,
+                    "module": department.module if department else None,
+                    # raspil (label) zakazi — ishchini shu yerda belgilaydi, qolgani Trello'da
+                    "delegable": bool(department and department.trello_label),
                 }
             )
     return web.json_response(items)
@@ -184,6 +188,40 @@ async def list_brigade_members(request: web.Request) -> web.Response:
     return web.json_response([{"id": m.id, "full_name": m.full_name} for m in members])
 
 
+@routes.post("/members")
+async def add_member(request: web.Request) -> web.Response:
+    """Raspil brigadiri o'z brigadasiga yangi ishchi qo'shadi (ism + telefon), u keyin
+    botga /start bosib kiradi (2026-11-14, user). Faqat label bo'limlari: boshqa
+    bo'limlarda xodimni admin qo'shadi."""
+    employee = request["employee"]
+    if employee.role != Role.BRIGADIER:
+        return err("faqat brigadir", 403)
+    brigade = await _resolve_brigade(request)
+    if brigade is None:
+        return err("brigada topilmadi", 404)
+    body = await request.json()
+    full_name = (body.get("full_name") or "").strip()
+    phone_number = (body.get("phone_number") or "").strip()
+    if not full_name or sum(c.isdigit() for c in phone_number) < 9:
+        return err("Ism va telefon raqam (kamida 9 raqam) majburiy")
+    async with async_session() as session:
+        department = await DepartmentRepository(session).get_by_id(brigade.department_id)
+        if department is None or not department.trello_label:
+            return err("Bu bo'limga xodimni admin qo'shadi", 403)
+        # admin turli formatda yozgan bo'lishi mumkin — ro'yxatdan o'tish shu solishtirish bilan
+        if await EmployeeRepository(session).find_by_normalized_phone(phone_number):
+            return err("Bu raqamli xodim allaqachon bor", 409)
+    try:
+        worker = await employee_service.create_employee(
+            full_name=full_name, phone_number=phone_number, role=Role.WORKER,
+            department_id=brigade.department_id, brigade_id=brigade.id,
+        )
+    except (employee_service.DuplicateNameError, employee_service.DuplicatePhoneError) as exc:
+        return err(str(exc), 409)
+    logger.info("brigadir %s brigadaga ishchi qo'shdi: %s", employee.id, worker.id)
+    return web.json_response({"id": worker.id}, status=201)
+
+
 @routes.post("/tasks/{task_id}/delegate")
 async def delegate_task(request: web.Request) -> web.Response:
     employee = request["employee"]
@@ -193,7 +231,7 @@ async def delegate_task(request: web.Request) -> web.Response:
     if not worker_ids:
         return err("employee_ids majburiy")
 
-    if await is_mebel_task(task_id) or await is_trello_owned_order(task_id):
+    if await is_mebel_task(task_id) or (await is_trello_owned_order(task_id) and not await is_label_order(task_id)):
         return err(
             "Bu zakaz Trello orqali topshiriladi — ishchini Trello kartaga a'zo qiling.",
             409,

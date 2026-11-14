@@ -339,6 +339,8 @@ async def notify_label_order(bot: Bot, task_id: int, *, list_name: str | None,
         department = await _department_name(session, task.current_department_id) or "bo'lim"
         staff = await _collect_assignees(session, task_id)
         employee_repo = EmployeeRepository(session)
+        # bo'limda brigadir bo'lsa zakaz faqat unga keladi (`trello_hold_service.label_staff`)
+        brigadiers = [e for e in [await employee_repo.get_by_id(i) for i in staff] if e and e.role == Role.BRIGADIER]
         sellers = {}
         for member_id in card_member_ids:
             member = await employee_repo.get_by_trello_member_id(member_id)
@@ -349,12 +351,22 @@ async def notify_label_order(bot: Bot, task_id: int, *, list_name: str | None,
 
     due_text = f"{_format_dt(task.deadline)}{_deadline_window(task.deadline)}" if task.deadline else "belgilanmagan"
     tail = (f"\n📋 {list_name}" if list_name else "") + f"\n⏰ Muddat: {due_text}"
-    for telegram_id in staff.values():
-        await _send(bot, telegram_id, f"🆕 Sizga yangi zakaz: «{task.title}»{tail}")
+    if brigadiers:
+        button = build_miniapp_button()
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[[button]]) if button else None
+        for telegram_id in staff.values():
+            await _send(bot, telegram_id, f"🆕 Yangi zakaz: «{task.title}»{tail}\n"
+                                          "👉 Mini App → «Yangi ish»: ishchilarni belgilab yuboring.",
+                        reply_markup=keyboard)
+    else:
+        for telegram_id in staff.values():
+            await _send(bot, telegram_id, f"🆕 Sizga yangi zakaz: «{task.title}»{tail}")
     for telegram_id in sellers.values():
         await _send(bot, telegram_id, f"📌 Zakazingiz «{department}» bo'limiga berildi: «{task.title}»{tail}")
     nobody = "" if staff else "\n⚠️ Bo'limda botga ulangan xodim yo'q — zakaz hech kimga bormadi"
-    text = f"📌 {department} — «{task.title}» zakazini oldi ({len(staff)} kishi){tail}{nobody}"
+    who = (f"brigadir {', '.join(e.full_name for e in brigadiers)} taqsimlaydi" if brigadiers
+           else f"{len(staff)} kishi")
+    text = f"📌 {department} — «{task.title}» zakazini oldi ({who}){tail}{nobody}"
     for employee_id, telegram_id in watchers.items():
         if employee_id not in staff and employee_id not in sellers:
             await _send(bot, telegram_id, text)

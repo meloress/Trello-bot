@@ -304,6 +304,11 @@ const I18N = {
     delegateWorkers: "Brigadangizdagi xodim(lar)ni tanlang",
     delegateBtn: "📤 Topshirish",
     noBrigadeMembers: "Brigadangizda faol xodim yo'q.",
+    pickWorkersHint: "Ishchilarni belgilab yuboring",
+    pickWorkers: "Ishchilarni belgilang",
+    sendToWorkers: "Yuborish",
+    addWorker: "Ishchi qo'shish",
+    addWorkerHint: "Ishchi botga /start bosib, shu raqamni ulashib kiradi.",
 
     // Nazoratchi (sex nachalnigi) ekranlari — TZ 2/3/6.1-band
     tab_control: "Nazorat",
@@ -617,6 +622,11 @@ const I18N = {
     delegateWorkers: "Выберите сотрудника(ов) из вашей бригады",
     delegateBtn: "📤 Передать",
     noBrigadeMembers: "В вашей бригаде нет активных сотрудников.",
+    pickWorkersHint: "Отметьте рабочих и отправьте",
+    pickWorkers: "Отметьте рабочих",
+    sendToWorkers: "Отправить",
+    addWorker: "Добавить рабочего",
+    addWorkerHint: "Рабочий входит в бот через /start, поделившись этим номером.",
 
     // Экраны начальника цеха (нозоратчи) — ТЗ п.2/3/6.1
     tab_control: "Контроль",

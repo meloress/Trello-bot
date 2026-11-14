@@ -225,6 +225,17 @@ reach them — they never mention balls. Pinned in `test_nazorat_trello_watch.py
 (label flow) and `test_supervisor_notify.py` 7b (silence, sabotage-verified).
 Not done: a label carried by a Copy card adds no `addLabelToCard` action, so a
 copied card starts no raspil; the order-topic image's "Kim" for that stage stays empty.
+**Raspil brigadier (2026-11-14, user):** if the department has an active
+BRIGADIER, the label order goes to the brigadier(s) only (`label_staff()`),
+who picks workers in the Mini App's "Yangi ish" (`screenDelegate` →
+`POST /brigadier/tasks/{id}/delegate`, allowed for label orders via
+`util.is_label_order` — the one exception to `is_trello_owned_order`); workers
+then get `notify_task_started`. Not delegated → the brigadier alone is scored
+(the usual "no worker → brigadier" rule). The raspil brigadier can also add
+workers to their own brigade (`POST /brigadier/members`, label departments
+only, `can_add_members`). Same date, `task_service._trello_writes_disabled()`
+now covers Nazorat Trello too — `delegate_task` was adding/removing real card
+members there.
 
 ### Nazorat Trello: 11 visible departments (2026-10-02)
 
