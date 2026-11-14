@@ -277,11 +277,12 @@ async def main() -> None:
         # Bo'limsiz nazoratchi ilgari ikkala modulni olardi, natijada modul
         # tanlash ekrani va Profildagi "tizimni almashtirish" tugmasi chiqardi.
         from miniapp.api.common import _resolve_available_modules
-        from utils.modules import MEBEL, NAZORAT_TRELLO
+        from utils.modules import MEBEL, MEBEL_ENABLED, NAZORAT_TRELLO
 
-        assert _resolve_available_modules(GLOBAL_SUPERVISOR, None) == [MEBEL], (
-            "bo'limsiz nazoratchiga Nazorat Trello ham ko'rinyapti"
-        )
+        # Fasad seh o'chiq bo'lsa — Nazorat Trello (aks holda Mini App'i yopiq qolardi).
+        assert _resolve_available_modules(GLOBAL_SUPERVISOR, None) == (
+            [MEBEL] if MEBEL_ENABLED else [NAZORAT_TRELLO]
+        ), "bo'limsiz nazoratchi ikkala modulni yoki o'chiq modulni olyapti"
         # Admin — avvalgidek ikkalasi (bu o'zgarish nazoratchiga tegishli).
         admin = SimpleNamespace(role=Role.ADMIN, department_id=None)
         assert _resolve_available_modules(admin, None) == [MEBEL, NAZORAT_TRELLO]

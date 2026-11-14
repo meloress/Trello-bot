@@ -53,10 +53,11 @@ screen), 403s any `X-Module: mebel` request in `miniapp/auth.py`, skips
 from the four job queries in `task_repo` (`_module_enabled()`), so open mebel
 tasks simply freeze; `stats_service` also drops mebel employees from
 `report_job`'s 20:00/weekly/monthly report. Not covered: MISC tasks (no
-department → no module). Side effect of the flag: a **department-less
-SUPERVISOR** (Habibulla) resolves to `[MEBEL]` and so sees the "ishlamayapti"
-screen — department-less SELLER/OBSERVER resolve to `[NAZORAT_TRELLO]`
-instead (`_resolve_available_modules()`). Re-enabling = flip the flag, but read its
+department → no module). A **department-less
+SUPERVISOR** (Habibulla) resolves to `[NAZORAT_TRELLO]` while the flag is off
+(2026-11-14, user — before that he saw the "ishlamayapti" screen) and back to
+`[MEBEL]` when it is on; department-less SELLER/OBSERVER always resolve to
+`[NAZORAT_TRELLO]` (`_resolve_available_modules()`). Re-enabling = flip the flag, but read its
 comment first (ingest will close every card that moved meanwhile, and score
 lateness from that moment). `_resolve_available_modules()` itself is
 unchanged on purpose — it still encodes the frozen rules.

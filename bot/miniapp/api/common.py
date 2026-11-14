@@ -10,7 +10,7 @@ from miniapp.util import err
 from services import employee_service
 from utils.enums import Role
 from utils.formatters import ROLE_LABELS
-from utils.modules import ENABLED_MODULES, MEBEL, NAZORAT_TRELLO
+from utils.modules import ENABLED_MODULES, MEBEL, MEBEL_ENABLED, NAZORAT_TRELLO
 
 routes = web.RouteTableDef()
 
@@ -34,7 +34,10 @@ def _resolve_available_modules(employee: Employee, department: Department | None
         # bo'limini biriktirish (pastdagi tarmoq buni allaqachon uddalaydi),
         # `employees`ga modul ustuni qo'shish emas.
         if employee.department_id is None:
-            return [MEBEL]
+            # Fasad seh o'chiq turganda (`MEBEL_ENABLED`) bo'limsiz rahbar
+            # (Habibulla) Nazorat Trello'ni ko'radi — aks holda Mini App'i
+            # butunlay yopiq edi (2026-11-14, user). Mebel yoqilsa — eskicha.
+            return [MEBEL] if MEBEL_ENABLED else [NAZORAT_TRELLO]
         return [department.module] if department else [MEBEL]
     if employee.department_id is not None:
         return [department.module] if department else [MEBEL]
