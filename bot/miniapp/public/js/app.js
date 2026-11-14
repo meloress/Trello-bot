@@ -166,6 +166,8 @@ const MEBEL_ROLES = ["worker", "brigadier", "supervisor", "admin"];
    TAHRIRLASHDA esa cheklanmaydi (masalan ishchini brigadirlikka yoki
    brigadirni rahbarlikka ko'tarish shu orqali qilinadi). */
 const NEW_EMPLOYEE_EXCLUDED_ROLES = ["admin", "supervisor"];
+// Rahbar/kuzatuvchi ham xodim qo'shadi (2026-11-14) — faqat shu rollar (server ham tekshiradi).
+const STAFF_ADDABLE_ROLES = ["worker", "brigadier", "seller"];
 
 /* Claim amali -> i18n kaliti. Uchta amal ham (pauza/yakunlash/davom ettirish)
    rahbar tasdig'ini kutadi, shuning uchun ternary emas, jadval. */
@@ -1061,6 +1063,7 @@ async function screenAddEmployee() {
   const departments = (await api("/admin/departments")).filter((d) => d.module === nav.module);
   const roleOptions = rolesForModule()
     .filter((r) => !NEW_EMPLOYEE_EXCLUDED_ROLES.includes(r))
+    .filter((r) => state.employee.role === "admin" || STAFF_ADDABLE_ROLES.includes(r))
     .map((r) => `<option value="${r}">${esc(ROLE_LABELS[state.lang][r])}</option>`).join("");
 
   setScreen(`
@@ -1258,6 +1261,7 @@ async function screenSupervisorTeam() {
   const stats = (await api("/admin/stats")).slice().sort((a, b) => a.total_score - b.total_score);
   setScreen(`
     <p class="page-title">${esc(t("teamTitle"))} (${stats.length})</p>
+    ${nav.module === MODULE.NAZORAT_TRELLO ? `<button class="nav-card" id="nav-add-emp"><span class="ic">${icon("plus")}</span><span class="grow">${esc(t("addEmployee"))}</span><span class="chev">›</span></button>` : ""}
     <p class="page-sub">${esc(t("worstFirstHint"))}</p>
     ${stats.length ? stats.map((s, i) => `
       <button class="stat-row tappable" data-i="${i}">
@@ -1271,6 +1275,8 @@ async function screenSupervisorTeam() {
     const s = stats[Number(el.dataset.i)];
     if (s) el.onclick = () => show(screenSupervisorEmployeeScore, s.employee_id, s.full_name);
   });
+  const addEmp = root.querySelector("#nav-add-emp");
+  if (addEmp) addEmp.onclick = () => show(screenAddEmployee);
 }
 
 async function screenSupervisorEmployeeScore(employeeId, fullName) {

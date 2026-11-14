@@ -48,6 +48,9 @@ routes = web.RouteTableDef()
 logger = logging.getLogger(__name__)
 
 
+STAFF_ADDABLE_ROLES = (Role.WORKER, Role.BRIGADIER, Role.SELLER)
+
+
 def _department_scope_ok(request: web.Request, target_department_id: int | None) -> bool:
     """ADMIN hammasini ko'radi/boshqaradi. SUPERVISOR faqat O'Z bo'limidagi
     xodim/vazifalarga ruxsat oladi (bo'limi yo'q SUPERVISOR — cheklovsiz,
@@ -707,6 +710,20 @@ async def create_employee(request: web.Request) -> web.Response:
     role_value = body.get("role")
     if not full_name or not phone_number or role_value not in {r.value for r in Role}:
         return err("full_name, phone_number, role majburiy")
+
+    # Rahbar/kuzatuvchi ham qo'shadi (2026-11-14, user) — faqat oddiy rollar va faqat
+    # Nazorat Trello bo'limi (muzlatilgan mebelga xodim qo'shilmaydi); rahbar — o'z bo'limiga.
+    if request["employee"].role != Role.ADMIN:
+        if role_value not in {r.value for r in STAFF_ADDABLE_ROLES}:
+            return err("Bu rolni faqat admin bera oladi", 403)
+        department_id = body.get("department_id")
+        if department_id is not None:
+            async with async_session() as session:
+                department = await DepartmentRepository(session).get_by_id(int(department_id))
+            if department is None or department.module != NAZORAT_TRELLO:
+                return err("Faqat Nazorat Trello bo'limiga qo'shish mumkin", 403)
+        if not _department_scope_ok(request, department_id):
+            return err("Faqat o'z bo'limingizga qo'shish mumkin", 403)
 
     trello_username = (body.get("trello_username") or "").strip() or None
     trello_member_id = None

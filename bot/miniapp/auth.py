@@ -106,6 +106,9 @@ async def observer_read_only_middleware(request: web.Request, handler):
     `/admin` ma'lumotlarini o'qiy oladi, lekin hech qanday yozuvchi so'rov
     (POST/PUT/DELETE) o'tmaydi — frontend tugmani yashirsa ham, server ham to'sadi."""
     employee = request.get("employee")
-    if employee is not None and employee.role == Role.OBSERVER and request.method not in ("GET", "HEAD", "OPTIONS"):
+    # Yagona istisno — yangi xodim qo'shish (2026-11-14, user); cheklovi `admin.create_employee`da.
+    adds_employee = request.method == "POST" and request.path.rstrip("/").endswith("/admin/employees")
+    if (employee is not None and employee.role == Role.OBSERVER
+            and request.method not in ("GET", "HEAD", "OPTIONS") and not adds_employee):
         return web.json_response({"error": "forbidden"}, status=403)
     return await handler(request)

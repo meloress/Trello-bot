@@ -273,10 +273,15 @@ async def test_observer_read_only():
     try:
         async with aiohttp.ClientSession() as http:
             signed = {"X-Telegram-Init-Data": _sign_init_data(555), "X-Module": "fasad_sex"}
-            for path in ("/admin/departments/7", "/admin/tasks/1/deadline", "/admin/claims/1/approve"):
+            for path in ("/admin/departments/7", "/admin/tasks/1/deadline", "/admin/claims/1/approve",
+                         "/admin/employees/5"):
                 async with http.post(f"{base}{path}", json={}, headers=signed) as r:
                     assert r.status == 403 and (await r.json())["error"] == "forbidden", (path, r.status)
-        print("  6-qatlam: kuzatuvchi yozuvchi so'rov yubora olmaydi 3/3 OK")
+            # Yagona istisno — xodim qo'shish handlerga yetadi, lekin admin rolini bera olmaydi.
+            body = {"full_name": "X", "phone_number": "+998900000000", "role": "admin"}
+            async with http.post(f"{base}/admin/employees", json=body, headers=signed) as r:
+                assert r.status == 403 and "faqat admin" in (await r.json())["error"], r.status
+        print("  6-qatlam: kuzatuvchi yozuvchi so'rov yubora olmaydi 4/4, xodim qo'shish istisnosi OK")
     finally:
         await runner.cleanup()
         restore()
