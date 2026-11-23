@@ -126,7 +126,7 @@ Replaces a person who hand-posted an order status template to a group.
 `jobs/order_topics_job.py` (5-min interval) opens one forum topic per new
 order in a supergroup (Topics on, bot admin with "Manage topics") named
 after the Trello card, and posts `services/order_template.py`'s template
-there **every morning at 08:00** (`run_daily`, cron; 3.5 s between sends for
+there **every morning at 09:00** (was 08:00 until 2026-11-23, user) (`run_daily`, cron; 3.5 s between sends for
 Telegram's group limit) — plus the first message when the topic opens and the
 final state when the order reaches the sklad (then the topic is closed); no
 mid-day sends on stage change (user, 2026-11-05). Renames the topic with the card. State in `order_topics` (migration `d9e4f2a7b1c3`).
@@ -142,13 +142,13 @@ stage (a FASAD copy re-adds Abdulloh — not a seh worker), else a staff name
 found in the stage's list name ("GIPLAB Abdulloh"; ambiguous → the bare word).
 A joined FASAD card does not trigger a mid-day send. If drawing fails the old
 text (`render()`) is sent instead. **Human-factor digest (2026-11-06, user):**
-after the 08:00 run every OBSERVER (today: Bahrom) gets one DM listing what a
+after the 09:00 run every OBSERVER (today: Bahrom) gets one DM listing what a
 person must fix — card name not in format (no topic), number reused by another
 client, no dates in the name, an order card copied into a date list ("13
 DEKABR" — such copies are now excluded from topics, else the topic would never
 close), Trello members not registered in the bot, orders whose image failed.
 Stateless: rebuilt each morning, nothing sent when clean. If Trello/Telegram is
-down at 08:00, `run_daily` retries 6×5 min, then DMs "hisobot ketmadi". A
+down at 09:00, `run_daily` retries 6×5 min, then DMs "hisobot ketmadi". A
 failing topic creation no longer blocks updates of existing orders. Off
 unless env `ORDER_GROUP_CHAT_ID` and `ORDER_TOPICS_SINCE` are set (Railway
 variables; only cards created after SINCE count — "bugundan keyingilar").
@@ -194,7 +194,7 @@ Rules are the user's, verified against the real board's history:
   (people are added just before the card is moved).
   Topshirish muddati = second date in the card name.
 - **Job safety (2026-11-05 review):** the daily and 5-min runs share one
-  `asyncio.Lock` (else two topics / double sends at 08:00); every send is paced
+  `asyncio.Lock` (else two topics / double sends at 09:00); every send is paced
   `SEND_GAP_SECONDS` (a 25-card polniy uy opens 25 first messages at once);
   the 5-min run fetches card history only for a first message or a card whose
   current list is sklad/later (`FINISH_KINDS`) — the morning run is the only

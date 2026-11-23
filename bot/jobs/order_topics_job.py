@@ -6,7 +6,7 @@ shablonini (`services/order_template.py`) o'sha topicga yuborib turadi
     formatidagi ("2553 Mijoz ... ( Sotuvchi ) 17.08 - 04.10") karta; topic
     nomi = karta nomi. Bir raqamli kartalar (FASAD + korpus) — bitta topic;
   - ismi+manzili bir xil 3+ zakaz birga tushsa — polniy uy, bitta topic;
-  - shablon HAR KUNI ertalab 08:00 da har bir ochiq zakaz topiciga yuboriladi
+  - shablon HAR KUNI ertalab 09:00 da har bir ochiq zakaz topiciga yuboriladi
     (`run_daily`); topic ochilganda birinchi xabar darhol, zakaz tugaganda
     oxirgi holat yuboriladi va topic yopiladi (5 daqiqalik `run`);
   - karta nomi o'zgarsa — topic nomi ham; zakaz ustanovkadan chiqib yopilsa — topic yopiladi.
@@ -101,7 +101,7 @@ def _report_text(report: dict, today) -> str:
     if report.get("failed"):
         sections.append(("Bugun rasmi yuborilmagan zakazlar (xato, ertaga qayta urinadi)", sorted(report["failed"])))
     if report.get("down"):
-        sections.append(("Bugungi 08:00 hisobot UMUMAN ketmadi", ["Trello yoki Telegram 30 daqiqa davomida javob bermadi"]))
+        sections.append(("Bugungi 09:00 hisobot UMUMAN ketmadi", ["Trello yoki Telegram 30 daqiqa davomida javob bermadi"]))
     if not sections:
         return ""
     parts = [f"⚠️ Zakaz kartalari — tuzatish kerak ({today:%d.%m})"]
@@ -281,7 +281,7 @@ async def _update(bot: Bot, chat_id: int, trello, cards_by_id: dict, list_names:
 
 
 async def run_daily(bot: Bot, trello_factory=_trello) -> int:
-    """Ertalabki 08:00 hisobot: har bir ochiq zakaz o'z topiciga; keyin nazoratchiga
+    """Ertalabki 09:00 hisobot: har bir ochiq zakaz o'z topiciga; keyin nazoratchiga
     kartalardagi kamchiliklar. Trello/Telegram javob bermasa — 30 daqiqa qayta uriniladi."""
     if not settings.order_group_chat_id or _since() is None:
         return 0

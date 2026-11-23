@@ -386,7 +386,7 @@ def _job():
         calls.clear()
         history_calls.clear()
         assert run() == 0 and calls == [] and history_calls == []  # kun davomida — xabar ham, Trello tarixi ham yo'q
-        assert asyncio.run(job.run_daily(Bot(), Trello)) == 1 and calls == [("send", 500)], calls  # ertalab 08:00
+        assert asyncio.run(job.run_daily(Bot(), Trello)) == 1 and calls == [("send", 500)], calls  # ertalab 09:00
         calls.clear()
         # birinchi xabar hali ketmagan + nom o'zgartirish rad etildi: yuborilgani saqlanadi,
         # keyingi yurishda QAYTA yuborilmaydi (oldin har 5 daqiqada qayta ketardi)
@@ -464,7 +464,7 @@ def _job():
         dms.clear()
         calls.clear()
 
-        # 08:00 da Trello javob bermadi — 6 marta urinadi, keyin nazoratchiga "hisobot ketmadi"
+        # 09:00 da Trello javob bermadi — 6 marta urinadi, keyin nazoratchiga "hisobot ketmadi"
         trello_down = True
         assert asyncio.run(job.run_daily(Bot(), Trello)) == 0 and calls == []
         assert len(dms) == 1 and "UMUMAN ketmadi" in dms[0][1], dms
