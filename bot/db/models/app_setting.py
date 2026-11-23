@@ -54,6 +54,9 @@ class AppSetting(TimestampedBase):
     # Haftalik — yakshanba, oylik — har oyning 1-sanasi, ikkalasi ham shu
     # bitta soatda (kun tanlovi TZda so'ralmagan, sozlanuvchan qilinmagan).
     report_time: Mapped[str] = mapped_column(String(5), nullable=False)
+    # Nazorat Trello: zakaz topiclariga ertalabki rasm vaqti (HH:MM, Toshkent) —
+    # `jobs/order_topics_job.schedule_daily()`; Mini App Sozlamalaridan (2026-11-23).
+    order_topics_time: Mapped[str] = mapped_column(String(5), nullable=False, server_default="09:00")
     # 13.3-band: "uzoq vaqt aloqaga chiqilmagan" mijoz uchun necha kun
     # (foydalanuvchi bilan tasdiqlangan standart: 7). /settings orqali o'zgartiriladi.
     lead_follow_up_threshold_days: Mapped[int] = mapped_column(Integer, nullable=False)

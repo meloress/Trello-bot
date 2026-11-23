@@ -29,6 +29,7 @@ class AppSettingsSnapshot:
     plus_ball_per_day: int
     plus_ball_max_days: int
     report_time: str
+    order_topics_time: str
     lead_follow_up_threshold_days: int
     sales_board_lists: dict
     daily_quota_points_per_worker: int
@@ -94,6 +95,7 @@ async def _load_from_db() -> AppSettingsSnapshot:
         plus_ball_per_day=row.plus_ball_per_day,
         plus_ball_max_days=row.plus_ball_max_days,
         report_time=row.report_time,
+        order_topics_time=row.order_topics_time,
         lead_follow_up_threshold_days=row.lead_follow_up_threshold_days,
         sales_board_lists=row.sales_board_lists,
         daily_quota_points_per_worker=row.daily_quota_points_per_worker,
@@ -125,8 +127,9 @@ async def update_setting(**fields: object) -> AppSettingsSnapshot:
     Masalan: `await update_setting(brigade_share_ratio=0.4)`."""
     if "reminder_schedule" in fields:
         validate_reminder_schedule(fields["reminder_schedule"])
-    if "report_time" in fields:
-        validate_time_str(fields["report_time"])
+    for key in ("report_time", "order_topics_time"):
+        if key in fields:
+            validate_time_str(fields[key])
 
     async with async_session() as session:
         repo = AppSettingRepository(session)

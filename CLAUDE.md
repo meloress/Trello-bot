@@ -126,7 +126,7 @@ Replaces a person who hand-posted an order status template to a group.
 `jobs/order_topics_job.py` (5-min interval) opens one forum topic per new
 order in a supergroup (Topics on, bot admin with "Manage topics") named
 after the Trello card, and posts `services/order_template.py`'s template
-there **every morning at 09:00** (was 08:00 until 2026-11-23, user) (`run_daily`, cron; 3.5 s between sends for
+there **every morning at `app_settings.order_topics_time`** (default 09:00, editable in the Mini App's Sozlamalar since 2026-11-23 — `schedule_daily()` re-registers the cron; was hardcoded 08:00) (`run_daily`, cron; 3.5 s between sends for
 Telegram's group limit) — plus the first message when the topic opens and the
 final state when the order reaches the sklad (then the topic is closed); no
 mid-day sends on stage change (user, 2026-11-05). Renames the topic with the card. State in `order_topics` (migration `d9e4f2a7b1c3`).

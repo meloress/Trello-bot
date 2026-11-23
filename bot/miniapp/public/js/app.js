@@ -1532,7 +1532,7 @@ async function screenCapacityStats(departmentId, departmentName) {
 
 const SETTING_FIELDS = [
   "default_penalty_multiplier", "brigade_share_ratio", "balls_per_day_shift",
-  "plus_ball_per_day", "plus_ball_max_days", "report_time",
+  "plus_ball_per_day", "plus_ball_max_days", "report_time", "order_topics_time",
   "lead_follow_up_threshold_days", "daily_quota_points_per_worker",
   // SPEC.md §5.4
   "deadline_warning_hours", "overdue_repeat_hours",

@@ -23,7 +23,7 @@ from db.repositories import (
     TaskRepository,
 )
 from config import settings
-from jobs import reminder_job, report_job
+from jobs import order_topics_job, reminder_job, report_job
 from miniapp.util import current_module, employee_in_module, err, in_module, is_trello_owned_order, module_scope
 from services import (
     claim_service,
@@ -1109,7 +1109,7 @@ def _parse_setting_value(field: str, value: object) -> object:
             raise ValueError
     elif field == "penalize_all_assignees":  # SPEC.md §7
         value = bool(value)
-    elif field == "report_time":
+    elif field in ("report_time", "order_topics_time"):
         settings_service.validate_time_str(value)
     else:
         raise ValueError(f"noma'lum sozlama: {field}")
@@ -1144,6 +1144,8 @@ async def update_settings(request: web.Request) -> web.Response:
     updated = await settings_service.update_setting(**fields)
     if "report_time" in fields:
         report_job.schedule_all(request.config_dict["bot"], updated.report_time)
+    if "order_topics_time" in fields:
+        order_topics_job.schedule_daily(request.config_dict["bot"], updated.order_topics_time)
 
     return web.json_response(
         {field: _serialize_setting(getattr(updated, field)) for field in _SETTING_FIELDS}

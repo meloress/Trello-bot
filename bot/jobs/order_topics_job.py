@@ -30,6 +30,7 @@ from aiogram.types import BufferedInputFile
 
 from config import settings
 from core.database import async_session
+from core.scheduler import scheduler
 from db.repositories import EmployeeRepository, OrderTopicRepository, PenaltyRuleRepository
 from jobs import nazorat_trello_watch_job
 from services import order_card_image, order_template, penalty_service
@@ -278,6 +279,17 @@ async def _update(bot: Bot, chat_id: int, trello, cards_by_id: dict, list_names:
                 except Exception:
                     logger.exception("order_topics: topic %s yopilmadi", thread_id)
     return sent
+
+
+def schedule_daily(bot: Bot, time_str: str) -> None:
+    """Ertalabki rasm vaqti — `app_settings.order_topics_time` (Mini App Sozlamalari,
+    2026-11-23). Sozlama o'zgarsa admin endpointi shuni qayta chaqiradi."""
+    hour, minute = (int(part) for part in time_str.split(":"))
+    scheduler.add_job(
+        run_daily, "cron", hour=hour, minute=minute, args=[bot], id="order_topics_daily_job",
+        replace_existing=True,
+        misfire_grace_time=3600,  # shu vaqtda bot band bo'lsa ham ertalabki hisobot o'tkazib yuborilmasin
+    )
 
 
 async def run_daily(bot: Bot, trello_factory=_trello) -> int:

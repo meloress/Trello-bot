@@ -81,10 +81,7 @@ async def main() -> None:
     scheduler.add_job(
         order_topics_job.run, "interval", minutes=5, args=[bot], id="order_topics_job"
     )
-    scheduler.add_job(
-        order_topics_job.run_daily, "cron", hour=9, minute=0, args=[bot], id="order_topics_daily_job",
-        misfire_grace_time=3600,  # 09:00 da bot band bo'lsa ham ertalabki hisobot o'tkazib yuborilmasin
-    )
+    order_topics_job.schedule_daily(bot, app_settings.order_topics_time)
 
     scheduler.start()
     try:
