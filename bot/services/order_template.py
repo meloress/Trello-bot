@@ -194,6 +194,27 @@ def plan_topics(new_cards, numbers_threads: dict, house_threads: dict):
     return join, create
 
 
+# bir mijoz (ism+manzil) 48 soat ichida yana zakaz bersa — "bitta zakazmi yoki ikkitami?" so'raladi
+# (boshliq, 2026-11-24: 2680/2681 alohida topic bo'lib ketgan; polniy uyning 3 daqiqasi kam)
+TWIN_WINDOW = timedelta(hours=48)
+
+
+def twin_thread(name: str, created: datetime, others) -> tuple[int, str] | None:
+    """Yangi zakaz bilan bir mijozning BOSHQA raqamli, undan oldin (48 soat ichida)
+    ochilgan zakazi turgan topic va o'sha karta nomi. others: [(thread_id, karta nomi, ochilgan vaqti)]."""
+    header = parse_header(name)
+    if header is None:
+        return None
+    best = None
+    for thread_id, other_name, other_created in others:
+        other = parse_header(other_name)
+        if (other and other[1] == header[1] and other[0] != header[0]
+                and timedelta(0) < created - other_created <= TWIN_WINDOW
+                and (best is None or other_created < best[1])):
+            best = (thread_id, other_created, other_name)
+    return (best[0], best[2]) if best else None
+
+
 _DATE_LIST = re.compile(r"^\s*\d{1,2}\s+[a-z']+\s*$", re.I)
 
 

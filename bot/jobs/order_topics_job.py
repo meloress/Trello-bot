@@ -26,7 +26,7 @@ from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.types import BufferedInputFile
+from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup
 
 from config import settings
 from core.database import async_session
@@ -167,6 +167,10 @@ async def _open_new_topics(bot: Bot, chat_id: int, all_cards: list, rows: list, 
             await bot.reopen_forum_topic(chat_id, thread_id)
         except Exception:
             logger.exception("order_topics: topic %s qayta ochilmadi", thread_id)
+    cards_by_id = {c["id"]: c for c in all_cards}
+    # bir mijozning 48 soat ichidagi boshqa zakazi qaysi topicda — "bitta zakazmi?" savoli uchun
+    others = [(r.thread_id, cards_by_id[r.card_id]["name"], order_template.card_created(r.card_id))
+              for r in rows if r.finished_at is None and r.card_id in cards_by_id]
     for title, house_key, card_ids in create:
         # har topic darhol saqlanadi — keyingisi xato bersa ham, ochilgani qayta ochilmaydi
         topic = await bot.create_forum_topic(chat_id, title)
@@ -180,6 +184,80 @@ async def _open_new_topics(bot: Bot, chat_id: int, all_cards: list, rows: list, 
                 )
             await session.commit()
         logger.info("order_topics: topic ochildi %r (%d karta)", title, len(card_ids))
+        if house_key is None:
+            main = min(card_ids, key=order_template.card_created)
+            created = order_template.card_created(main)
+            twin = order_template.twin_thread(names[main], created, others)
+            others.append((topic.message_thread_id, names[main], created))
+            if twin:
+                try:
+                    await _ask_twin(bot, topic.message_thread_id, names[main], *twin)
+                except Exception:
+                    logger.exception("order_topics: 'bitta zakazmi' savoli yuborilmadi")
+
+
+TWIN_ROLES = (Role.ADMIN, Role.OBSERVER)
+
+
+async def _twin_recipients() -> list[int]:
+    async with async_session() as session:
+        repo = EmployeeRepository(session)
+        return sorted({e.telegram_id for role in TWIN_ROLES for e in await repo.list_by_role(role) if e.telegram_id})
+
+
+def twin_keyboard(new_thread: int, old_thread: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="1️⃣ Bitta zakaz — birlashtir", callback_data=f"twin:1:{new_thread}:{old_thread}"),
+        InlineKeyboardButton(text="2️⃣ Ikkita alohida", callback_data=f"twin:0:{new_thread}:{old_thread}"),
+    ]])
+
+
+async def _ask_twin(bot: Bot, new_thread: int, new_name: str, old_thread: int, old_name: str) -> None:
+    """Admin va kuzatuvchilarga: bir mijozdan 48 soat ichida ikkinchi zakaz — bittami, ikkitami?"""
+    text = ("❓ Bir mijozdan 48 soat ichida 2 ta zakaz keldi:\n"
+            f"• {old_name}\n• {new_name}\n\n"
+            "Bu bitta zakazmi yoki ikkita alohida zakazmi?\n"
+            "«Bitta» bosilsa — ikkinchisi birinchisining topiciga o'tadi.")
+    for chat in await _twin_recipients():
+        try:
+            await bot.send_message(chat, text[:4096], reply_markup=twin_keyboard(new_thread, old_thread))
+        except Exception:
+            logger.exception("order_topics: %s ga 'bitta zakazmi' savoli ketmadi", chat)
+
+
+async def merge_topics(bot: Bot, new_thread: int, old_thread: int) -> bool:
+    """Ikkinchi zakaz kartalari birinchisining topiciga o'tadi; ikkinchi topic o'chiriladi.
+    False — allaqachon birlashtirilgan (yoki kartalar yo'q)."""
+    chat_id = settings.order_group_chat_id
+    async with _lock:  # 5 daqiqalik yurish bilan bir vaqtda emas
+        async with async_session() as session:
+            repo = OrderTopicRepository(session)
+            all_rows = await repo.list_all()
+            moving = [r for r in all_rows if r.thread_id == new_thread]
+            if not moving or new_thread == old_thread:
+                return False
+            old_closed = all(r.finished_at is not None for r in all_rows if r.thread_id == old_thread)
+            for row in moving:
+                # signature=None — keyingi yurishda shu zakaz rasmi eski topicga darhol yuboriladi
+                await repo.update(row, thread_id=old_thread, topic_name=None, signature=None)
+            await session.commit()
+        if old_closed:
+            try:
+                await bot.reopen_forum_topic(chat_id, old_thread)
+            except Exception:
+                logger.exception("order_topics: topic %s qayta ochilmadi", old_thread)
+        try:
+            await bot.delete_forum_topic(chat_id, new_thread)
+        except Exception:  # botda xabar o'chirish huquqi bo'lmasa — yozib, yopib qo'yamiz
+            logger.warning("order_topics: topic %s o'chirilmadi — yopiladi", new_thread)
+            try:
+                await bot.send_message(chat_id, "➡️ Bu zakaz mijozning boshqa zakazi topiciga birlashtirildi.",
+                                       message_thread_id=new_thread)
+                await bot.close_forum_topic(chat_id, new_thread)
+            except Exception:
+                logger.exception("order_topics: topic %s yopilmadi", new_thread)
+    logger.info("order_topics: topic %s -> %s birlashtirildi", new_thread, old_thread)
+    return True
 
 
 async def _update(bot: Bot, chat_id: int, trello, cards_by_id: dict, list_names: dict, now: datetime,

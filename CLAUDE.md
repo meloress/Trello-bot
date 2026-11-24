@@ -163,6 +163,17 @@ Rules are the user's, verified against the real board's history:
   words after the number) arriving together → one topic "… — POLNIY UY"; the
   job waits `SETTLE` (3 min) while any new card is younger, since a house's
   cards are created seconds apart. A later order of an open house joins it.
+- **same client, 2 orders within 48 h (2026-11-24, boss: 2680/2681)** — when a
+  new single-order topic opens and an open topic holds an order of the same
+  "Ism aka Manzil" with another number created up to `TWIN_WINDOW` (48 h)
+  earlier (`order_template.twin_thread()`), every ADMIN + OBSERVER gets a DM
+  "bitta zakazmi yoki ikkitami?" with inline buttons (`twin:1|0:new:old`,
+  `handlers/common/order_merge.py` — the bot's only callback handler, ADMIN/
+  OBSERVER only). «Bitta» → `order_topics_job.merge_topics()` (under `_lock`)
+  moves the new topic's rows to the old thread (`signature=None` so its image
+  is posted there on the next run, `topic_name=None`), reopens the old topic if
+  closed, and deletes the new one (needs "delete messages"; else posts a note
+  and closes it). Asked once, at topic creation — no state is stored.
 - **plan (re-cut 2026-11-06, user)**: KONTROL is its own stage, 1 day from the
   card's arrival in "KANTROLNIY AVAZ AKA" (days before the card existed are not
   Avaz's); KROY = jiyan 2 + kroychi 2 days from the card's move into one of

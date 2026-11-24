@@ -475,7 +475,103 @@ def _job():
          job.DAILY_RETRY_SECONDS, job._penalty) = saved
 
 
+def _twin():
+    """Bir mijozdan 48 soat ichida 2-zakaz: «bitta zakazmi?» savoli va birlashtirish (2026-11-24)."""
+    import asyncio
+    from types import SimpleNamespace
+    from jobs import order_topics_job as job
+
+    a = "2680 Ali aka Chilonzor kuxnya ( Jasur ) 03.11 - 03.12"
+    b = "2681 Ali aka Chilonzor shkaf ( Jasur ) 04.11 - 04.12"
+    others = [(10, a, t(3, 11)), (11, "2690 Vali aka Sergili kuxnya ( Jasur ) 03.11 - 03.12", t(3, 11))]
+    assert ot.twin_thread(b, t(4, 11), others) == (10, a)
+    assert ot.twin_thread(b, t(5, 11, 11), others) is None            # 49 soat — boshqa zakaz
+    assert ot.twin_thread(a, t(4, 11), [(10, a, t(3, 11))]) is None    # o'sha raqam (FASAD) — so'ralmaydi
+    assert ot.twin_thread(b, t(2, 11), others) is None                 # avvalgisi keyin ochilgan bo'lsa emas
+    assert ot.twin_thread("FASAD qopqoq", t(4, 11), others) is None
+    # eng birinchisi tanlanadi
+    assert ot.twin_thread(b, t(4, 11), [(12, "2679 Ali aka Chilonzor dahliz ( Jasur )", t(3, 11, 8)), *others]) == (12, "2679 Ali aka Chilonzor dahliz ( Jasur )")
+
+    now = datetime.now(timezone.utc)
+    rows, calls, threads = [], [], iter([601, 602])
+
+    class Bot:
+        async def create_forum_topic(self, chat_id, name):
+            return SimpleNamespace(message_thread_id=next(threads))
+
+        async def send_message(self, chat_id, text, message_thread_id=None, reply_markup=None):
+            calls.append(("send", chat_id, message_thread_id, text, reply_markup))
+
+        async def delete_forum_topic(self, chat_id, thread_id):
+            calls.append(("delete", thread_id))
+
+        async def reopen_forum_topic(self, chat_id, thread_id):
+            calls.append(("reopen", thread_id))
+
+    class Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def commit(self):
+            pass
+
+    class Repo:
+        def __init__(self, _s):
+            pass
+
+        async def list_all(self):
+            return list(rows)
+
+        async def create(self, **kw):
+            rows.append(SimpleNamespace(**{"id": len(rows) + 1, "signature": None, "finished_at": None,
+                                           "house_key": None, "topic_name": None, **kw}))
+
+        async def update(self, obj, **kw):
+            for k, v in kw.items():
+                setattr(obj, k, v)
+
+    async def recipients():
+        return [7, 8]
+
+    first = {"id": cid(now - timedelta(hours=20)), "name": a, "idList": "L1"}
+    second = {"id": cid(now - timedelta(minutes=10), 1), "name": b, "idList": "L1"}
+    saved = (job.async_session, job.OrderTopicRepository, job._twin_recipients, job.settings.order_topics_since,
+             job.settings.order_group_chat_id)
+    job.async_session, job.OrderTopicRepository, job._twin_recipients = Session, Repo, recipients
+    job.settings.order_topics_since, job.settings.order_group_chat_id = now - timedelta(days=2), -100
+    try:
+        asyncio.run(job._open_new_topics(Bot(), -100, [first], rows, now, {}))
+        assert calls == [] and [r.thread_id for r in rows] == [601]   # birinchi zakaz — savol yo'q
+        asyncio.run(job._open_new_topics(Bot(), -100, [first, second], rows, now, {}))
+        asks = [c for c in calls if c[0] == "send"]
+        assert [c[1] for c in asks] == [7, 8] and all(c[2] is None for c in asks), calls  # shaxsiy xabar
+        assert "2680" in asks[0][3] and "2681" in asks[0][3]
+        buttons = [btn.callback_data for btn in asks[0][4].inline_keyboard[0]]
+        assert buttons == ["twin:1:602:601", "twin:0:602:601"], buttons
+        calls.clear()
+        rows[0].signature = "x"
+        rows[1].signature, rows[1].topic_name = "y", b
+        assert asyncio.run(job.merge_topics(Bot(), 602, 601)) is True
+        assert [r.thread_id for r in rows] == [601, 601] and rows[1].signature is None and rows[1].topic_name is None
+        assert rows[0].signature == "x" and calls == [("delete", 602)], calls
+        assert asyncio.run(job.merge_topics(Bot(), 602, 601)) is False  # ikkinchi bosish — hech narsa
+        # birinchi zakaz tugab, topic yopilgan bo'lsa — qayta ochiladi
+        calls.clear()
+        rows.append(SimpleNamespace(id=3, card_id="c3", order_number="2682", thread_id=603, signature="z",
+                                    finished_at=None, house_key=None, topic_name=None))
+        rows[0].finished_at = rows[1].finished_at = now
+        assert asyncio.run(job.merge_topics(Bot(), 603, 601)) is True
+        assert calls == [("reopen", 601), ("delete", 603)], calls
+    finally:
+        (job.async_session, job.OrderTopicRepository, job._twin_recipients, job.settings.order_topics_since,
+         job.settings.order_group_chat_id) = saved
+
+
 if __name__ == "__main__":
+    _twin()
     _kinds()
     _new_orders()
     _issues()

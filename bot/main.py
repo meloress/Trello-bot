@@ -7,6 +7,7 @@ from config import settings
 from core.logger import setup_logging
 from core.scheduler import scheduler
 from handlers.common.client_link import router as common_client_link_router
+from handlers.common.order_merge import router as common_order_merge_router
 from handlers.common.start import router as common_start_router
 from jobs import (
     daily_sync_job,
@@ -43,6 +44,7 @@ async def main() -> None:
     # `common_start_router` birinchi — aynan shu sodir bo'lardi,
     # `_test_router_order.py` repro orqali tasdiqlangan).
     dp.include_router(common_client_link_router)
+    dp.include_router(common_order_merge_router)  # faqat callback_query — xabar catch-all'iga tegmaydi
     dp.include_router(common_start_router)
 
     # Mini App bo'lim tugmasi: faqat MINIAPP_BASE_URL sozlangan bo'lsa (masalan
