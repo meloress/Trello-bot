@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from services.stats_service import DailyRow, format_daily_report, short_name
+from services.stats_service import DailyRow, checklist_report_day, format_daily_report, short_name
 
 assert short_name("Jasur") == "Jasur"
 assert short_name("Habibulla Yusupkho'jayev") == "Habibulla Y."
@@ -27,4 +27,9 @@ assert pre[2].split() == ["Habibulla", "Y.", "1", "2", "0", "3/3", "0"], pre[2] 
 assert pre[3].split() == ["Vali", "0", "0", "0", "—", "—"], pre[3]
 assert pre[4].split() == ["Ali", "&lt;a&gt;", "2", "-1,5", "1", "1/3", "-0,7"], pre[4]  # HTML escape
 assert "to'liq javob 1/2, jarima -0,7" in t and "14.11.2026" in t
+# Checklist ustuni: yakshanba hisoboti shanbaning checklistini ko'rsatadi (2026-11-28)
+from datetime import date as _d  # noqa: E402
+assert checklist_report_day(_d(2026, 11, 29)) == _d(2026, 11, 28)
+assert checklist_report_day(_d(2026, 11, 28)) == _d(2026, 11, 28)
+assert checklist_report_day(_d(2026, 11, 30)) == _d(2026, 11, 30)
 print("test_daily_report: OK")

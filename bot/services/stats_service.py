@@ -664,6 +664,13 @@ class DailyRow:
         return round(self.trello_month + self.cl_month, 2)
 
 
+def checklist_report_day(day):
+    """Hisobotdagi checklist ustuni qaysi kunniki: checklist botida shanbaniki
+    yakshanba kechqurun so'raladi (2026-11-28, boshliq) — yakshanba hisoboti
+    shanbanikini ko'rsatadi, shanba hisobotida checklist ustuni bo'sh."""
+    return day - timedelta(days=1) if day.weekday() == 6 else day
+
+
 async def get_daily_report(now: datetime | None = None):
     """(Toshkent kuni, qatorlar): hisobotdagi faol xodimlar + Trello'ga bog'lanmagan
     checklist qatnashchilari. Oy — `penalty_service.month_bounds` (Ball ekrani bilan bir xil)."""
@@ -696,7 +703,7 @@ async def get_daily_report(now: datetime | None = None):
             from checklist_employees ce
             left join checklist_days d on d.employee_id = ce.id and d.day = :d
             where ce.is_active and exists (select 1 from checklist_days y where y.employee_id = ce.id and y.day >= :mf)"""),
-            {"d": day, "mf": month_first})).all()
+            {"d": checklist_report_day(day), "mf": month_first})).all()
     done = {s.employee_id: s.completed_tasks for s in await _compute_stats(employees, day_since, day_until)}
     linked = {r[1]: r for r in cl_rows if r[1] is not None}
 
